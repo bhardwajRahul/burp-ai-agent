@@ -18,18 +18,23 @@ class OllamaBackend : AiBackend {
     override val id: String = "ollama"
     override val displayName: String = "Ollama (local)"
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(java.time.Duration.ofSeconds(10))
-        .writeTimeout(java.time.Duration.ofSeconds(30))
-        .readTimeout(java.time.Duration.ofSeconds(120))
-        .callTimeout(java.time.Duration.ofSeconds(120))
-        .proxy(Proxy.NO_PROXY)
-        .build()
     private val mapper = ObjectMapper().registerKotlinModule()
+
+    private fun buildClient(timeoutSeconds: Long): OkHttpClient {
+        return OkHttpClient.Builder()
+            .connectTimeout(java.time.Duration.ofSeconds(10))
+            .writeTimeout(java.time.Duration.ofSeconds(30))
+            .readTimeout(java.time.Duration.ofSeconds(timeoutSeconds))
+            .callTimeout(java.time.Duration.ofSeconds(timeoutSeconds))
+            .proxy(Proxy.NO_PROXY)
+            .build()
+    }
 
     override fun launch(config: BackendLaunchConfig): AgentConnection {
         val baseUrl = config.baseUrl?.trimEnd('/') ?: "http://127.0.0.1:11434"
         val model = config.model?.ifBlank { "llama3.1" } ?: "llama3.1"
+        val timeoutSeconds = (config.requestTimeoutSeconds ?: 120L).coerceIn(30L, 3600L)
+        val client = buildClient(timeoutSeconds)
         return OllamaConnection(
             client = client,
             mapper = mapper,

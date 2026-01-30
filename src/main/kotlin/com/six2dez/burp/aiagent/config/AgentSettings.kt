@@ -17,6 +17,7 @@ data class AgentSettings(
     val ollamaAutoStart: Boolean,
     val ollamaApiKey: String,
     val ollamaHeaders: String,
+    val ollamaTimeoutSeconds: Int,
     val lmStudioUrl: String,
     val lmStudioModel: String,
     val lmStudioTimeoutSeconds: Int,
@@ -83,6 +84,8 @@ class AgentSettingsRepository(api: MontoyaApi) {
             ollamaAutoStart = prefs.getBoolean(KEY_OLLAMA_AUTOSTART) ?: true,
             ollamaApiKey = prefs.getString(KEY_OLLAMA_API_KEY).orEmpty().trim(),
             ollamaHeaders = prefs.getString(KEY_OLLAMA_HEADERS).orEmpty(),
+            ollamaTimeoutSeconds = (prefs.getInteger(KEY_OLLAMA_TIMEOUT) ?: defaultOllamaTimeoutSeconds())
+                .coerceIn(30, 3600),
             lmStudioUrl = (prefs.getString(KEY_LMSTUDIO_URL) ?: "http://127.0.0.1:1234").trim(),
             lmStudioModel = prefs.getString(KEY_LMSTUDIO_MODEL).orEmpty().trim().ifBlank { defaultLmStudioModel() },
             lmStudioTimeoutSeconds = (prefs.getInteger(KEY_LMSTUDIO_TIMEOUT) ?: defaultLmStudioTimeoutSeconds())
@@ -149,6 +152,7 @@ class AgentSettingsRepository(api: MontoyaApi) {
             ollamaAutoStart = true,
             ollamaApiKey = "",
             ollamaHeaders = "",
+            ollamaTimeoutSeconds = defaultOllamaTimeoutSeconds(),
             lmStudioUrl = "http://127.0.0.1:1234",
             lmStudioModel = defaultLmStudioModel(),
             lmStudioTimeoutSeconds = defaultLmStudioTimeoutSeconds(),
@@ -208,6 +212,7 @@ class AgentSettingsRepository(api: MontoyaApi) {
         prefs.setBoolean(KEY_OLLAMA_AUTOSTART, settings.ollamaAutoStart)
         prefs.setString(KEY_OLLAMA_API_KEY, settings.ollamaApiKey)
         prefs.setString(KEY_OLLAMA_HEADERS, settings.ollamaHeaders)
+        prefs.setInteger(KEY_OLLAMA_TIMEOUT, settings.ollamaTimeoutSeconds.coerceIn(30, 3600))
         prefs.setString(KEY_LMSTUDIO_URL, settings.lmStudioUrl)
         prefs.setString(KEY_LMSTUDIO_MODEL, settings.lmStudioModel)
         prefs.setInteger(KEY_LMSTUDIO_TIMEOUT, settings.lmStudioTimeoutSeconds.coerceIn(30, 3600))
@@ -266,6 +271,7 @@ class AgentSettingsRepository(api: MontoyaApi) {
         private const val KEY_OLLAMA_AUTOSTART = "ollama.autostart"
         private const val KEY_OLLAMA_API_KEY = "ollama.apiKey"
         private const val KEY_OLLAMA_HEADERS = "ollama.headers"
+        private const val KEY_OLLAMA_TIMEOUT = "ollama.timeoutSeconds"
         private const val KEY_LMSTUDIO_URL = "lmstudio.url"
         private const val KEY_LMSTUDIO_MODEL = "lmstudio.model"
         private const val KEY_LMSTUDIO_TIMEOUT = "lmstudio.timeoutSeconds"
@@ -353,6 +359,10 @@ class AgentSettingsRepository(api: MontoyaApi) {
 
         private fun defaultOllamaServeCmd(): String {
             return "ollama serve"
+        }
+
+        private fun defaultOllamaTimeoutSeconds(): Int {
+            return 120
         }
 
         private fun defaultLmStudioModel(): String {

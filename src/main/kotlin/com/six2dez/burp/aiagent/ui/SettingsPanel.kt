@@ -60,6 +60,7 @@ class SettingsPanel(
             ollamaAutoStart = settings.ollamaAutoStart,
             ollamaApiKey = settings.ollamaApiKey,
             ollamaHeaders = settings.ollamaHeaders,
+            ollamaTimeoutSeconds = settings.ollamaTimeoutSeconds.toString(),
             lmStudioUrl = settings.lmStudioUrl,
             lmStudioModel = settings.lmStudioModel,
             lmStudioTimeoutSeconds = settings.lmStudioTimeoutSeconds.toString(),
@@ -606,6 +607,10 @@ class SettingsPanel(
             unsafeEnabled = mcpUnsafe.isSelected
         )
         val backendState = backendConfigPanel.currentBackendSettings()
+        val ollamaTimeoutSeconds = parseTimeoutSeconds(
+            backendState.ollamaTimeoutSeconds,
+            settings.ollamaTimeoutSeconds
+        )
         val lmStudioTimeoutSeconds = parseTimeoutSeconds(
             backendState.lmStudioTimeoutSeconds,
             settings.lmStudioTimeoutSeconds
@@ -627,6 +632,7 @@ class SettingsPanel(
             ollamaAutoStart = backendState.ollamaAutoStart,
             ollamaApiKey = backendState.ollamaApiKey,
             ollamaHeaders = backendState.ollamaHeaders,
+            ollamaTimeoutSeconds = ollamaTimeoutSeconds,
             lmStudioUrl = backendState.lmStudioUrl,
             lmStudioModel = backendState.lmStudioModel,
             lmStudioTimeoutSeconds = lmStudioTimeoutSeconds,
@@ -688,6 +694,7 @@ class SettingsPanel(
                 ollamaAutoStart = updated.ollamaAutoStart,
                 ollamaApiKey = updated.ollamaApiKey,
                 ollamaHeaders = updated.ollamaHeaders,
+                ollamaTimeoutSeconds = updated.ollamaTimeoutSeconds.toString(),
                 lmStudioUrl = updated.lmStudioUrl,
                 lmStudioModel = updated.lmStudioModel,
                 lmStudioTimeoutSeconds = updated.lmStudioTimeoutSeconds.toString(),

@@ -452,12 +452,15 @@ class AgentSupervisor(
                     apiKey,
                     HeaderParser.parse(rawHeaders)
                 )
+                val timeoutSeconds = settings?.ollamaTimeoutSeconds
+                    ?: (prefs.getInteger("ollama.timeoutSeconds") ?: 120)
                 BackendLaunchConfig(
                     backendId = backendId,
                     displayName = "Ollama",
                     baseUrl = url,
                     model = model,
                     headers = headers,
+                    requestTimeoutSeconds = timeoutSeconds.toLong(),
                     embeddedMode = embeddedMode,
                     sessionId = sessionId,
                     determinismMode = determinism,

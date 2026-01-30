@@ -30,6 +30,7 @@ data class BackendConfigState(
     val ollamaAutoStart: Boolean = false,
     val ollamaApiKey: String = "",
     val ollamaHeaders: String = "",
+    val ollamaTimeoutSeconds: String = "",
     val lmStudioUrl: String = "",
     val lmStudioModel: String = "",
     val lmStudioTimeoutSeconds: String = "",
@@ -62,6 +63,7 @@ class BackendConfigPanel(
     private val ollamaAutoStart = ToggleSwitch(initialState.ollamaAutoStart)
     private val ollamaApiKey = JPasswordField(initialState.ollamaApiKey)
     private val ollamaHeaders = JTextArea(initialState.ollamaHeaders, 3, 20)
+    private val ollamaTimeout = JTextField(initialState.ollamaTimeoutSeconds)
     private val lmStudioUrl = JTextField(initialState.lmStudioUrl)
     private val lmStudioModel = JTextField(initialState.lmStudioModel)
     private val lmStudioTimeout = JTextField(initialState.lmStudioTimeoutSeconds)
@@ -89,6 +91,7 @@ class BackendConfigPanel(
         applyFieldStyle(ollamaServeCmd)
         applyFieldStyle(ollamaApiKey)
         applyAreaStyle(ollamaHeaders)
+        applyFieldStyle(ollamaTimeout)
         applyFieldStyle(lmStudioUrl)
         applyFieldStyle(lmStudioModel)
         applyFieldStyle(lmStudioTimeout)
@@ -112,6 +115,7 @@ class BackendConfigPanel(
         ollamaAutoStart.toolTipText = "Automatically start the Ollama server when needed."
         ollamaApiKey.toolTipText = "API key for Ollama-compatible servers (Authorization: Bearer ...)."
         ollamaHeaders.toolTipText = "Extra headers (one per line: Header: value)."
+        ollamaTimeout.toolTipText = "Request timeout in seconds (30-3600)."
         lmStudioUrl.toolTipText = "Base URL for LM Studio OpenAI-compatible endpoint."
         lmStudioModel.toolTipText = "Model name sent to LM Studio."
         lmStudioTimeout.toolTipText = "Request timeout in seconds."
@@ -153,6 +157,7 @@ class BackendConfigPanel(
             ollamaAutoStart = ollamaAutoStart.isSelected,
             ollamaApiKey = String(ollamaApiKey.password).trim(),
             ollamaHeaders = ollamaHeaders.text.trim(),
+            ollamaTimeoutSeconds = ollamaTimeout.text.trim(),
             lmStudioUrl = lmStudioUrl.text.trim(),
             lmStudioModel = lmStudioModel.text.trim(),
             lmStudioTimeoutSeconds = lmStudioTimeout.text.trim(),
@@ -180,6 +185,7 @@ class BackendConfigPanel(
         ollamaAutoStart.isSelected = state.ollamaAutoStart
         ollamaApiKey.text = state.ollamaApiKey
         ollamaHeaders.text = state.ollamaHeaders
+        ollamaTimeout.text = state.ollamaTimeoutSeconds
         lmStudioUrl.text = state.lmStudioUrl
         lmStudioModel.text = state.lmStudioModel
         lmStudioTimeout.text = state.lmStudioTimeoutSeconds
@@ -229,6 +235,7 @@ class BackendConfigPanel(
         addRow(panel, row++, "Ollama base URL", ollamaUrl)
         addRow(panel, row++, "Ollama API key (Bearer)", ollamaApiKey)
         addRow(panel, row++, "Ollama extra headers", JScrollPane(ollamaHeaders))
+        addRow(panel, row++, "Ollama timeout (seconds)", ollamaTimeout)
         addRow(panel, row++, "Ollama serve command", ollamaServeCmd)
         addToggleRow(panel, row, "Auto-start Ollama server", ollamaAutoStart)
         return panel
