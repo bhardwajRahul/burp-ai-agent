@@ -58,7 +58,7 @@ fun Server.registerTools(api: MontoyaApi, context: McpToolContext) {
         toolName = "http1_request"
     ) {
         api.logging().logToOutput("MCP HTTP/1.1 request: ${context.resolveHost(targetHostname)}:$targetPort")
-        val fixedContent = content.replace("\r", "").replace("\n", "\r\n")
+        val fixedContent = normalizeHttpRequest(content)
         val request = HttpRequest.httpRequest(toMontoyaService(context::resolveHost), fixedContent)
         val response = api.http().sendRequest(request)
         response?.toString() ?: "<no response>"
@@ -845,6 +845,45 @@ fun Server.registerTools(api: MontoyaApi, context: McpToolContext) {
     }
 }
 
+/**
+ * Normalizes HTTP request line endings and updates Content-Length header.
+ * 
+ * When MCP clients send requests, they may use LF-only line endings which get
+ * converted to CRLF. This changes the body byte length, but the original
+ * Content-Length header value remains unchanged, causing the server to receive
+ * a truncated body. This function recalculates Content-Length after normalization.
+ */
+internal fun normalizeHttpRequest(content: String): String {
+    // Normalize line endings to CRLF
+    val normalized = content.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")
+    
+    // Find the header/body separator
+    val separatorIndex = normalized.indexOf("\r\n\r\n")
+    if (separatorIndex < 0) return normalized
+    
+    val headerSection = normalized.substring(0, separatorIndex)
+    val body = normalized.substring(separatorIndex + 4)
+    
+    // If no body, no need to update Content-Length
+    if (body.isEmpty()) return normalized
+    
+    // Calculate actual body length in bytes
+    val bodyBytes = body.toByteArray(Charsets.UTF_8)
+    val bodyLength = bodyBytes.size
+    
+    // Update or add Content-Length header
+    val lines = headerSection.split("\r\n").toMutableList()
+    val contentLengthIndex = lines.indexOfFirst { it.startsWith("Content-Length:", ignoreCase = true) }
+    
+    if (contentLengthIndex >= 0) {
+        lines[contentLengthIndex] = "Content-Length: $bodyLength"
+    }
+    // If no Content-Length and body exists, the server may not need it (e.g., chunked encoding)
+    // so we only update existing headers, not add new ones
+    
+    return lines.joinToString("\r\n") + "\r\n\r\n" + body
+}
+
 private fun truncateIfNeeded(serialized: String, maxBodyBytes: Int): String {
     val limit = maxBodyBytes.coerceAtLeast(1)
     val bytes = serialized.toByteArray(Charsets.UTF_8)
@@ -1076,7 +1115,7 @@ object McpToolExecutor {
                 "http1_request" -> {
                     val input = decode<SendHttp1Request>(normalizedArgs)
                     api.logging().logToOutput("MCP HTTP/1.1 request: ${context.resolveHost(input.targetHostname)}:${input.targetPort}")
-                    val fixedContent = input.content.replace("\r", "").replace("\n", "\r\n")
+                    val fixedContent = normalizeHttpRequest(input.content)
                     val request = HttpRequest.httpRequest(input.toMontoyaService(context::resolveHost), fixedContent)
                     val response = api.http().sendRequest(request)
                     response?.toString() ?: "<no response>"
