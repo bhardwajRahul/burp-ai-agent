@@ -175,7 +175,7 @@ object McpToolCatalog {
             title = "Send HTTP/1.1 request",
             description = "Issues an HTTP/1.1 request and returns the response.",
             category = "Requests",
-            defaultEnabled = false,
+            defaultEnabled = true,
             unsafeOnly = true
         ),
         McpToolDescriptor(
@@ -183,7 +183,7 @@ object McpToolCatalog {
             title = "Send HTTP/2 request",
             description = "Issues an HTTP/2 request and returns the response.",
             category = "Requests",
-            defaultEnabled = false,
+            defaultEnabled = true,
             unsafeOnly = true
         ),
         McpToolDescriptor(

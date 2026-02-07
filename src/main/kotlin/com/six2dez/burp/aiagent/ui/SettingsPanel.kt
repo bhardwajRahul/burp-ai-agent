@@ -1534,7 +1534,8 @@ class SettingsPanel(
             profileWarningLabel.isVisible = false
             return
         }
-        val warnings = AgentProfileLoader.validateProfile(profile, availableMcpTools())
+        val (available, reasons) = availableMcpToolsWithReasons()
+        val warnings = AgentProfileLoader.validateProfile(profile, available, reasons)
         if (warnings.isEmpty()) {
             profileWarningLabel.text = "No profile tool conflicts detected."
             profileWarningLabel.foreground = UiTheme.Colors.statusRunning
@@ -1546,17 +1547,29 @@ class SettingsPanel(
         profileWarningLabel.isVisible = true
     }
 
-    private fun availableMcpTools(): Set<String> {
+    private fun availableMcpToolsWithReasons(): Pair<Set<String>, Map<String, String>> {
         val edition = api.burpSuite().version().edition()
         val unsafeEnabled = mcpUnsafe.isSelected
         val effectiveToggles = McpToolCatalog.mergeWithDefaults(collectMcpToolToggles())
-        return McpToolCatalog.all()
-            .asSequence()
-            .filter { !it.proOnly || edition == BurpSuiteEdition.PROFESSIONAL }
-            .filter { !it.unsafeOnly || unsafeEnabled }
-            .filter { effectiveToggles[it.id] == true }
-            .map { it.id.lowercase() }
-            .toSet()
+        val available = mutableSetOf<String>()
+        val reasons = mutableMapOf<String, String>()
+        for (tool in McpToolCatalog.all()) {
+            val id = tool.id.lowercase()
+            when {
+                tool.proOnly && edition != BurpSuiteEdition.PROFESSIONAL ->
+                    reasons[id] = "requires Burp Professional."
+                tool.unsafeOnly && !unsafeEnabled ->
+                    reasons[id] = "requires Unsafe mode to be enabled."
+                effectiveToggles[tool.id] != true ->
+                    reasons[id] = "disabled in MCP Tools settings."
+                else -> available.add(id)
+            }
+        }
+        return available to reasons
+    }
+
+    private fun availableMcpTools(): Set<String> {
+        return availableMcpToolsWithReasons().first
     }
 
     private fun applyFieldStyle(field: JTextField) {

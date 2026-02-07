@@ -70,7 +70,11 @@ object AgentProfileLoader {
         }
     }
 
-    fun validateProfile(profileName: String, availableTools: Set<String>): List<String> {
+    fun validateProfile(
+        profileName: String,
+        availableTools: Set<String>,
+        disabledReasons: Map<String, String> = emptyMap()
+    ): List<String> {
         val path = resolveProfilePathByName(profileName) ?: return emptyList()
         val text = try {
             Files.readString(path)
@@ -84,7 +88,14 @@ object AgentProfileLoader {
             .filter { it !in availableTools }
             .sorted()
         if (missing.isEmpty()) return emptyList()
-        return missing.map { "Profile references MCP tool '$it' but it is disabled or unavailable." }
+        return missing.map { tool ->
+            val reason = disabledReasons[tool]
+            if (reason != null) {
+                "Profile references MCP tool '$tool': $reason"
+            } else {
+                "Profile references MCP tool '$tool' but it is disabled or unavailable."
+            }
+        }
     }
 
     fun ensureBundledProfilesInstalled() {
