@@ -118,7 +118,7 @@ class CliBackend(
                         while (true) {
                             if (process.waitFor(200, TimeUnit.MILLISECONDS)) break
                             val idleMs = System.currentTimeMillis() - lastOutputAt.get()
-                            if (hasOutput.get() && idleMs > 1500) {
+                            if (hasOutput.get() && idleMs > 10000) {
                                 terminatedAfterIdle = true
                                 process.destroyForcibly()
                                 break
@@ -159,12 +159,13 @@ class CliBackend(
                         return@submit
                     }
 
+                    val stdoutText = stripAnsiCodes(rawOutput.toString())
                     val finalMessage = when (backendId) {
-                        "codex-cli" -> readCodexOutput(outputFile, rawOutput.toString(), text)
-                        "gemini-cli" -> readGeminiOutput(rawOutput.toString(), text)
-                        "opencode-cli" -> readOpenCodeOutput(rawOutput.toString(), text)
-                        "claude-cli" -> readClaudeOutput(rawOutput.toString(), text)
-                        else -> rawOutput.toString().trim()
+                        "codex-cli" -> readCodexOutput(outputFile, stdoutText, text)
+                        "gemini-cli" -> readGeminiOutput(stdoutText, text)
+                        "opencode-cli" -> readOpenCodeOutput(stdoutText, text)
+                        "claude-cli" -> readClaudeOutput(stdoutText, text)
+                        else -> stdoutText.trim()
                     }
                     if (finalMessage.isNotBlank()) {
                         // Store assistant response in history for stateless CLIs
@@ -325,6 +326,17 @@ class CliBackend(
             return stdout.lineSequence()
                 .map { it.trim() }
                 .filter { it.isNotBlank() && !inputLines.contains(it) }
+                .filterNot { line ->
+                    val lower = line.lowercase()
+                    // Filter OpenCode metadata lines that start with ">"
+                    lower.startsWith("> build") ||
+                    lower.startsWith("> pulling") ||
+                    lower.startsWith("> hashing") ||
+                    lower.startsWith("> loading") ||
+                    lower.startsWith("> downloading") ||
+                    lower.startsWith("> thinking") ||
+                    lower.startsWith("> verifying")
+                }
                 .joinToString("\n")
                 .trim()
         }
@@ -479,10 +491,11 @@ class CliBackend(
                 val line = outputQueue.poll(250, TimeUnit.MILLISECONDS)
                 if (line != null) {
                     lastRead = System.currentTimeMillis()
-                    val trimmed = line.trim()
+                    val strippedLine = stripAnsiCodes(line)
+                    val trimmed = strippedLine.trim()
                     if (trimmed.isNotBlank() && !inputLines.contains(trimmed)) {
                         received = true
-                        onChunk(line)
+                        onChunk(strippedLine)
                     }
                 }
                 val idleMs = System.currentTimeMillis() - lastRead
@@ -592,4 +605,25 @@ private fun resolveWindowsNpmShim(executable: String): String? {
         candidates.add(java.io.File(userProfile, "AppData\\Roaming\\npm\\$executable"))
     }
     return candidates.firstOrNull { it.exists() }?.absolutePath
+}
+
+private fun stripAnsiCodes(text: String): String {
+    if (text.isEmpty()) return text
+    
+    var result = text
+    
+    // Strip all ANSI escape sequences
+    // CSI sequences: ESC [ ... letter (e.g., \u001B[0m, \u001B[1;31m)
+    result = result.replace(Regex("\\u001B\\[[0-9;]*[a-zA-Z]"), "")
+    
+    // OSC sequences: ESC ] ... BEL (e.g., \u001B]0;title\u0007)
+    result = result.replace(Regex("\\u001B\\][^\\u0007]*\\u0007"), "")
+    
+    // Other escape sequences (e.g., \u001B>, \u001B=)
+    result = result.replace(Regex("\\u001B[><=][^\\u0007\\u001B\\\\]*[\\u0007\\u001B\\\\]"), "")
+    
+    // Strip any remaining literal ANSI-like patterns (e.g., "[0m", "[1m")
+    result = result.replace(Regex("\\[\\d+m"), "")
+    
+    return result
 }
