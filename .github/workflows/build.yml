@@ -1,4 +1,4 @@
-name: Build & Test
+name: Build & PR Gate
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  pr-gate:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,14 +22,23 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run tests
-        run: ./gradlew test
+      - name: Run fast verification suite
+        run: ./gradlew test -PexcludeHeavyTests=true --no-daemon
 
       - name: Build shadow JAR
-        run: ./gradlew shadowJar
+        run: ./gradlew shadowJar --no-daemon
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: Burp-AI-Agent-${{ github.sha }}
           path: build/libs/Burp-AI-Agent-*.jar
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ github.sha }}
+          path: |
+            build/reports/tests/test/**
+            build/test-results/test/**

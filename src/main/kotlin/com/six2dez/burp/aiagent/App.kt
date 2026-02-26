@@ -11,6 +11,7 @@ import com.six2dez.burp.aiagent.agents.AgentProfileLoader
 import com.six2dez.burp.aiagent.config.AgentSettingsRepository
 import com.six2dez.burp.aiagent.context.ContextCollector
 import com.six2dez.burp.aiagent.mcp.McpSupervisor
+import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.scanner.ActiveAiScanner
 import com.six2dez.burp.aiagent.scanner.AiScanCheck
 import com.six2dez.burp.aiagent.scanner.PassiveAiScanner
@@ -56,6 +57,7 @@ object App {
         settingsRepo = AgentSettingsRepository(api)
         backendRegistry = BackendRegistry(api)
         auditLogger = AuditLogger(api)
+        AuditLogger.registerGlobalEmitter { type, payload -> auditLogger.logEvent(type, payload) }
         supervisor = AgentSupervisor(api, backendRegistry, auditLogger, workerPool)
         mcpSupervisor = McpSupervisor(api)
         contextCollector = ContextCollector(api)
@@ -73,6 +75,7 @@ object App {
         passiveAiScanner.rateLimitSeconds = settings.passiveAiRateSeconds
         passiveAiScanner.scopeOnly = settings.passiveAiScopeOnly
         passiveAiScanner.maxSizeKb = settings.passiveAiMaxSizeKb
+        passiveAiScanner.applyOptimizationSettings(settings)
         passiveAiScanner.activeScanner = activeAiScanner  // Wire passive -> active
         passiveAiScanner.setEnabled(settings.passiveAiEnabled)
         
@@ -124,53 +127,43 @@ object App {
     }
 
     fun shutdown() {
-        try {
-            mainTab?.shutdown()
-        } catch (e: Exception) {
-            api.logging().logToError("MainTab shutdown failed: ${e.message}")
-        }
+        safeShutdownStep("MainTab") { mainTab?.shutdown() }
         mainTab = null
-        try {
+        safeShutdownStep("Passive scanner") {
             passiveAiScanner.setEnabled(false)
             passiveAiScanner.shutdown()
-        } catch (e: Exception) {
-            api.logging().logToError("Passive scanner shutdown failed: ${e.message}")
         }
-        try {
+        safeShutdownStep("Active scanner") {
             activeAiScanner.setEnabled(false)
             activeAiScanner.shutdown()
-        } catch (e: Exception) {
-            api.logging().logToError("Active scanner shutdown failed: ${e.message}")
         }
-        try {
-            supervisor.shutdown()
-        } catch (e: Exception) {
-            api.logging().logToError("Supervisor shutdown failed: ${e.message}")
-        }
-        try {
-            mcpSupervisor.shutdown()
-        } catch (e: Exception) {
-            api.logging().logToError("MCP supervisor shutdown failed: ${e.message}")
-        }
-        try {
-            backendRegistry.shutdown()
-        } catch (e: Exception) {
-            api.logging().logToError("Backend registry shutdown failed: ${e.message}")
-        }
-        try {
+        safeShutdownStep("Supervisor") { supervisor.shutdown() }
+        safeShutdownStep("MCP supervisor") { mcpSupervisor.shutdown() }
+        safeShutdownStep("Backend registry") { backendRegistry.shutdown() }
+        safeShutdownStep("Worker pool") {
             workerPool.shutdown()
-            if (!workerPool.awaitTermination(5, TimeUnit.SECONDS)) {
+            try {
+                if (!workerPool.awaitTermination(5, TimeUnit.SECONDS)) {
+                    workerPool.shutdownNow()
+                }
+            } catch (e: InterruptedException) {
                 workerPool.shutdownNow()
+                throw e
             }
-        } catch (_: InterruptedException) {
-            workerPool.shutdownNow()
-        } catch (e: Exception) {
-            api.logging().logToError("Worker pool shutdown failed: ${e.message}")
         }
+        safeShutdownStep("Alerting client") { Alerting.shutdownClient() }
+        safeShutdownStep("Redaction mappings") { Redaction.clearMappings() }
+        AuditLogger.registerGlobalEmitter(null)
+    }
+
+    private fun safeShutdownStep(component: String, action: () -> Unit) {
         try {
-            Alerting.shutdownClient()
+            action()
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            api.logging().logToError("$component shutdown interrupted")
         } catch (e: Exception) {
-            api.logging().logToError("Alerting client shutdown failed: ${e.message}")
+            api.logging().logToError("$component shutdown failed: ${e.message}")
         }
     }
 }

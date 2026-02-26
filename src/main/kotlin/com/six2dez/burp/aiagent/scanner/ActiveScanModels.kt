@@ -278,10 +278,20 @@ data class ActiveScanTarget(
     val originalRequest: HttpRequestResponse,
     val injectionPoint: InjectionPoint,
     val vulnHint: VulnHint,
-    val priority: Int = 50  // 0-100, higher = more urgent
+    val priority: Int = 50,  // 0-100, higher = more urgent
+    val queuedAtEpochMs: Long = System.currentTimeMillis()
 ) {
     val id: String = "${originalRequest.request().url()}_${injectionPoint.name}_${vulnHint.vulnClass}"
 }
+
+data class ActiveScanQueueItem(
+    val id: String,
+    val url: String,
+    val vulnClass: String,
+    val injectionPoint: String,
+    val status: String,
+    val queuedAtEpochMs: Long
+)
 
 data class Payload(
     val value: String,

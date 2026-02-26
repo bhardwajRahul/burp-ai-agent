@@ -5,6 +5,7 @@ import com.six2dez.burp.aiagent.backends.AiBackend
 import com.six2dez.burp.aiagent.backends.BackendLaunchConfig
 import com.six2dez.burp.aiagent.backends.ChatMessage
 import com.six2dez.burp.aiagent.backends.DiagnosableConnection
+import com.six2dez.burp.aiagent.backends.HealthCheckResult
 import com.six2dez.burp.aiagent.backends.SessionAwareConnection
 import com.six2dez.burp.aiagent.config.Defaults
 import java.io.BufferedReader
@@ -53,6 +54,14 @@ class CliBackend(
             com.six2dez.burp.aiagent.backends.BackendDiagnostics.log("[Burp AI Agent] Found $displayName: $executable")
         }
         return available
+    }
+
+    override fun healthCheck(settings: com.six2dez.burp.aiagent.config.AgentSettings): HealthCheckResult {
+        return if (isAvailable(settings)) {
+            HealthCheckResult.Healthy
+        } else {
+            HealthCheckResult.Unavailable("CLI command is not resolvable or executable.")
+        }
     }
 
     private class NonInteractiveCliConnection(

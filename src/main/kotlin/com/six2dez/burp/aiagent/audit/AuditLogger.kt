@@ -13,6 +13,19 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 class AuditLogger(private val api: MontoyaApi) {
+    companion object {
+        @Volatile
+        private var globalEmitter: ((String, Any) -> Unit)? = null
+
+        fun registerGlobalEmitter(emitter: ((String, Any) -> Unit)?) {
+            globalEmitter = emitter
+        }
+
+        fun emitGlobal(type: String, payload: Any) {
+            globalEmitter?.invoke(type, payload)
+        }
+    }
+
     @Volatile
     private var enabled: Boolean = true
     private val mapper = JsonMapper.builder()

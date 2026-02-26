@@ -8,6 +8,7 @@ import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity
 import burp.api.montoya.ui.contextmenu.AuditIssueContextMenuEvent
 import burp.api.montoya.ui.contextmenu.ContextMenuEvent
 import com.six2dez.burp.aiagent.audit.AuditLogger
+import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.context.ContextCapture
 import com.six2dez.burp.aiagent.context.ContextCollector
 import com.six2dez.burp.aiagent.context.ContextOptions
@@ -22,17 +23,25 @@ import com.six2dez.burp.aiagent.prompts.bountyprompt.BountyPromptTagResolver
 import com.six2dez.burp.aiagent.scanner.ActiveAiScanner
 import com.six2dez.burp.aiagent.scanner.PassiveAiScanner
 import com.six2dez.burp.aiagent.scanner.VulnClass
+import com.six2dez.burp.aiagent.util.IssueUtils
 import com.six2dez.burp.aiagent.util.IssueText
+import java.awt.BorderLayout
+import javax.swing.JCheckBox
 import javax.swing.JMenu
 import javax.swing.JMenuItem
 import javax.swing.JOptionPane
+import javax.swing.JPanel
+import javax.swing.JScrollPane
 import javax.swing.SwingUtilities
+import javax.swing.JTextArea
 
 object UiActions {
 
     private val bountyPromptLoader = BountyPromptLoader()
     private val bountyPromptResolver = BountyPromptTagResolver()
     private val bountyPromptOutputParser = BountyPromptOutputParser()
+    @Volatile
+    private var contextPreviewEnabled = true
 
     fun requestResponseMenuItems(
         api: MontoyaApi,
@@ -124,12 +133,9 @@ object UiActions {
             val settings = tab.currentSettings()
             val ctx = collector.fromRequestResponses(
                 targets,
-                ContextOptions(
-                    privacyMode = settings.privacyMode,
-                    deterministic = settings.determinismMode,
-                    hostSalt = settings.hostAnonymizationSalt
-                )
+                contextOptionsFromSettings(settings)
             )
+            if (!confirmContextPreview(tab, "Find Vulnerabilities", ctx)) return@addActionListener
             tab.openChatWithContext(ctx, settings.requestPromptTemplate, "Find Vulnerabilities")
         }
 
@@ -140,12 +146,9 @@ object UiActions {
             val settings = tab.currentSettings()
             val ctx = collector.fromRequestResponses(
                 targets,
-                ContextOptions(
-                    privacyMode = settings.privacyMode,
-                    deterministic = settings.determinismMode,
-                    hostSalt = settings.hostAnonymizationSalt
-                )
+                contextOptionsFromSettings(settings)
             )
+            if (!confirmContextPreview(tab, "Analyze this request", ctx)) return@addActionListener
             tab.openChatWithContext(ctx, settings.requestSummaryPrompt, "Analyze this request")
         }
 
@@ -156,12 +159,9 @@ object UiActions {
             val settings = tab.currentSettings()
             val ctx = collector.fromRequestResponses(
                 targets,
-                ContextOptions(
-                    privacyMode = settings.privacyMode,
-                    deterministic = settings.determinismMode,
-                    hostSalt = settings.hostAnonymizationSalt
-                )
+                contextOptionsFromSettings(settings)
             )
+            if (!confirmContextPreview(tab, "Explain JS", ctx)) return@addActionListener
             tab.openChatWithContext(ctx, settings.explainJsPrompt, "Explain JS")
         }
 
@@ -172,12 +172,9 @@ object UiActions {
             val settings = tab.currentSettings()
             val ctx = collector.fromRequestResponses(
                 targets,
-                ContextOptions(
-                    privacyMode = settings.privacyMode,
-                    deterministic = settings.determinismMode,
-                    hostSalt = settings.hostAnonymizationSalt
-                )
+                contextOptionsFromSettings(settings)
             )
+            if (!confirmContextPreview(tab, "Access Control", ctx)) return@addActionListener
             tab.openChatWithContext(ctx, settings.accessControlPrompt, "Access Control")
         }
 
@@ -188,12 +185,9 @@ object UiActions {
             val settings = tab.currentSettings()
             val ctx = collector.fromRequestResponses(
                 targets,
-                ContextOptions(
-                    privacyMode = settings.privacyMode,
-                    deterministic = settings.determinismMode,
-                    hostSalt = settings.hostAnonymizationSalt
-                )
+                contextOptionsFromSettings(settings)
             )
+            if (!confirmContextPreview(tab, "Login Sequence", ctx)) return@addActionListener
             tab.openChatWithContext(ctx, settings.loginSequencePrompt, "Login Sequence")
         }
 
@@ -226,12 +220,9 @@ object UiActions {
             val settings = tab.currentSettings()
             val ctx = collector.fromAuditIssues(
                 issues,
-                ContextOptions(
-                    privacyMode = settings.privacyMode,
-                    deterministic = settings.determinismMode,
-                    hostSalt = settings.hostAnonymizationSalt
-                )
+                contextOptionsFromSettings(settings)
             )
+            if (!confirmContextPreview(tab, "Issue Analysis", ctx)) return@addActionListener
             tab.openChatWithContext(ctx, settings.issueAnalyzePrompt, "Issue Analysis")
         }
 
@@ -242,12 +233,9 @@ object UiActions {
             val settings = tab.currentSettings()
             val ctx = collector.fromAuditIssues(
                 issues,
-                ContextOptions(
-                    privacyMode = settings.privacyMode,
-                    deterministic = settings.determinismMode,
-                    hostSalt = settings.hostAnonymizationSalt
-                )
+                contextOptionsFromSettings(settings)
             )
+            if (!confirmContextPreview(tab, "PoC & Validation", ctx)) return@addActionListener
             tab.openChatWithContext(ctx, settings.issuePocPrompt, "PoC & Validation")
         }
 
@@ -258,12 +246,9 @@ object UiActions {
             val settings = tab.currentSettings()
             val ctx = collector.fromAuditIssues(
                 issues,
-                ContextOptions(
-                    privacyMode = settings.privacyMode,
-                    deterministic = settings.determinismMode,
-                    hostSalt = settings.hostAnonymizationSalt
-                )
+                contextOptionsFromSettings(settings)
             )
+            if (!confirmContextPreview(tab, "Impact & Severity", ctx)) return@addActionListener
             tab.openChatWithContext(ctx, settings.issueImpactPrompt, "Impact & Severity")
         }
 
@@ -274,12 +259,9 @@ object UiActions {
             val settings = tab.currentSettings()
             val ctx = collector.fromAuditIssues(
                 issues,
-                ContextOptions(
-                    privacyMode = settings.privacyMode,
-                    deterministic = settings.determinismMode,
-                    hostSalt = settings.hostAnonymizationSalt
-                )
+                contextOptionsFromSettings(settings)
             )
+            if (!confirmContextPreview(tab, "Full Vuln Report", ctx)) return@addActionListener
             tab.openChatWithContext(ctx, settings.issuePromptTemplate, "Full Vuln Report")
         }
 
@@ -329,11 +311,7 @@ object UiActions {
                     val resolved = bountyPromptResolver.resolve(
                         definition,
                         targets,
-                        ContextOptions(
-                            privacyMode = current.privacyMode,
-                            deterministic = current.determinismMode,
-                            hostSalt = current.hostAnonymizationSalt
-                        )
+                        contextOptionsFromSettings(current)
                     )
                     val composedPrompt = composeBountyPrompt(definition, resolved.resolvedUserPrompt)
                     val capture = ContextCapture(
@@ -551,9 +529,12 @@ $resolvedUserPrompt
     }
 
     private fun hasExistingIssue(api: MontoyaApi, name: String, baseUrl: String): Boolean {
-        return api.siteMap().issues().any { issue ->
-            issue.baseUrl() == baseUrl && issue.name().equals(name, ignoreCase = true)
-        }
+        return IssueUtils.hasExistingIssue(
+            name = name,
+            baseUrl = baseUrl,
+            issues = api.siteMap().issues().map { issue -> issue.name() to issue.baseUrl() },
+            ignoreCase = true
+        )
     }
 
     private fun categoryLabel(category: BountyPromptCategory): String {
@@ -573,6 +554,55 @@ $resolvedUserPrompt
             JOptionPane.WARNING_MESSAGE
         )
         return false
+    }
+
+    private fun confirmContextPreview(tab: MainTab, actionName: String, capture: ContextCapture): Boolean {
+        if (!contextPreviewEnabled) return true
+        val redactedExcerpt = capture.contextJson.trim().let { json ->
+            if (json.isBlank()) "(empty context)"
+            else if (json.length <= 1200) json
+            else json.take(1200) + "\n...[truncated]..."
+        }
+        val previewText = buildString {
+            appendLine("Action: $actionName")
+            appendLine()
+            appendLine(capture.previewText.trim())
+            appendLine()
+            appendLine("Context JSON excerpt:")
+            append(redactedExcerpt)
+        }
+        val previewArea = JTextArea(previewText, 20, 72).apply {
+            isEditable = false
+            lineWrap = true
+            wrapStyleWord = true
+            font = UiTheme.Typography.mono
+            caretPosition = 0
+        }
+        val keepPreview = JCheckBox("Show preview before send", contextPreviewEnabled)
+        val panel = JPanel(BorderLayout(0, 8)).apply {
+            add(JScrollPane(previewArea), BorderLayout.CENTER)
+            add(keepPreview, BorderLayout.SOUTH)
+        }
+        val decision = JOptionPane.showConfirmDialog(
+            tab.root,
+            panel,
+            "Context Preview",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.PLAIN_MESSAGE
+        )
+        contextPreviewEnabled = keepPreview.isSelected
+        return decision == JOptionPane.YES_OPTION
+    }
+
+    private fun contextOptionsFromSettings(settings: AgentSettings): ContextOptions {
+        return ContextOptions(
+            privacyMode = settings.privacyMode,
+            deterministic = settings.determinismMode,
+            hostSalt = settings.hostAnonymizationSalt,
+            maxRequestBodyChars = settings.contextRequestBodyMaxChars,
+            maxResponseBodyChars = settings.contextResponseBodyMaxChars,
+            compactJson = settings.contextCompactJson
+        )
     }
 
     private fun ensureActiveScannerEnabled(tab: MainTab, activeAiScanner: ActiveAiScanner?): Boolean {

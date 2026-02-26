@@ -26,9 +26,13 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-class KtorMcpServerManager(private val api: MontoyaApi) : McpServerManager {
+class KtorMcpServerManager(
+    private val api: MontoyaApi,
+    private val contextFactory: McpRuntimeContextFactory = McpRuntimeContextFactory(api)
+) : McpServerManager {
     private var server: EmbeddedServer<*, *>? = null
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+    private data class CorsAllowedHost(val hostAndPort: String, val scheme: String)
 
     override fun start(settings: McpSettings, privacyMode: PrivacyMode, determinismMode: Boolean, callback: (McpServerState) -> Unit) {
         callback(McpServerState.Starting)
@@ -44,22 +48,13 @@ class KtorMcpServerManager(private val api: MontoyaApi) : McpServerManager {
                     throw IllegalStateException("MCP host must be loopback when external access is disabled.")
                 }
 
-                val tools = McpToolCatalog.mergeWithDefaults(settings.toolToggles)
-                val unsafeTools = McpToolCatalog.unsafeToolIds()
-                val limiter = McpRequestLimiter(settings.maxConcurrentRequests)
-                val hostSalt = "mcp-${settings.token.take(12)}"
-                val context = McpToolContext(
-                    api = api,
-                    privacyMode = privacyMode,
-                    determinismMode = determinismMode,
-                    hostSalt = hostSalt,
-                    toolToggles = tools,
-                    unsafeEnabled = settings.unsafeEnabled,
-                    unsafeTools = unsafeTools,
-                    limiter = limiter,
-                    edition = api.burpSuite().version().edition(),
-                    maxBodyBytes = settings.maxBodyBytes
-                )
+                val context = contextFactory.create(settings, privacyMode, determinismMode)
+                val externalCorsHosts = parseExternalCorsHosts(settings.allowedOrigins)
+                if (settings.externalEnabled && externalCorsHosts.isEmpty()) {
+                    api.logging().logToOutput(
+                        "MCP external mode has no allowed origins configured; using permissive CORS (any origin)."
+                    )
+                }
 
                 val mcpServer = Server(
                     serverInfo = Implementation("burp-ai-agent", "0.1.0"),
@@ -96,7 +91,13 @@ class KtorMcpServerManager(private val api: MontoyaApi) : McpServerManager {
                             allowHost("localhost:${settings.port}")
                             allowHost("127.0.0.1:${settings.port}")
                         } else {
-                            anyHost()
+                            if (externalCorsHosts.isEmpty()) {
+                                anyHost()
+                            } else {
+                                externalCorsHosts.forEach { allowed ->
+                                    allowHost(allowed.hostAndPort, schemes = listOf(allowed.scheme))
+                                }
+                            }
                         }
                         allowMethod(HttpMethod.Get)
                         allowMethod(HttpMethod.Post)
@@ -269,6 +270,35 @@ class KtorMcpServerManager(private val api: MontoyaApi) : McpServerManager {
             hostname == "localhost" || hostname == "127.0.0.1"
         } catch (_: Exception) {
             false
+        }
+    }
+
+    private fun parseExternalCorsHosts(origins: List<String>): List<CorsAllowedHost> {
+        if (origins.isEmpty()) return emptyList()
+        val dedup = LinkedHashSet<CorsAllowedHost>()
+        origins.forEach { raw ->
+            val normalized = normalizeOrigin(raw)
+            if (normalized == null) {
+                return@forEach
+            }
+            dedup.add(normalized)
+        }
+        return dedup.toList()
+    }
+
+    private fun normalizeOrigin(raw: String): CorsAllowedHost? {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return null
+        val candidate = if (trimmed.contains("://")) trimmed else "https://$trimmed"
+        return try {
+            val uri = URI(candidate)
+            val scheme = uri.scheme?.lowercase() ?: return null
+            if (scheme != "http" && scheme != "https") return null
+            val host = uri.host?.lowercase() ?: return null
+            val hostAndPort = if (uri.port > 0) "$host:${uri.port}" else host
+            CorsAllowedHost(hostAndPort = hostAndPort, scheme = scheme)
+        } catch (_: Exception) {
+            null
         }
     }
 }

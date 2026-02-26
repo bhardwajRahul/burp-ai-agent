@@ -3,6 +3,7 @@ package com.six2dez.burp.aiagent.ui
 import burp.api.montoya.MontoyaApi
 import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.backends.BackendRegistry
+import com.six2dez.burp.aiagent.backends.HealthCheckResult
 import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.config.AgentSettingsRepository
 import com.six2dez.burp.aiagent.config.McpSettings
@@ -17,6 +18,7 @@ import com.six2dez.burp.aiagent.ui.panels.BackendConfigPanel
 import com.six2dez.burp.aiagent.ui.panels.BackendConfigState
 import com.six2dez.burp.aiagent.ui.panels.HelpConfigPanel
 import com.six2dez.burp.aiagent.ui.panels.McpConfigPanel
+import com.six2dez.burp.aiagent.ui.panels.ActiveScanQueuePanel
 import com.six2dez.burp.aiagent.ui.panels.PassiveScanConfigPanel
 import com.six2dez.burp.aiagent.ui.panels.PrivacyConfigPanel
 import com.six2dez.burp.aiagent.ui.panels.PromptConfigPanel
@@ -37,6 +39,8 @@ import java.time.format.DateTimeFormatter
 import javax.swing.*
 import javax.swing.border.EmptyBorder
 import javax.swing.border.LineBorder
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
 
 class SettingsPanel(
     private val api: MontoyaApi,
@@ -54,6 +58,7 @@ class SettingsPanel(
     var onActiveAiEnabledChanged: ((Boolean) -> Unit)? = null
     var onSettingsChanged: ((AgentSettings) -> Unit)? = null
     private var dialogParent: JComponent? = null
+    private var saveFeedbackResetTimer: javax.swing.Timer? = null
     private lateinit var generalTab: JComponent
     private lateinit var passiveScannerTab: JComponent
     private lateinit var activeScannerTab: JComponent
@@ -143,6 +148,10 @@ class SettingsPanel(
     private val privacyActiveWarning = JLabel(
         "STRICT anonymizes hosts in AI prompts but does not prevent active scanner from sending real requests to targets."
     )
+    private val privacyRiskWarning = JLabel(
+        "High risk: Privacy OFF and Audit logging OFF reduce traceability and data protection."
+    )
+    private val saveFeedbackLabel = JLabel("No recent save activity.")
     private val mcpEnabled = ToggleSwitch(settings.mcpSettings.enabled)
     private val mcpHost = JTextField(settings.mcpSettings.host, 15).apply {
         preferredSize = java.awt.Dimension(140, preferredSize.height)
@@ -161,6 +170,17 @@ class SettingsPanel(
         preferredSize = java.awt.Dimension(200, preferredSize.height)
     }
     private val mcpToken = JTextField(settings.mcpSettings.token)
+    private val mcpAllowedOrigins = JTextArea(
+        settings.mcpSettings.allowedOrigins.joinToString("\n"),
+        3,
+        20
+    )
+    private val mcpCorsWarning = JLabel(
+        "External access is enabled with no allowed origins. CORS will allow any origin."
+    )
+    private val mcpRiskWarning = JLabel(
+        "High risk: External MCP and Unsafe mode together permit remote state-changing tool execution."
+    )
     private val mcpTokenRegenerate = JButton("Regenerate token")
     private val mcpMaxConcurrent = JSpinner(
         SpinnerNumberModel(settings.mcpSettings.maxConcurrentRequests, 1, 64, 1)
@@ -181,6 +201,7 @@ class SettingsPanel(
     }
     private val mcpUnsafe = JCheckBox("Unsafe mode (allow write/mutation tools)", settings.mcpSettings.unsafeEnabled)
     private val mcpToolCheckboxes = mutableMapOf<String, JCheckBox>()
+    private val mcpUnsafeApprovalCheckboxes = mutableMapOf<String, JCheckBox>()
     
     // Passive AI Scanner UI components
     private val passiveAiEnabled = ToggleSwitch(settings.passiveAiEnabled)
@@ -198,6 +219,79 @@ class SettingsPanel(
         preferredSize = java.awt.Dimension(100, preferredSize.height)
         maximumSize = java.awt.Dimension(100, preferredSize.height)
     }
+    private val passiveAiEndpointDedupSpinner = JSpinner(
+        SpinnerNumberModel(settings.passiveAiEndpointDedupMinutes, 1, 240, 1)
+    ).apply {
+        preferredSize = java.awt.Dimension(80, preferredSize.height)
+        maximumSize = java.awt.Dimension(80, preferredSize.height)
+    }
+    private val passiveAiFingerprintDedupSpinner = JSpinner(
+        SpinnerNumberModel(settings.passiveAiResponseFingerprintDedupMinutes, 1, 240, 1)
+    ).apply {
+        preferredSize = java.awt.Dimension(80, preferredSize.height)
+        maximumSize = java.awt.Dimension(80, preferredSize.height)
+    }
+    private val passiveAiPromptCacheTtlSpinner = JSpinner(
+        SpinnerNumberModel(settings.passiveAiPromptCacheTtlMinutes, 1, 240, 1)
+    ).apply {
+        preferredSize = java.awt.Dimension(80, preferredSize.height)
+        maximumSize = java.awt.Dimension(80, preferredSize.height)
+    }
+    private val passiveAiEndpointCacheEntriesSpinner = JSpinner(
+        SpinnerNumberModel(settings.passiveAiEndpointCacheEntries, 100, 50_000, 100)
+    ).apply {
+        preferredSize = java.awt.Dimension(95, preferredSize.height)
+        maximumSize = java.awt.Dimension(95, preferredSize.height)
+    }
+    private val passiveAiFingerprintCacheEntriesSpinner = JSpinner(
+        SpinnerNumberModel(settings.passiveAiResponseFingerprintCacheEntries, 100, 50_000, 100)
+    ).apply {
+        preferredSize = java.awt.Dimension(95, preferredSize.height)
+        maximumSize = java.awt.Dimension(95, preferredSize.height)
+    }
+    private val passiveAiPromptCacheEntriesSpinner = JSpinner(
+        SpinnerNumberModel(settings.passiveAiPromptCacheEntries, 50, 5_000, 50)
+    ).apply {
+        preferredSize = java.awt.Dimension(95, preferredSize.height)
+        maximumSize = java.awt.Dimension(95, preferredSize.height)
+    }
+    private val passiveAiRequestBodyMaxCharsSpinner = JSpinner(
+        SpinnerNumberModel(settings.passiveAiRequestBodyMaxChars, 256, 20_000, 256)
+    ).apply {
+        preferredSize = java.awt.Dimension(95, preferredSize.height)
+        maximumSize = java.awt.Dimension(95, preferredSize.height)
+    }
+    private val passiveAiResponseBodyMaxCharsSpinner = JSpinner(
+        SpinnerNumberModel(settings.passiveAiResponseBodyMaxChars, 512, 40_000, 256)
+    ).apply {
+        preferredSize = java.awt.Dimension(95, preferredSize.height)
+        maximumSize = java.awt.Dimension(95, preferredSize.height)
+    }
+    private val passiveAiHeaderMaxCountSpinner = JSpinner(
+        SpinnerNumberModel(settings.passiveAiHeaderMaxCount, 5, 120, 1)
+    ).apply {
+        preferredSize = java.awt.Dimension(80, preferredSize.height)
+        maximumSize = java.awt.Dimension(80, preferredSize.height)
+    }
+    private val passiveAiParamMaxCountSpinner = JSpinner(
+        SpinnerNumberModel(settings.passiveAiParamMaxCount, 5, 100, 1)
+    ).apply {
+        preferredSize = java.awt.Dimension(80, preferredSize.height)
+        maximumSize = java.awt.Dimension(80, preferredSize.height)
+    }
+    private val contextRequestBodyMaxCharsSpinner = JSpinner(
+        SpinnerNumberModel(settings.contextRequestBodyMaxChars, 256, 40_000, 256)
+    ).apply {
+        preferredSize = java.awt.Dimension(95, preferredSize.height)
+        maximumSize = java.awt.Dimension(95, preferredSize.height)
+    }
+    private val contextResponseBodyMaxCharsSpinner = JSpinner(
+        SpinnerNumberModel(settings.contextResponseBodyMaxChars, 512, 80_000, 256)
+    ).apply {
+        preferredSize = java.awt.Dimension(95, preferredSize.height)
+        maximumSize = java.awt.Dimension(95, preferredSize.height)
+    }
+    private val contextCompactJson = JCheckBox("Compact context JSON (manual actions)", settings.contextCompactJson)
     private val passiveAiStatusLabel = JLabel()
     private val passiveAiViewFindings = JButton("View findings")
     private val passiveAiResetStats = JButton("Reset stats")
@@ -236,6 +330,7 @@ class SettingsPanel(
     private val activeAiRiskDescription = JLabel()
     private val activeAiStatusLabel = JLabel()
     private val activeAiViewFindings = JButton("View findings")
+    private val activeAiViewQueue = JButton("View queue")
     private val activeAiClearQueue = JButton("Clear queue")
     private val activeAiResetStats = JButton("Reset stats")
 
@@ -248,6 +343,7 @@ class SettingsPanel(
         applyFieldStyle(mcpHost)
         applyFieldStyle(mcpKeystorePath)
         applyFieldStyle(mcpToken)
+        applyAreaStyle(mcpAllowedOrigins)
         applyAreaStyle(promptRequest)
         applyAreaStyle(promptSummary)
         applyAreaStyle(promptJs)
@@ -289,6 +385,7 @@ class SettingsPanel(
         mcpToken.isEditable = true
         mcpToken.font = UiTheme.Typography.mono
         mcpToken.toolTipText = "Required for external access. Use as: Authorization: Bearer <token>"
+        mcpAllowedOrigins.toolTipText = "Allowed web origins for external mode (one per line, example: https://app.example.com). Leave empty to allow any origin."
         mcpEnabled.toolTipText = "Enable the built-in MCP server."
         mcpHost.toolTipText = "Host/interface for MCP server binding."
         mcpPort.toolTipText = "Port for the MCP server."
@@ -334,6 +431,18 @@ class SettingsPanel(
         mcpStdio.font = UiTheme.Typography.body
         mcpUnsafe.font = UiTheme.Typography.body
         mcpUnsafe.toolTipText = "Allows tools that modify Burp state, write files, or send active requests."
+        mcpCorsWarning.font = UiTheme.Typography.body
+        mcpCorsWarning.foreground = UiTheme.Colors.onPrimary
+        mcpCorsWarning.background = UiTheme.Colors.statusTerminal
+        mcpCorsWarning.border = EmptyBorder(6, 8, 6, 8)
+        mcpCorsWarning.isOpaque = true
+        mcpCorsWarning.isVisible = false
+        mcpRiskWarning.font = UiTheme.Typography.body
+        mcpRiskWarning.foreground = UiTheme.Colors.onPrimary
+        mcpRiskWarning.background = UiTheme.Colors.statusCrashed
+        mcpRiskWarning.border = EmptyBorder(6, 8, 6, 8)
+        mcpRiskWarning.isOpaque = true
+        mcpRiskWarning.isVisible = false
         privacyWarning.font = UiTheme.Typography.body
         privacyWarning.foreground = UiTheme.Colors.onPrimary
         privacyWarning.background = UiTheme.Colors.statusCrashed
@@ -346,6 +455,17 @@ class SettingsPanel(
         privacyActiveWarning.border = EmptyBorder(6, 8, 6, 8)
         privacyActiveWarning.isOpaque = true
         privacyActiveWarning.isVisible = settings.privacyMode == PrivacyMode.STRICT && settings.activeAiEnabled
+        privacyRiskWarning.font = UiTheme.Typography.body
+        privacyRiskWarning.foreground = UiTheme.Colors.onPrimary
+        privacyRiskWarning.background = UiTheme.Colors.statusCrashed
+        privacyRiskWarning.border = EmptyBorder(6, 8, 6, 8)
+        privacyRiskWarning.isOpaque = true
+        privacyRiskWarning.isVisible = false
+        saveFeedbackLabel.font = UiTheme.Typography.body
+        saveFeedbackLabel.foreground = UiTheme.Colors.onPrimary
+        saveFeedbackLabel.background = UiTheme.Colors.outlineVariant
+        saveFeedbackLabel.border = EmptyBorder(6, 8, 6, 8)
+        saveFeedbackLabel.isOpaque = true
 
         val backendBody = JPanel(BorderLayout()).apply {
             background = UiTheme.Colors.surface
@@ -400,9 +520,12 @@ class SettingsPanel(
         }
         privacyMode.addActionListener {
             updatePrivacyWarnings()
+            updateRiskWarnings()
         }
         mcpExternal.addActionListener {
             updateMcpTlsState()
+            updateMcpCorsWarning()
+            updateRiskWarnings()
         }
         mcpTlsEnabled.addActionListener {
             updateMcpTlsState()
@@ -412,13 +535,48 @@ class SettingsPanel(
         }
         mcpEnabled.addActionListener {
             onMcpEnabledChanged?.invoke(mcpEnabled.isSelected)
+            updateRiskWarnings()
         }
         mcpUnsafe.addActionListener {
             updateUnsafeToolStates()
+            updateRiskWarnings()
+        }
+        auditEnabled.addActionListener {
+            updateRiskWarnings()
         }
         mcpTokenRegenerate.addActionListener {
             mcpToken.text = McpSettings.generateToken()
+            updateRiskWarnings()
         }
+        mcpAllowedOrigins.document.addDocumentListener(object : DocumentListener {
+            override fun insertUpdate(e: DocumentEvent?) {
+                updateMcpCorsWarning()
+                updateRiskWarnings()
+            }
+
+            override fun removeUpdate(e: DocumentEvent?) {
+                updateMcpCorsWarning()
+                updateRiskWarnings()
+            }
+
+            override fun changedUpdate(e: DocumentEvent?) {
+                updateMcpCorsWarning()
+                updateRiskWarnings()
+            }
+        })
+        mcpToken.document.addDocumentListener(object : DocumentListener {
+            override fun insertUpdate(e: DocumentEvent?) {
+                updateRiskWarnings()
+            }
+
+            override fun removeUpdate(e: DocumentEvent?) {
+                updateRiskWarnings()
+            }
+
+            override fun changedUpdate(e: DocumentEvent?) {
+                updateRiskWarnings()
+            }
+        })
         rotateSaltBtn.addActionListener {
             val newSalt = McpSettings.generateToken()
             settings = settings.copy(hostAnonymizationSalt = newSalt)
@@ -428,9 +586,14 @@ class SettingsPanel(
         backendConfigPanel.onOpenCli = { backendId, command ->
             openExternalCli(backendId, command)
         }
+        backendConfigPanel.onTestConnection = { backendId ->
+            testBackendConnection(backendId)
+        }
         backendConfigPanel.setBackend(preferredBackendId())
         updateMcpTlsState()
+        updateMcpCorsWarning()
         updatePrivacyWarnings()
+        updateRiskWarnings()
         refreshPassiveAiStatus()
         updateActiveRiskDescription()
         refreshActiveAiStatus()
@@ -449,6 +612,36 @@ class SettingsPanel(
         passiveAiMaxSizeSpinner.addChangeListener {
             applyPassiveAiSettings()
         }
+        passiveAiEndpointDedupSpinner.addChangeListener {
+            applyPassiveAiSettings()
+        }
+        passiveAiFingerprintDedupSpinner.addChangeListener {
+            applyPassiveAiSettings()
+        }
+        passiveAiPromptCacheTtlSpinner.addChangeListener {
+            applyPassiveAiSettings()
+        }
+        passiveAiEndpointCacheEntriesSpinner.addChangeListener {
+            applyPassiveAiSettings()
+        }
+        passiveAiFingerprintCacheEntriesSpinner.addChangeListener {
+            applyPassiveAiSettings()
+        }
+        passiveAiPromptCacheEntriesSpinner.addChangeListener {
+            applyPassiveAiSettings()
+        }
+        passiveAiRequestBodyMaxCharsSpinner.addChangeListener {
+            applyPassiveAiSettings()
+        }
+        passiveAiResponseBodyMaxCharsSpinner.addChangeListener {
+            applyPassiveAiSettings()
+        }
+        passiveAiHeaderMaxCountSpinner.addChangeListener {
+            applyPassiveAiSettings()
+        }
+        passiveAiParamMaxCountSpinner.addChangeListener {
+            applyPassiveAiSettings()
+        }
         passiveAiViewFindings.addActionListener {
             showPassiveAiFindingsDialog()
         }
@@ -464,6 +657,7 @@ class SettingsPanel(
         activeAiEnabled.addActionListener {
             applyActiveAiSettings()
             updatePrivacyWarnings()
+            updateRiskWarnings()
             onActiveAiEnabledChanged?.invoke(activeAiEnabled.isSelected)
         }
         activeAiScopeOnly.addActionListener {
@@ -504,6 +698,9 @@ class SettingsPanel(
         }
         activeAiViewFindings.addActionListener {
             showActiveAiFindingsDialog()
+        }
+        activeAiViewQueue.addActionListener {
+            showActiveScanQueueDialog()
         }
         activeAiClearQueue.addActionListener {
             activeAiScanner.clearQueue()
@@ -562,7 +759,20 @@ class SettingsPanel(
     }
 
     fun saveSettings() {
-        applyAndSaveSettings(currentSettings())
+        updateSaveFeedback("Saving settings...", UiTheme.Colors.statusTerminal)
+        try {
+            applyAndSaveSettings(currentSettings())
+            updateSaveFeedback("Saved and applied.", UiTheme.Colors.statusRunning, resetMs = 3000)
+        } catch (e: Exception) {
+            updateSaveFeedback("Save failed: ${e.message ?: "unknown error"}", UiTheme.Colors.statusCrashed, resetMs = 5000)
+            api.logging().logToError("AI Agent settings save failed: ${e.message}")
+            JOptionPane.showMessageDialog(
+                dialogParentComponent(),
+                "Failed to save settings: ${e.message ?: "unknown error"}",
+                "AI Agent",
+                JOptionPane.ERROR_MESSAGE
+            )
+        }
     }
 
     fun restoreDefaultsWithConfirmation() {
@@ -576,6 +786,7 @@ class SettingsPanel(
         val defaults = settingsRepo.defaultSettings()
         applySettingsToUi(defaults)
         applyAndSaveSettings(defaults)
+        updateSaveFeedback("Defaults restored and applied.", UiTheme.Colors.statusRunning, resetMs = 3000)
     }
 
     fun setPreferredBackend(value: String) {
@@ -610,13 +821,17 @@ class SettingsPanel(
             externalEnabled = mcpExternal.isSelected,
             stdioEnabled = mcpStdio.isSelected,
             token = mcpToken.text.trim(),
+            allowedOrigins = parseAllowedOriginsInput(mcpAllowedOrigins.text),
             tlsEnabled = mcpTlsEnabled.isSelected,
             tlsAutoGenerate = mcpTlsAuto.isSelected,
             tlsKeystorePath = mcpKeystorePath.text.trim(),
             tlsKeystorePassword = String(mcpKeystorePassword.password),
+            scanTaskTtlMinutes = settings.mcpSettings.scanTaskTtlMinutes,
+            collaboratorClientTtlMinutes = settings.mcpSettings.collaboratorClientTtlMinutes,
             maxConcurrentRequests = (mcpMaxConcurrent.value as? Int) ?: 4,
             maxBodyBytes = ((mcpMaxBodyMb.value as? Int) ?: 2).coerceAtLeast(1) * 1024 * 1024,
             toolToggles = collectMcpToolToggles(),
+            enabledUnsafeTools = collectEnabledUnsafeTools(),
             unsafeEnabled = mcpUnsafe.isSelected
         )
         val backendState = backendConfigPanel.currentBackendSettings()
@@ -680,6 +895,19 @@ class SettingsPanel(
             passiveAiScopeOnly = passiveAiScopeOnly.isSelected,
             passiveAiMaxSizeKb = (passiveAiMaxSizeSpinner.value as? Int) ?: 96,
             passiveAiMinSeverity = SeverityLevel.fromString(passiveAiMinSeverityCombo.selectedItem as? String),
+            passiveAiEndpointDedupMinutes = (passiveAiEndpointDedupSpinner.value as? Int) ?: 30,
+            passiveAiResponseFingerprintDedupMinutes = (passiveAiFingerprintDedupSpinner.value as? Int) ?: 30,
+            passiveAiPromptCacheTtlMinutes = (passiveAiPromptCacheTtlSpinner.value as? Int) ?: 30,
+            passiveAiEndpointCacheEntries = (passiveAiEndpointCacheEntriesSpinner.value as? Int) ?: 5_000,
+            passiveAiResponseFingerprintCacheEntries = (passiveAiFingerprintCacheEntriesSpinner.value as? Int) ?: 5_000,
+            passiveAiPromptCacheEntries = (passiveAiPromptCacheEntriesSpinner.value as? Int) ?: 500,
+            passiveAiRequestBodyMaxChars = (passiveAiRequestBodyMaxCharsSpinner.value as? Int) ?: 2_000,
+            passiveAiResponseBodyMaxChars = (passiveAiResponseBodyMaxCharsSpinner.value as? Int) ?: 4_000,
+            passiveAiHeaderMaxCount = (passiveAiHeaderMaxCountSpinner.value as? Int) ?: 40,
+            passiveAiParamMaxCount = (passiveAiParamMaxCountSpinner.value as? Int) ?: 15,
+            contextRequestBodyMaxChars = (contextRequestBodyMaxCharsSpinner.value as? Int) ?: 4_000,
+            contextResponseBodyMaxChars = (contextResponseBodyMaxCharsSpinner.value as? Int) ?: 8_000,
+            contextCompactJson = contextCompactJson.isSelected,
             activeAiEnabled = activeAiEnabled.isSelected,
             activeAiMaxConcurrent = (activeAiMaxConcurrentSpinner.value as? Int) ?: 3,
             activeAiMaxPayloadsPerPoint = (activeAiMaxPayloadsSpinner.value as? Int) ?: 10,
@@ -757,6 +985,7 @@ class SettingsPanel(
         mcpExternal.isSelected = updated.mcpSettings.externalEnabled
         mcpStdio.isSelected = updated.mcpSettings.stdioEnabled
         mcpToken.text = updated.mcpSettings.token
+        mcpAllowedOrigins.text = updated.mcpSettings.allowedOrigins.joinToString("\n")
         mcpTlsEnabled.isSelected = updated.mcpSettings.tlsEnabled
         mcpTlsAuto.isSelected = updated.mcpSettings.tlsAutoGenerate
         mcpKeystorePath.text = updated.mcpSettings.tlsKeystorePath
@@ -765,12 +994,15 @@ class SettingsPanel(
         mcpMaxBodyMb.value = (updated.mcpSettings.maxBodyBytes / (1024 * 1024)).coerceAtLeast(1)
         mcpUnsafe.isSelected = updated.mcpSettings.unsafeEnabled
         applyMcpToolToggles(updated.mcpSettings.toolToggles)
+        applyUnsafeToolApprovals(updated.mcpSettings.enabledUnsafeTools)
 
         privacyWarning.isVisible = updated.privacyMode == PrivacyMode.OFF
         updatePrivacyWarnings()
         backendConfigPanel.setBackend(preferredBackendId())
         updateMcpTlsState()
+        updateMcpCorsWarning()
         updateUnsafeToolStates()
+        updateRiskWarnings()
         
         // Passive AI Scanner settings
         passiveAiEnabled.isSelected = updated.passiveAiEnabled
@@ -778,6 +1010,19 @@ class SettingsPanel(
         passiveAiRateSpinner.value = updated.passiveAiRateSeconds
         passiveAiMaxSizeSpinner.value = updated.passiveAiMaxSizeKb
         passiveAiMinSeverityCombo.selectedItem = updated.passiveAiMinSeverity.name
+        passiveAiEndpointDedupSpinner.value = updated.passiveAiEndpointDedupMinutes
+        passiveAiFingerprintDedupSpinner.value = updated.passiveAiResponseFingerprintDedupMinutes
+        passiveAiPromptCacheTtlSpinner.value = updated.passiveAiPromptCacheTtlMinutes
+        passiveAiEndpointCacheEntriesSpinner.value = updated.passiveAiEndpointCacheEntries
+        passiveAiFingerprintCacheEntriesSpinner.value = updated.passiveAiResponseFingerprintCacheEntries
+        passiveAiPromptCacheEntriesSpinner.value = updated.passiveAiPromptCacheEntries
+        passiveAiRequestBodyMaxCharsSpinner.value = updated.passiveAiRequestBodyMaxChars
+        passiveAiResponseBodyMaxCharsSpinner.value = updated.passiveAiResponseBodyMaxChars
+        passiveAiHeaderMaxCountSpinner.value = updated.passiveAiHeaderMaxCount
+        passiveAiParamMaxCountSpinner.value = updated.passiveAiParamMaxCount
+        contextRequestBodyMaxCharsSpinner.value = updated.contextRequestBodyMaxChars
+        contextResponseBodyMaxCharsSpinner.value = updated.contextResponseBodyMaxChars
+        contextCompactJson.isSelected = updated.contextCompactJson
         refreshPassiveAiStatus()
         
         // Active AI Scanner settings
@@ -811,6 +1056,16 @@ class SettingsPanel(
         return if (parsed.isEmpty()) fallback else parsed
     }
 
+    private fun parseAllowedOriginsInput(raw: String): List<String> {
+        return raw
+            .split('\n', ',', ';')
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .toList()
+    }
+
     private fun applyAndSaveSettings(updated: AgentSettings) {
         settings = updated
         settingsRepo.save(updated)
@@ -824,6 +1079,7 @@ class SettingsPanel(
         passiveAiScanner.rateLimitSeconds = updated.passiveAiRateSeconds
         passiveAiScanner.scopeOnly = updated.passiveAiScopeOnly
         passiveAiScanner.maxSizeKb = updated.passiveAiMaxSizeKb
+        passiveAiScanner.applyOptimizationSettings(updated)
         passiveAiScanner.setEnabled(updated.passiveAiEnabled)
         
         // Apply active AI scanner settings
@@ -842,6 +1098,7 @@ class SettingsPanel(
         refreshPassiveAiStatus()
         refreshActiveAiStatus()
         updateProfileWarnings()
+        updateRiskWarnings()
     }
 
     private fun applyMcpToolToggles(toggles: Map<String, Boolean>) {
@@ -1033,7 +1290,9 @@ class SettingsPanel(
             determinism = determinism,
             rotateSaltBtn = rotateSaltBtn,
             privacyWarning = privacyWarning,
-            privacyActiveWarning = privacyActiveWarning
+            privacyActiveWarning = privacyActiveWarning,
+            privacyRiskWarning = privacyRiskWarning,
+            saveFeedback = saveFeedbackLabel
         ).build()
     }
 
@@ -1049,6 +1308,19 @@ class SettingsPanel(
             passiveAiRateSpinner = passiveAiRateSpinner,
             passiveAiMaxSizeSpinner = passiveAiMaxSizeSpinner,
             passiveAiMinSeverityCombo = passiveAiMinSeverityCombo,
+            passiveAiEndpointDedupSpinner = passiveAiEndpointDedupSpinner,
+            passiveAiFingerprintDedupSpinner = passiveAiFingerprintDedupSpinner,
+            passiveAiPromptCacheTtlSpinner = passiveAiPromptCacheTtlSpinner,
+            passiveAiEndpointCacheEntriesSpinner = passiveAiEndpointCacheEntriesSpinner,
+            passiveAiFingerprintCacheEntriesSpinner = passiveAiFingerprintCacheEntriesSpinner,
+            passiveAiPromptCacheEntriesSpinner = passiveAiPromptCacheEntriesSpinner,
+            passiveAiRequestBodyMaxCharsSpinner = passiveAiRequestBodyMaxCharsSpinner,
+            passiveAiResponseBodyMaxCharsSpinner = passiveAiResponseBodyMaxCharsSpinner,
+            passiveAiHeaderMaxCountSpinner = passiveAiHeaderMaxCountSpinner,
+            passiveAiParamMaxCountSpinner = passiveAiParamMaxCountSpinner,
+            contextRequestBodyMaxCharsSpinner = contextRequestBodyMaxCharsSpinner,
+            contextResponseBodyMaxCharsSpinner = contextResponseBodyMaxCharsSpinner,
+            contextCompactJson = contextCompactJson,
             passiveAiStatusLabel = passiveAiStatusLabel,
             passiveAiViewFindings = passiveAiViewFindings,
             scannerTriageButton = scannerTriageButton,
@@ -1085,6 +1357,20 @@ class SettingsPanel(
         passiveAiScanner.rateLimitSeconds = (passiveAiRateSpinner.value as? Int) ?: 5
         passiveAiScanner.scopeOnly = passiveAiScopeOnly.isSelected
         passiveAiScanner.maxSizeKb = (passiveAiMaxSizeSpinner.value as? Int) ?: 96
+        passiveAiScanner.endpointDedupMinutes = (passiveAiEndpointDedupSpinner.value as? Int) ?: 30
+        passiveAiScanner.responseFingerprintDedupMinutes =
+            (passiveAiFingerprintDedupSpinner.value as? Int) ?: 30
+        passiveAiScanner.promptCacheTtlMinutes = (passiveAiPromptCacheTtlSpinner.value as? Int) ?: 30
+        passiveAiScanner.endpointCacheEntries = (passiveAiEndpointCacheEntriesSpinner.value as? Int) ?: 5_000
+        passiveAiScanner.responseFingerprintCacheEntries =
+            (passiveAiFingerprintCacheEntriesSpinner.value as? Int) ?: 5_000
+        passiveAiScanner.promptCacheEntries = (passiveAiPromptCacheEntriesSpinner.value as? Int) ?: 500
+        passiveAiScanner.requestBodyPromptMaxChars =
+            (passiveAiRequestBodyMaxCharsSpinner.value as? Int) ?: 2_000
+        passiveAiScanner.responseBodyPromptMaxChars =
+            (passiveAiResponseBodyMaxCharsSpinner.value as? Int) ?: 4_000
+        passiveAiScanner.headerMaxCount = (passiveAiHeaderMaxCountSpinner.value as? Int) ?: 40
+        passiveAiScanner.paramMaxCount = (passiveAiParamMaxCountSpinner.value as? Int) ?: 15
         passiveAiScanner.setEnabled(passiveAiEnabled.isSelected)
         refreshPassiveAiStatus()
     }
@@ -1165,6 +1451,46 @@ class SettingsPanel(
             "AI Active Scanner Findings (${findings.size} recent)",
             JOptionPane.PLAIN_MESSAGE
         )
+    }
+
+    private fun testBackendConnection(backendId: String) {
+        val settingsSnapshot = currentSettings()
+        Thread {
+            val result = backends.healthCheck(backendId, settingsSnapshot)
+            SwingUtilities.invokeLater {
+                val title = "Backend health: $backendId"
+                when (result) {
+                    is HealthCheckResult.Healthy -> JOptionPane.showMessageDialog(
+                        dialogParentComponent(),
+                        "Connection OK.",
+                        title,
+                        JOptionPane.INFORMATION_MESSAGE
+                    )
+                    is HealthCheckResult.Degraded -> JOptionPane.showMessageDialog(
+                        dialogParentComponent(),
+                        result.message,
+                        title,
+                        JOptionPane.WARNING_MESSAGE
+                    )
+                    is HealthCheckResult.Unavailable -> JOptionPane.showMessageDialog(
+                        dialogParentComponent(),
+                        result.message,
+                        title,
+                        JOptionPane.ERROR_MESSAGE
+                    )
+                    HealthCheckResult.Unknown -> JOptionPane.showMessageDialog(
+                        dialogParentComponent(),
+                        "No health signal available for this backend.",
+                        title,
+                        JOptionPane.INFORMATION_MESSAGE
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private fun showActiveScanQueueDialog() {
+        ActiveScanQueuePanel.showDialog(dialogParentComponent(), activeAiScanner)
     }
 
     private fun showScannerTriageDialog() {
@@ -1289,6 +1615,7 @@ class SettingsPanel(
             activeAiRiskDescription = activeAiRiskDescription,
             activeAiStatusLabel = activeAiStatusLabel,
             activeAiViewFindings = activeAiViewFindings,
+            activeAiViewQueue = activeAiViewQueue,
             activeAiClearQueue = activeAiClearQueue,
             activeAiResetStats = activeAiResetStats
         ).build()
@@ -1380,6 +1707,13 @@ class SettingsPanel(
             mcpTlsAuto = mcpTlsAuto,
             mcpKeystorePath = mcpKeystorePath,
             mcpKeystorePassword = mcpKeystorePassword,
+            mcpAllowedOrigins = JScrollPane(mcpAllowedOrigins).apply {
+                border = LineBorder(UiTheme.Colors.outline, 1, true)
+                verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
+                horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+            },
+            mcpCorsWarning = mcpCorsWarning,
+            mcpRiskWarning = mcpRiskWarning,
             mcpMaxConcurrent = mcpMaxConcurrent,
             mcpMaxBodyMb = mcpMaxBodyMb,
             mcpUnsafe = mcpUnsafe,
@@ -1475,6 +1809,7 @@ class SettingsPanel(
         val effectiveToggles = McpToolCatalog.mergeWithDefaults(settings.mcpSettings.toolToggles)
         val edition = api.burpSuite().version().edition()
         val unsafeEnabled = mcpUnsafe.isSelected
+        val unsafeAllowlist = settings.mcpSettings.enabledUnsafeTools
 
         McpToolCatalog.all().groupBy { it.category }.forEach { (category, tools) ->
             val label = JLabel(category)
@@ -1492,10 +1827,11 @@ class SettingsPanel(
                 checkbox.foreground = UiTheme.Colors.onSurface
                 checkbox.putClientProperty("unsafeOnly", tool.unsafeOnly)
                 checkbox.putClientProperty("description", tool.description)
-                checkbox.toolTipText = if (tool.unsafeOnly) {
-                    "${tool.description} Requires unsafe mode."
-                } else {
-                    tool.description
+                checkbox.toolTipText = when {
+                    !tool.unsafeOnly -> tool.description
+                    unsafeEnabled -> "${tool.description} Allowed by global unsafe mode."
+                    unsafeAllowlist.contains(tool.id) -> "${tool.description} Allowed by per-tool unsafe approval."
+                    else -> "${tool.description} Blocked until unsafe mode is enabled globally or approved in allowlist."
                 }
                 if (tool.proOnly && edition != BurpSuiteEdition.PROFESSIONAL) {
                     checkbox.isEnabled = false
@@ -1503,13 +1839,51 @@ class SettingsPanel(
                     checkbox.toolTipText = "${tool.description} (Pro only)"
                 } else {
                     checkbox.putClientProperty("proDisabled", false)
-                    checkbox.isEnabled = !tool.unsafeOnly || unsafeEnabled
+                    checkbox.isEnabled = true
                 }
                 mcpToolCheckboxes[tool.id] = checkbox
                 grid.add(checkbox)
             }
 
             toolsPanel.add(grid)
+            toolsPanel.add(Box.createRigidArea(java.awt.Dimension(0, 8)))
+        }
+
+        val unsafeTools = McpToolCatalog.all()
+            .filter { it.unsafeOnly }
+            .sortedBy { it.title }
+        if (unsafeTools.isNotEmpty()) {
+            val allowlistHeader = JLabel("Unsafe Allowlist (applies when global unsafe mode is OFF)")
+            allowlistHeader.font = UiTheme.Typography.label
+            allowlistHeader.foreground = UiTheme.Colors.onSurface
+            toolsPanel.add(allowlistHeader)
+
+            val allowlistGrid = JPanel(java.awt.GridLayout(0, 3, 16, 4))
+            allowlistGrid.background = UiTheme.Colors.surface
+            unsafeTools.forEach { tool ->
+                val approved = unsafeAllowlist.contains(tool.id)
+                val approval = JCheckBox(tool.title, approved).apply {
+                    font = UiTheme.Typography.body
+                    background = UiTheme.Colors.surface
+                    foreground = UiTheme.Colors.onSurface
+                    toolTipText = tool.description
+                    putClientProperty("proOnly", tool.proOnly)
+                    putClientProperty("toolId", tool.id)
+                }
+                val proDisabled = tool.proOnly && edition != BurpSuiteEdition.PROFESSIONAL
+                if (proDisabled) {
+                    approval.isEnabled = false
+                    approval.toolTipText = "${tool.description} (Pro only)"
+                } else {
+                    approval.isEnabled = !unsafeEnabled
+                }
+                approval.addActionListener {
+                    updateUnsafeToolStates()
+                }
+                mcpUnsafeApprovalCheckboxes[tool.id] = approval
+                allowlistGrid.add(approval)
+            }
+            toolsPanel.add(allowlistGrid)
             toolsPanel.add(Box.createRigidArea(java.awt.Dimension(0, 8)))
         }
 
@@ -1550,21 +1924,97 @@ class SettingsPanel(
                 return@forEach
             }
             val unsafeOnly = checkbox.getClientProperty("unsafeOnly") as? Boolean ?: false
-            checkbox.isEnabled = !unsafeOnly || unsafeEnabled
             val description = checkbox.getClientProperty("description") as? String ?: ""
+            val toolId = mcpToolCheckboxes.entries.firstOrNull { it.value === checkbox }?.key
+            val allowlisted = toolId != null && mcpUnsafeApprovalCheckboxes[toolId]?.isSelected == true
+            checkbox.isEnabled = true
             checkbox.toolTipText = if (unsafeOnly) {
-                if (unsafeEnabled) description else "$description Requires unsafe mode."
+                when {
+                    unsafeEnabled -> "$description Allowed by global unsafe mode."
+                    allowlisted -> "$description Allowed by per-tool unsafe approval."
+                    else -> "$description Blocked until unsafe mode is enabled globally or approved in allowlist."
+                }
             } else {
                 description
             }
         }
+        mcpUnsafeApprovalCheckboxes.forEach { (id, checkbox) ->
+            val proOnly = checkbox.getClientProperty("proOnly") as? Boolean ?: false
+            val proDisabled = proOnly && api.burpSuite().version().edition() != BurpSuiteEdition.PROFESSIONAL
+            checkbox.isEnabled = !unsafeEnabled && !proDisabled
+            val description = McpToolCatalog.all().firstOrNull { it.id == id }?.description.orEmpty()
+            checkbox.toolTipText = when {
+                proDisabled -> "$description (Pro only)"
+                unsafeEnabled -> "$description Ignored while global unsafe mode is ON."
+                else -> description
+            }
+        }
         updateProfileWarnings()
+        updateRiskWarnings()
     }
 
     private fun updatePrivacyWarnings() {
         val selected = privacyMode.selectedItem as? PrivacyMode ?: PrivacyMode.STRICT
         privacyWarning.isVisible = selected == PrivacyMode.OFF
         privacyActiveWarning.isVisible = selected == PrivacyMode.STRICT && activeAiEnabled.isSelected
+    }
+
+    private fun updateRiskWarnings() {
+        val selectedPrivacy = privacyMode.selectedItem as? PrivacyMode ?: PrivacyMode.STRICT
+        val mcpOn = mcpEnabled.isSelected
+        val external = mcpExternal.isSelected
+        val unsafeEnabled = mcpUnsafe.isSelected
+        val tokenBlank = mcpToken.text.trim().isBlank()
+
+        val mcpMessage = when {
+            !mcpOn -> null
+            external && unsafeEnabled ->
+                "High risk: External MCP + Unsafe mode allows remote state-changing tool execution."
+            external && tokenBlank ->
+                "High risk: External MCP is enabled with an empty token."
+            external && selectedPrivacy == PrivacyMode.OFF ->
+                "Warning: External MCP with Privacy OFF may expose raw traffic."
+            else -> null
+        }
+        mcpRiskWarning.text = mcpMessage ?: "MCP risk checks passed."
+        mcpRiskWarning.background = when {
+            mcpMessage == null -> UiTheme.Colors.statusRunning
+            mcpMessage.startsWith("High risk") -> UiTheme.Colors.statusCrashed
+            else -> UiTheme.Colors.statusTerminal
+        }
+        mcpRiskWarning.isVisible = mcpMessage != null
+
+        val privacyMessage = when {
+            selectedPrivacy == PrivacyMode.OFF && !auditEnabled.isSelected ->
+                "High risk: Privacy OFF and Audit logging OFF reduce traceability and data protection."
+            selectedPrivacy == PrivacyMode.OFF && activeAiEnabled.isSelected ->
+                "Warning: Privacy OFF with Active Scanner ON may expose sensitive request/response data."
+            else -> null
+        }
+        privacyRiskWarning.text = privacyMessage ?: "Privacy risk checks passed."
+        privacyRiskWarning.background = when {
+            privacyMessage == null -> UiTheme.Colors.statusRunning
+            privacyMessage.startsWith("High risk") -> UiTheme.Colors.statusCrashed
+            else -> UiTheme.Colors.statusTerminal
+        }
+        privacyRiskWarning.isVisible = privacyMessage != null
+    }
+
+    private fun updateSaveFeedback(message: String, backgroundColor: java.awt.Color, resetMs: Int? = null) {
+        saveFeedbackResetTimer?.stop()
+        saveFeedbackResetTimer = null
+        saveFeedbackLabel.text = message
+        saveFeedbackLabel.background = backgroundColor
+        saveFeedbackLabel.foreground = UiTheme.Colors.onPrimary
+        if (resetMs != null && resetMs > 0) {
+            saveFeedbackResetTimer = javax.swing.Timer(resetMs) {
+                saveFeedbackLabel.text = "No recent save activity."
+                saveFeedbackLabel.background = UiTheme.Colors.outlineVariant
+            }.also { timer ->
+                timer.isRepeats = false
+                timer.start()
+            }
+        }
     }
 
     private fun updateMcpTlsState() {
@@ -1580,8 +2030,26 @@ class SettingsPanel(
             if (mcpKeystorePassword.isEnabled) UiTheme.Colors.inputForeground else UiTheme.Colors.onSurfaceVariant
     }
 
+    private fun updateMcpCorsWarning() {
+        val external = mcpExternal.isSelected
+        val hasAllowedOrigins = parseAllowedOriginsInput(mcpAllowedOrigins.text).isNotEmpty()
+        mcpCorsWarning.isVisible = external && !hasAllowedOrigins
+    }
+
     private fun collectMcpToolToggles(): Map<String, Boolean> {
         return mcpToolCheckboxes.mapValues { it.value.isSelected }
+    }
+
+    private fun collectEnabledUnsafeTools(): Set<String> {
+        return mcpUnsafeApprovalCheckboxes
+            .filterValues { it.isSelected }
+            .keys
+    }
+
+    private fun applyUnsafeToolApprovals(enabledUnsafeTools: Set<String>) {
+        mcpUnsafeApprovalCheckboxes.forEach { (id, checkbox) ->
+            checkbox.isSelected = enabledUnsafeTools.contains(id)
+        }
     }
 
     private fun updateProfileWarnings() {
@@ -1607,6 +2075,7 @@ class SettingsPanel(
     private fun availableMcpToolsWithReasons(): Pair<Set<String>, Map<String, String>> {
         val edition = api.burpSuite().version().edition()
         val unsafeEnabled = mcpUnsafe.isSelected
+        val enabledUnsafeTools = collectEnabledUnsafeTools()
         val effectiveToggles = McpToolCatalog.mergeWithDefaults(collectMcpToolToggles())
         val available = mutableSetOf<String>()
         val reasons = mutableMapOf<String, String>()
@@ -1615,8 +2084,8 @@ class SettingsPanel(
             when {
                 tool.proOnly && edition != BurpSuiteEdition.PROFESSIONAL ->
                     reasons[id] = "requires Burp Professional."
-                tool.unsafeOnly && !unsafeEnabled ->
-                    reasons[id] = "requires Unsafe mode to be enabled."
+                tool.unsafeOnly && !unsafeEnabled && !enabledUnsafeTools.contains(tool.id) ->
+                    reasons[id] = "requires Unsafe mode or explicit per-tool unsafe approval."
                 effectiveToggles[tool.id] != true ->
                     reasons[id] = "disabled in MCP Tools settings."
                 else -> available.add(id)

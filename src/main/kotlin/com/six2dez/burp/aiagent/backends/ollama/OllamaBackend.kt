@@ -6,13 +6,20 @@ import com.six2dez.burp.aiagent.backends.AgentConnection
 import com.six2dez.burp.aiagent.backends.AiBackend
 import com.six2dez.burp.aiagent.backends.BackendDiagnostics
 import com.six2dez.burp.aiagent.backends.BackendLaunchConfig
+import com.six2dez.burp.aiagent.backends.HealthCheckResult
+import com.six2dez.burp.aiagent.backends.TokenUsage
+import com.six2dez.burp.aiagent.backends.UsageAwareConnection
+import com.six2dez.burp.aiagent.backends.http.CircuitBreaker
 import com.six2dez.burp.aiagent.backends.http.ConversationHistory
 import com.six2dez.burp.aiagent.backends.http.HttpBackendSupport
+import com.six2dez.burp.aiagent.config.AgentSettings
+import com.six2dez.burp.aiagent.util.HeaderParser
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 class OllamaBackend : AiBackend {
     override val id: String = "ollama"
@@ -24,7 +31,7 @@ class OllamaBackend : AiBackend {
         val baseUrl = config.baseUrl?.trimEnd('/') ?: "http://127.0.0.1:11434"
         val model = config.model?.ifBlank { "llama3.1" } ?: "llama3.1"
         val timeoutSeconds = (config.requestTimeoutSeconds ?: 120L).coerceIn(30L, 3600L)
-        val client = HttpBackendSupport.buildClient(timeoutSeconds)
+        val client = HttpBackendSupport.sharedClient(baseUrl, timeoutSeconds)
         return OllamaConnection(
             client = client,
             mapper = mapper,
@@ -34,8 +41,24 @@ class OllamaBackend : AiBackend {
             determinismMode = config.determinismMode,
             sessionId = config.sessionId,
             contextWindow = config.contextWindow,
+            circuitBreaker = HttpBackendSupport.newCircuitBreaker(),
             debugLog = { BackendDiagnostics.log("[ollama] $it") },
             errorLog = { BackendDiagnostics.logError("[ollama] $it") }
+        )
+    }
+
+    override fun healthCheck(settings: AgentSettings): HealthCheckResult {
+        val baseUrl = settings.ollamaUrl.trim()
+        if (baseUrl.isBlank()) {
+            return HealthCheckResult.Unavailable("Ollama URL is empty.")
+        }
+        val headers = HeaderParser.withBearerToken(
+            settings.ollamaApiKey,
+            HeaderParser.parse(settings.ollamaHeaders)
+        )
+        return HttpBackendSupport.healthCheckGet(
+            url = "${baseUrl.trimEnd('/')}/api/tags",
+            headers = headers
         )
     }
 
@@ -48,17 +71,21 @@ class OllamaBackend : AiBackend {
         private val determinismMode: Boolean,
         private val sessionId: String?,
         private val contextWindow: Int?,
+        private val circuitBreaker: CircuitBreaker,
         private val debugLog: (String) -> Unit,
         private val errorLog: (String) -> Unit
-    ) : AgentConnection {
+    ) : AgentConnection, UsageAwareConnection {
 
         private val alive = AtomicBoolean(true)
         private val exec = Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "ollama-connection").apply { isDaemon = true }
         }
         private val conversationHistory = ConversationHistory(20)
+        private val lastTokenUsageRef = AtomicReference<TokenUsage?>(null)
 
         override fun isAlive(): Boolean = alive.get()
+
+        override fun lastTokenUsage(): TokenUsage? = lastTokenUsageRef.get()
 
         override fun send(
             text: String,
@@ -74,6 +101,7 @@ class OllamaBackend : AiBackend {
             debugLog("send invoked (alive=${isAlive()}) textBytes=${text.toByteArray(Charsets.UTF_8).size}")
             exec.submit {
                 try {
+                    lastTokenUsageRef.set(null)
                     debugLog("worker started on ${Thread.currentThread().name}")
                     if (history != null) {
                         conversationHistory.setHistory(history)
@@ -82,6 +110,13 @@ class OllamaBackend : AiBackend {
                     var attempt = 0
                     var lastError: Exception? = null
                     while (attempt < maxAttempts) {
+                        val permission = circuitBreaker.tryAcquire()
+                        if (!permission.allowed) {
+                            val failFastError = HttpBackendSupport.openCircuitError("Ollama", permission.retryAfterMs)
+                            debugLog("circuit open: ${failFastError.message}")
+                            onComplete(failFastError)
+                            return@submit
+                        }
                         if (!isAlive()) {
                             onComplete(IllegalStateException("Connection closed"))
                             return@submit
@@ -136,6 +171,16 @@ class OllamaBackend : AiBackend {
                                 // Extract content from either 'content' or 'response' field
                                 val content = node.path("message").path("content").asText()
                                     .ifBlank { node.path("response").asText() }
+                                val promptTokens = node.path("prompt_eval_count").asInt(-1)
+                                val completionTokens = node.path("eval_count").asInt(-1)
+                                if (promptTokens >= 0 || completionTokens >= 0) {
+                                    lastTokenUsageRef.set(
+                                        TokenUsage(
+                                            inputTokens = promptTokens.coerceAtLeast(0),
+                                            outputTokens = completionTokens.coerceAtLeast(0)
+                                        )
+                                    )
+                                }
 
                                 if (content.isBlank()) {
                                     onComplete(IllegalStateException("Ollama response content was empty"))
@@ -145,13 +190,18 @@ class OllamaBackend : AiBackend {
                                 debugLog("received complete response (${content.length} chars)")
                                 // Add assistant response to conversation history
                                 conversationHistory.addAssistant(content)
+                                circuitBreaker.recordSuccess()
                                 onChunk(content)
                                 onComplete(null)
                                 return@submit
                             }
                         } catch (e: Exception) {
                             lastError = e
-                            if (!HttpBackendSupport.isRetryableConnectionError(e) || attempt == maxAttempts - 1) {
+                            val retryable = HttpBackendSupport.isRetryableConnectionError(e)
+                            if (retryable) {
+                                circuitBreaker.recordFailure()
+                            }
+                            if (!retryable || attempt == maxAttempts - 1) {
                                 throw e
                             }
                             val delayMs = HttpBackendSupport.retryDelayMs(attempt)

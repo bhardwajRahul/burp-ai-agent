@@ -5,9 +5,11 @@ import com.six2dez.burp.aiagent.backends.cli.CodexCliBackendFactory
 import com.six2dez.burp.aiagent.backends.cli.GeminiCliBackendFactory
 import com.six2dez.burp.aiagent.backends.cli.OpenCodeCliBackendFactory
 import com.six2dez.burp.aiagent.backends.cli.ClaudeCliBackendFactory
+import com.six2dez.burp.aiagent.backends.http.HttpBackendSupport
 import com.six2dez.burp.aiagent.backends.lmstudio.LmStudioBackendFactory
 import com.six2dez.burp.aiagent.backends.ollama.OllamaBackendFactory
 import com.six2dez.burp.aiagent.backends.openai.OpenAiCompatibleBackendFactory
+import com.six2dez.burp.aiagent.config.AgentSettings
 import java.io.File
 import java.net.URLClassLoader
 import java.util.ServiceLoader
@@ -15,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 class BackendRegistry(private val api: MontoyaApi) {
     private val backends = ConcurrentHashMap<String, AiBackend>()
+    private val availabilityCache = ConcurrentHashMap<Pair<String, Int>, Boolean>()
     private var externalClassLoader: URLClassLoader? = null
 
     private val externalBackendDir = File(System.getProperty("user.home"), ".burp-ai-agent/backends").also { it.mkdirs() }
@@ -25,6 +28,7 @@ class BackendRegistry(private val api: MontoyaApi) {
 
     fun reload() {
         backends.clear()
+        availabilityCache.clear()
         closeExternalClassLoader()
 
         // Built-ins (same extension JAR)
@@ -58,8 +62,6 @@ class BackendRegistry(private val api: MontoyaApi) {
 
     fun get(id: String): AiBackend? = backends[id]
 
-    private val availabilityCache = ConcurrentHashMap<Pair<String, Int>, Boolean>()
-
     fun listBackendIds(settings: com.six2dez.burp.aiagent.config.AgentSettings): List<String> {
         val settingsHash = settings.hashCode()
         return backends.values
@@ -71,9 +73,30 @@ class BackendRegistry(private val api: MontoyaApi) {
             .map { it.id }
     }
 
+    fun healthCheck(backendId: String, settings: AgentSettings): HealthCheckResult {
+        val backend = backends[backendId]
+            ?: return HealthCheckResult.Unavailable("Backend not found: $backendId")
+        return try {
+            val result = backend.healthCheck(settings)
+            if (result is HealthCheckResult.Unknown) {
+                if (backend.isAvailable(settings)) {
+                    HealthCheckResult.Healthy
+                } else {
+                    HealthCheckResult.Unavailable("Backend is not available with current configuration.")
+                }
+            } else {
+                result
+            }
+        } catch (e: Exception) {
+            HealthCheckResult.Unavailable(e.message ?: "Health check failed")
+        }
+    }
+
     fun shutdown() {
         backends.clear()
+        availabilityCache.clear()
         closeExternalClassLoader()
+        HttpBackendSupport.shutdownSharedClients()
     }
 
     private fun loadExternalBackendJars() {

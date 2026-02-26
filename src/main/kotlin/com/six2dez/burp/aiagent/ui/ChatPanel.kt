@@ -1,8 +1,10 @@
 package com.six2dez.burp.aiagent.ui
 
 import burp.api.montoya.MontoyaApi
+import com.six2dez.burp.aiagent.backends.AgentConnection
 import com.six2dez.burp.aiagent.agents.AgentProfileLoader
 import com.six2dez.burp.aiagent.backends.ChatMessage
+import com.six2dez.burp.aiagent.backends.UsageAwareConnection
 import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.context.ContextCapture
 import com.six2dez.burp.aiagent.mcp.McpRequestLimiter
@@ -13,12 +15,15 @@ import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
 import com.six2dez.burp.aiagent.ui.components.ActionCard
 import com.six2dez.burp.aiagent.ui.components.PrivacyPill
+import com.six2dez.burp.aiagent.ui.components.ToolInvocationDialog
+import com.six2dez.burp.aiagent.util.TokenTracker
 import java.awt.BorderLayout
 import java.awt.Dimension
-import java.awt.event.KeyAdapter
+import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.net.URI
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.contentOrNull
@@ -37,6 +42,25 @@ import javax.swing.JTextArea
 import javax.swing.ListSelectionModel
 import javax.swing.SwingUtilities
 import javax.swing.border.EmptyBorder
+import javax.swing.event.DocumentEvent
+import javax.swing.event.DocumentListener
+
+internal class InFlightConnectionTracker {
+    private val ref = AtomicReference<AgentConnection?>()
+
+    fun set(connection: AgentConnection?) {
+        ref.set(connection)
+    }
+
+    fun clearIfMatches(expected: AgentConnection?): Boolean {
+        if (expected == null) return ref.get() == null
+        return ref.compareAndSet(expected, null)
+    }
+
+    fun take(): AgentConnection? = ref.getAndSet(null)
+
+    fun current(): AgentConnection? = ref.get()
+}
 
 class ChatPanel(
     private val api: MontoyaApi,
@@ -58,7 +82,7 @@ class ChatPanel(
     private val cancelBtn = JButton("Cancel")
     private val clearChatBtn = JButton("Clear Chat")
     private val toolsBtn = JButton("Tools")
-    @Volatile private var activeConnection: com.six2dez.burp.aiagent.backends.AgentConnection? = null
+    private val inFlightConnection = InFlightConnectionTracker()
     @Volatile private var isSending = false
     private val inputArea = JTextArea(3, 24)
     private val newSessionBtn = JButton("New Session")
@@ -66,7 +90,10 @@ class ChatPanel(
     private val sessionPanels = linkedMapOf<String, SessionPanel>()
     private val sessionStates = linkedMapOf<String, ToolSessionState>()
     private val sessionsById = linkedMapOf<String, ChatSession>()
+    private val sessionDrafts = linkedMapOf<String, String>()
     private var mcpAvailable = true
+    private var activeSessionId: String? = null
+    private var suppressDraftSync = false
     private val usageStatsLine1 = JLabel("No usage yet")
     private val usageStatsLine2 = JLabel("")
     private val usageStatsLine3 = JLabel("")
@@ -80,8 +107,9 @@ class ChatPanel(
         sessionsList.background = UiTheme.Colors.surface
         sessionsList.foreground = UiTheme.Colors.onSurface
         sessionsList.addListSelectionListener {
+            if (it.valueIsAdjusting) return@addListSelectionListener
             val selected = sessionsList.selectedValue ?: return@addListSelectionListener
-            showSession(selected.id)
+            switchToSession(selected.id)
         }
         sessionsList.addMouseListener(object : java.awt.event.MouseAdapter() {
             override fun mousePressed(e: java.awt.event.MouseEvent) {
@@ -101,8 +129,14 @@ class ChatPanel(
 
         toolsBtn.font = UiTheme.Typography.label
         toolsBtn.isFocusPainted = false
-        toolsBtn.toolTipText = "Browse and invoke MCP tools. Select a tool to insert /tool <id> {} into input. Fill JSON args and Send to execute."
-        toolsBtn.addActionListener { showToolsMenu() }
+        toolsBtn.toolTipText = "Open tool dialog. Shift-click to insert /tool command manually."
+        toolsBtn.addActionListener { event ->
+            if ((event.modifiers and InputEvent.SHIFT_DOWN_MASK) != 0) {
+                showToolsMenu()
+            } else {
+                openToolDialog()
+            }
+        }
 
         newSessionBtn.font = UiTheme.Typography.label
         newSessionBtn.isFocusPainted = false
@@ -240,12 +274,30 @@ class ChatPanel(
         inputArea.margin = java.awt.Insets(8, 10, 8, 10)
         val inputMap = inputArea.getInputMap(JComponent.WHEN_FOCUSED)
         val actionMap = inputArea.actionMap
+        val menuMask = java.awt.Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
         inputMap.put(javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "sendMessage")
         inputMap.put(javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.SHIFT_DOWN_MASK), "insert-break")
+        inputMap.put(javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_T, menuMask), "openToolDialog")
+        inputMap.put(javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "cancelInFlight")
         actionMap.put("sendMessage", object : javax.swing.AbstractAction() {
             override fun actionPerformed(e: java.awt.event.ActionEvent?) {
                 sendFromInput()
             }
+        })
+        actionMap.put("openToolDialog", object : javax.swing.AbstractAction() {
+            override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+                openToolDialog()
+            }
+        })
+        actionMap.put("cancelInFlight", object : javax.swing.AbstractAction() {
+            override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+                cancelInFlightRequest()
+            }
+        })
+        inputArea.document.addDocumentListener(object : DocumentListener {
+            override fun insertUpdate(e: DocumentEvent?) = syncDraftFromInput()
+            override fun removeUpdate(e: DocumentEvent?) = syncDraftFromInput()
+            override fun changedUpdate(e: DocumentEvent?) = syncDraftFromInput()
         })
 
         sendBtn.font = UiTheme.Typography.label
@@ -264,7 +316,7 @@ class ChatPanel(
         cancelBtn.font = UiTheme.Typography.label
         cancelBtn.isFocusPainted = false
         cancelBtn.isVisible = false
-        cancelBtn.addActionListener { cancelCurrentRequest() }
+        cancelBtn.addActionListener { cancelInFlightRequest() }
 
         actions.add(privacyPill)
         actions.add(toolsBtn)
@@ -345,6 +397,7 @@ class ChatPanel(
             toolPreamble?.takeIf { it.isNotBlank() },
             prompt.takeIf { it.isNotBlank() }
         ).joinToString("\n\n")
+        val promptChars = finalPrompt.length
 
         val responseBuffer = StringBuilder()
         val history = session?.messages?.let { msgs ->
@@ -358,6 +411,7 @@ class ChatPanel(
             }
             trimmed.map { ChatMessage(normalizeRole(it.role), it.content) }
         }
+        val callbackConnectionRef = AtomicReference<AgentConnection?>(null)
         val connection = supervisor.sendChat(
             chatSessionId = sessionId,
             backendId = backendId,
@@ -371,8 +425,24 @@ class ChatPanel(
                 SwingUtilities.invokeLater { assistant.appendChunk(chunk) }
             },
             onComplete = { err ->
-                activeConnection = null
-                SwingUtilities.invokeLater { setSendingState(false) }
+                val callbackConnection = callbackConnectionRef.get()
+                val shouldSetIdle = if (callbackConnection == null) {
+                    inFlightConnection.current() == null
+                } else {
+                    inFlightConnection.clearIfMatches(callbackConnection)
+                }
+                if (shouldSetIdle) {
+                    SwingUtilities.invokeLater { setSendingState(false) }
+                }
+                val usage = (callbackConnection as? UsageAwareConnection)?.lastTokenUsage()
+                TokenTracker.record(
+                    flow = "chat",
+                    backendId = backendId,
+                    inputChars = promptChars,
+                    outputChars = responseBuffer.length,
+                    inputTokensActual = usage?.inputTokens,
+                    outputTokensActual = usage?.outputTokens
+                )
                 if (err != null) {
                     SwingUtilities.invokeLater { assistant.append("\n[Error] ${err.message}") }
                     onCompleted?.invoke(responseBuffer.toString(), err)
@@ -400,7 +470,8 @@ class ChatPanel(
                 }
             }
         )
-        activeConnection = connection
+        callbackConnectionRef.set(connection)
+        inFlightConnection.set(connection)
     }
 
     private fun createSession(title: String): ChatSession {
@@ -409,13 +480,14 @@ class ChatPanel(
         val session = ChatSession(id, title, System.currentTimeMillis(), lastBackendId = backendId)
         sessionsModel.addElement(session)
         sessionsById[id] = session
+        sessionDrafts[id] = ""
 
         val panel = SessionPanel()
         sessionPanels[id] = panel
         sessionStates[id] = ToolSessionState()
         chatCards.add(panel.root, id)
         sessionsList.selectedIndex = sessionsModel.size - 1
-        showSession(id)
+        switchToSession(id)
         return session
     }
 
@@ -472,6 +544,7 @@ class ChatPanel(
             }
             sessionStates.remove(session.id)
             sessionsById.remove(session.id)
+            sessionDrafts.remove(session.id)
             sessionsModel.removeElement(session)
             // Clean persisted data
             try {
@@ -483,6 +556,8 @@ class ChatPanel(
                 createSession("Chat 1")
             } else if (sessionsList.isSelectionEmpty) {
                 sessionsList.selectedIndex = sessionsModel.size - 1
+            } else {
+                sessionsList.selectedValue?.id?.let { switchToSession(it) }
             }
             updateUsageStatsLabel()
         }
@@ -542,31 +617,77 @@ class ChatPanel(
     }
 
     /** Cancel the current in-flight AI request */
-    private fun cancelCurrentRequest() {
-        val conn = activeConnection ?: return
-        activeConnection = null
+    fun cancelInFlightRequest(): Boolean {
+        val conn = inFlightConnection.take() ?: return false
         setSendingState(false)
         try {
             conn.stop()
         } catch (_: Exception) {}
-        val sessionId = sessionsList.selectedValue?.id ?: return
-        val panel = sessionPanels[sessionId] ?: return
+        val sessionId = sessionsList.selectedValue?.id ?: return true
+        val panel = sessionPanels[sessionId] ?: return true
         panel.addMessage("System", "Request cancelled.")
+        return true
+    }
+
+    fun openToolDialog() {
+        if (!mcpAvailable) {
+            showError("MCP server is not running.")
+            return
+        }
+        val session = sessionsList.selectedValue ?: createSession("Chat ${sessionsModel.size + 1}")
+        val panel = sessionPanels[session.id] ?: return
+        val state = sessionStates.getOrPut(session.id) { ToolSessionState() }
+        val settings = getSettings()
+        val context = buildToolContext(settings, session.id)
+        val availableTools = McpToolCatalog.all()
+            .filter { descriptor ->
+                val enabled = context.isToolEnabled(descriptor.id) && context.isUnsafeToolAllowed(descriptor.id)
+                val proAllowed = !descriptor.proOnly || context.edition == burp.api.montoya.core.BurpSuiteEdition.PROFESSIONAL
+                enabled && proAllowed
+            }
+
+        if (availableTools.isEmpty()) {
+            showError("No enabled MCP tools are available with current settings.")
+            return
+        }
+
+        val owner = SwingUtilities.getWindowAncestor(root)
+        val invocation = ToolInvocationDialog(owner, availableTools, McpToolExecutor::inputSchema).showDialog() ?: return
+        val args = invocation.argsJson
+        val commandPreview = if (args.isNullOrBlank()) {
+            "/tool ${invocation.toolId} {}"
+        } else {
+            "/tool ${invocation.toolId} $args"
+        }
+
+        panel.addMessage("You", commandPreview)
+        session.messages.add(ChatMessage("user", commandPreview))
+
+        val result = McpToolExecutor.executeTool(invocation.toolId, args, context)
+        panel.addMessage("Tool result: ${invocation.toolId}", result)
+        session.messages.add(ChatMessage("assistant", "Tool result (${invocation.toolId}):\n$result"))
+        state.toolsMode = true
+        state.toolCatalogSent = true
+        refreshSessionList()
+    }
+
+    private fun cancelCurrentRequest() {
+        cancelInFlightRequest()
     }
 
     private fun showToolsMenu() {
         val menu = javax.swing.JPopupMenu()
         val tools = McpToolCatalog.all()
         val settings = getSettings()
-        val enabledTools = McpToolCatalog.mergeWithDefaults(settings.mcpSettings.toolToggles)
-        val unsafeEnabled = settings.mcpSettings.unsafeEnabled
+        val sessionId = sessionsList.selectedValue?.id ?: activeSessionId ?: "preview"
+        val context = buildToolContext(settings, sessionId)
 
         tools.groupBy { it.category }.forEach { (category, categoryTools) ->
             val submenu = javax.swing.JMenu(category)
             categoryTools.sortedBy { it.title }.forEach { tool ->
-                val isEnabled = enabledTools[tool.id] == true
-                val isUnsafe = tool.unsafeOnly
-                val canRun = isEnabled && (!isUnsafe || unsafeEnabled)
+                val canRun = context.isToolEnabled(tool.id) &&
+                    context.isUnsafeToolAllowed(tool.id) &&
+                    (!tool.proOnly || context.edition == burp.api.montoya.core.BurpSuiteEdition.PROFESSIONAL)
                 
                 val item = javax.swing.JMenuItem(tool.title)
                 item.isEnabled = canRun
@@ -726,9 +847,30 @@ class ChatPanel(
         privacyPill.updateMode(getSettings().privacyMode)
     }
 
-    private fun showSession(id: String) {
+    private fun switchToSession(id: String) {
+        persistActiveSessionDraft()
+        activeSessionId = id
         val layout = chatCards.layout as java.awt.CardLayout
         layout.show(chatCards, id)
+        restoreDraftForSession(id)
+    }
+
+    private fun persistActiveSessionDraft() {
+        val id = activeSessionId ?: return
+        sessionDrafts[id] = inputArea.text
+    }
+
+    private fun restoreDraftForSession(id: String) {
+        val draft = sessionDrafts[id].orEmpty()
+        suppressDraftSync = true
+        inputArea.text = draft
+        suppressDraftSync = false
+    }
+
+    private fun syncDraftFromInput() {
+        if (suppressDraftSync) return
+        val id = activeSessionId ?: sessionsList.selectedValue?.id ?: return
+        sessionDrafts[id] = inputArea.text
     }
 
     companion object {
@@ -770,7 +912,9 @@ class ChatPanel(
             usageStatsLine2.text = stats.perBackend.entries
                 .sortedByDescending { it.value }
                 .joinToString(", ") { "${it.key}: ${it.value}" }
-            usageStatsLine3.text = ""
+            val estIn = estimatedTokens(stats.totalCharsIn)
+            val estOut = estimatedTokens(stats.totalCharsOut)
+            usageStatsLine3.text = "Est tokens | In: ${formatChars(estIn)} | Out: ${formatChars(estOut)}"
         }
     }
 
@@ -780,6 +924,12 @@ class ChatPanel(
             chars >= 1_000 -> String.format("%.1fK", chars / 1_000.0)
             else -> "${chars}"
         }
+    }
+
+    private fun estimatedTokens(chars: Long): Long {
+        if (chars <= 0) return 0
+        val capped = chars.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        return TokenTracker.estimateTokens(capped).toLong()
     }
 
     private fun normalizeRole(role: String): String {
@@ -795,6 +945,7 @@ class ChatPanel(
 
     private val SESSIONS_KEY = "chat.sessions"
     private val SESSION_MSG_KEY_PREFIX = "chat.messages."
+    private val SESSION_DRAFTS_KEY = "chat.drafts"
     private val MIGRATED_KEY = "chat.migrated_to_project"
 
     private fun chatPrefs(): burp.api.montoya.persistence.Preferences {
@@ -814,6 +965,7 @@ class ChatPanel(
 
     fun saveSessions() {
         try {
+            persistActiveSessionDraft()
             val prefs = chatPrefs()
             val sessionList = sessionsById.values.map { s ->
                 buildString {
@@ -841,6 +993,11 @@ class ChatPanel(
                 }
                 prefs.setString(SESSION_MSG_KEY_PREFIX + s.id, msgData)
             }
+            val draftsData = sessionsById.keys.map { id ->
+                val draft = sessionDrafts[id].orEmpty().replace("\n", "\u001D")
+                "$id\u001E$draft"
+            }
+            prefs.setString(SESSION_DRAFTS_KEY, draftsData.joinToString("\n"))
 
             api.logging().logToOutput("[ChatPanel] Saved ${sessionsById.size} sessions with messages.")
         } catch (e: Exception) {
@@ -914,6 +1071,7 @@ class ChatPanel(
 
                 sessionsModel.addElement(session)
                 sessionsById[id] = session
+                sessionDrafts[id] = ""
                 val panel = SessionPanel()
                 sessionPanels[id] = panel
                 sessionStates[id] = ToolSessionState()
@@ -925,9 +1083,22 @@ class ChatPanel(
                 }
             }
 
+            val draftsRaw = prefs.getString(SESSION_DRAFTS_KEY).orEmpty()
+            if (draftsRaw.isNotBlank()) {
+                draftsRaw.split('\n')
+                    .filter { it.isNotBlank() }
+                    .forEach { entry ->
+                        val parts = entry.split("\u001E", limit = 2)
+                        if (parts.size != 2) return@forEach
+                        val id = parts[0]
+                        if (!sessionsById.containsKey(id)) return@forEach
+                        sessionDrafts[id] = parts[1].replace("\u001D", "\n")
+                    }
+            }
+
             if (sessionsModel.size > 0) {
                 sessionsList.selectedIndex = sessionsModel.size - 1
-                showSession(sessionsById.keys.last())
+                switchToSession(sessionsById.keys.last())
             }
             updateUsageStatsLabel()
             api.logging().logToOutput("[ChatPanel] Restored ${sessionsById.size} sessions with messages.")
@@ -957,8 +1128,14 @@ class ChatPanel(
                     }
                 }
 
+                val draftsRaw = globalPrefs.getString(SESSION_DRAFTS_KEY)
+                if (!draftsRaw.isNullOrBlank()) {
+                    projectPrefs.setString(SESSION_DRAFTS_KEY, draftsRaw)
+                }
+
                 // Clear global after migration
                 globalPrefs.setString(SESSIONS_KEY, "")
+                globalPrefs.setString(SESSION_DRAFTS_KEY, "")
                 for (line in lines) {
                     val parts = line.split('\t')
                     if (parts.isEmpty()) continue
@@ -1561,20 +1738,16 @@ class ChatPanel(
         if (context == null) return null
         val header = """
 Tool mode is enabled.
-If a required MCP tool is available and enabled, call it instead of saying you cannot execute tools.
+Use enabled MCP tools when needed.
 For confirmed vulnerabilities that should be recorded, call `issue_create` with concrete evidence.
-
-Tool call format:
-- Preferred: fenced block with language `tool` containing only JSON.
-- Accepted JSON keys: `tool`+`args`, `name`+`arguments`, or `function.name`+`function.arguments`.
-
-After a tool call, wait for the tool result. Then respond using the tool output.
+Tool call JSON format: `tool`+`args` (or `name`+`arguments`).
+After a tool call, wait for the tool result, then continue.
         """.trim()
         if (state.toolCatalogSent) return header
         if (mutateState) {
             state.toolCatalogSent = true
         }
-        val list = McpToolExecutor.describeTools(context, includeSchemas = false)
+        val list = McpToolExecutor.describeTools(context, includeSchemas = false, includeDisabled = false)
         return header + "\n\n" + list
     }
 
@@ -1588,6 +1761,7 @@ After a tool call, wait for the tool result. Then respond using the tool output.
             toolToggles = toggles,
             unsafeEnabled = settings.mcpSettings.unsafeEnabled,
             unsafeTools = McpToolCatalog.unsafeToolIds(),
+            enabledUnsafeTools = settings.mcpSettings.enabledUnsafeTools,
             limiter = McpRequestLimiter(settings.mcpSettings.maxConcurrentRequests),
             edition = api.burpSuite().version().edition(),
             maxBodyBytes = settings.mcpSettings.maxBodyBytes

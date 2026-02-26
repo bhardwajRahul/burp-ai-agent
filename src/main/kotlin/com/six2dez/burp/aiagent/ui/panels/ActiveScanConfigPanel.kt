@@ -33,6 +33,7 @@ class ActiveScanConfigPanel(
     private val activeAiRiskDescription: JLabel,
     private val activeAiStatusLabel: JLabel,
     private val activeAiViewFindings: JButton,
+    private val activeAiViewQueue: JButton,
     private val activeAiClearQueue: JButton,
     private val activeAiResetStats: JButton
 ) : ConfigPanel {
@@ -93,6 +94,12 @@ class ActiveScanConfigPanel(
         activeAiViewFindings.border = EmptyBorder(6, 10, 6, 10)
         activeAiViewFindings.isFocusPainted = false
 
+        activeAiViewQueue.font = UiTheme.Typography.label
+        activeAiViewQueue.background = UiTheme.Colors.surface
+        activeAiViewQueue.foreground = UiTheme.Colors.primary
+        activeAiViewQueue.border = EmptyBorder(6, 10, 6, 10)
+        activeAiViewQueue.isFocusPainted = false
+
         activeAiClearQueue.font = UiTheme.Typography.label
         activeAiClearQueue.background = UiTheme.Colors.surface
         activeAiClearQueue.foreground = UiTheme.Colors.primary
@@ -129,6 +136,8 @@ class ActiveScanConfigPanel(
         actionsPanel.layout = BoxLayout(actionsPanel, BoxLayout.X_AXIS)
         actionsPanel.background = UiTheme.Colors.surface
         actionsPanel.add(activeAiViewFindings)
+        actionsPanel.add(Box.createRigidArea(java.awt.Dimension(8, 0)))
+        actionsPanel.add(activeAiViewQueue)
         actionsPanel.add(Box.createRigidArea(java.awt.Dimension(8, 0)))
         actionsPanel.add(activeAiClearQueue)
         actionsPanel.add(Box.createRigidArea(java.awt.Dimension(8, 0)))

@@ -25,6 +25,19 @@ class PassiveScanConfigPanel(
     private val passiveAiRateSpinner: JSpinner,
     private val passiveAiMaxSizeSpinner: JSpinner,
     private val passiveAiMinSeverityCombo: JComboBox<*>,
+    private val passiveAiEndpointDedupSpinner: JSpinner,
+    private val passiveAiFingerprintDedupSpinner: JSpinner,
+    private val passiveAiPromptCacheTtlSpinner: JSpinner,
+    private val passiveAiEndpointCacheEntriesSpinner: JSpinner,
+    private val passiveAiFingerprintCacheEntriesSpinner: JSpinner,
+    private val passiveAiPromptCacheEntriesSpinner: JSpinner,
+    private val passiveAiRequestBodyMaxCharsSpinner: JSpinner,
+    private val passiveAiResponseBodyMaxCharsSpinner: JSpinner,
+    private val passiveAiHeaderMaxCountSpinner: JSpinner,
+    private val passiveAiParamMaxCountSpinner: JSpinner,
+    private val contextRequestBodyMaxCharsSpinner: JSpinner,
+    private val contextResponseBodyMaxCharsSpinner: JSpinner,
+    private val contextCompactJson: JCheckBox,
     private val passiveAiStatusLabel: JLabel,
     private val passiveAiViewFindings: JButton,
     private val scannerTriageButton: JButton,
@@ -55,6 +68,47 @@ class PassiveScanConfigPanel(
         passiveAiMinSeverityCombo.background = UiTheme.Colors.surface
         passiveAiMinSeverityCombo.toolTipText = "Only report findings at or above this severity level."
 
+        passiveAiEndpointDedupSpinner.font = UiTheme.Typography.body
+        passiveAiEndpointDedupSpinner.toolTipText = "Skip repeated endpoint analysis within this number of minutes."
+
+        passiveAiFingerprintDedupSpinner.font = UiTheme.Typography.body
+        passiveAiFingerprintDedupSpinner.toolTipText = "Skip repeated response fingerprints within this number of minutes."
+
+        passiveAiPromptCacheTtlSpinner.font = UiTheme.Typography.body
+        passiveAiPromptCacheTtlSpinner.toolTipText = "Reuse previous AI results for identical prompts within this time window."
+
+        passiveAiEndpointCacheEntriesSpinner.font = UiTheme.Typography.body
+        passiveAiEndpointCacheEntriesSpinner.toolTipText = "Maximum endpoint dedup cache entries."
+
+        passiveAiFingerprintCacheEntriesSpinner.font = UiTheme.Typography.body
+        passiveAiFingerprintCacheEntriesSpinner.toolTipText = "Maximum response fingerprint cache entries."
+
+        passiveAiPromptCacheEntriesSpinner.font = UiTheme.Typography.body
+        passiveAiPromptCacheEntriesSpinner.toolTipText = "Maximum prompt-result cache entries."
+
+        passiveAiRequestBodyMaxCharsSpinner.font = UiTheme.Typography.body
+        passiveAiRequestBodyMaxCharsSpinner.toolTipText = "Max request body characters sent to AI."
+
+        passiveAiResponseBodyMaxCharsSpinner.font = UiTheme.Typography.body
+        passiveAiResponseBodyMaxCharsSpinner.toolTipText = "Max response body characters sent to AI."
+
+        passiveAiHeaderMaxCountSpinner.font = UiTheme.Typography.body
+        passiveAiHeaderMaxCountSpinner.toolTipText = "Max filtered headers included in prompt metadata."
+
+        passiveAiParamMaxCountSpinner.font = UiTheme.Typography.body
+        passiveAiParamMaxCountSpinner.toolTipText = "Max parameters included in prompt metadata."
+
+        contextRequestBodyMaxCharsSpinner.font = UiTheme.Typography.body
+        contextRequestBodyMaxCharsSpinner.toolTipText = "Max request body characters in manual context actions."
+
+        contextResponseBodyMaxCharsSpinner.font = UiTheme.Typography.body
+        contextResponseBodyMaxCharsSpinner.toolTipText = "Max response body characters in manual context actions."
+
+        contextCompactJson.font = UiTheme.Typography.body
+        contextCompactJson.background = UiTheme.Colors.surface
+        contextCompactJson.foreground = UiTheme.Colors.onSurface
+        contextCompactJson.toolTipText = "Serialize manual context payloads as compact JSON to reduce tokens."
+
         passiveAiStatusLabel.font = UiTheme.Typography.body
         passiveAiStatusLabel.foreground = UiTheme.Colors.onSurfaceVariant
 
@@ -84,6 +138,56 @@ class PassiveScanConfigPanel(
         addRowPair(grid, "Rate limit (sec)", passiveAiRateSpinner, "Max size (KB)", passiveAiMaxSizeSpinner)
         addSpacerRow(grid, 4)
         addRowFull(grid, "Min severity", passiveAiMinSeverityCombo)
+        addSpacerRow(grid, 4)
+        addRowPair(
+            grid,
+            "Endpoint dedup (min)",
+            passiveAiEndpointDedupSpinner,
+            "Response dedup (min)",
+            passiveAiFingerprintDedupSpinner
+        )
+        addSpacerRow(grid, 4)
+        addRowPair(
+            grid,
+            "Prompt cache TTL (min)",
+            passiveAiPromptCacheTtlSpinner,
+            "Prompt cache entries",
+            passiveAiPromptCacheEntriesSpinner
+        )
+        addSpacerRow(grid, 4)
+        addRowPair(
+            grid,
+            "Endpoint cache entries",
+            passiveAiEndpointCacheEntriesSpinner,
+            "Fingerprint cache entries",
+            passiveAiFingerprintCacheEntriesSpinner
+        )
+        addSpacerRow(grid, 4)
+        addRowPair(
+            grid,
+            "Req body chars (AI)",
+            passiveAiRequestBodyMaxCharsSpinner,
+            "Resp body chars (AI)",
+            passiveAiResponseBodyMaxCharsSpinner
+        )
+        addSpacerRow(grid, 4)
+        addRowPair(
+            grid,
+            "Max headers",
+            passiveAiHeaderMaxCountSpinner,
+            "Max params",
+            passiveAiParamMaxCountSpinner
+        )
+        addSpacerRow(grid, 4)
+        addRowPair(
+            grid,
+            "Req body chars (manual)",
+            contextRequestBodyMaxCharsSpinner,
+            "Resp body chars (manual)",
+            contextResponseBodyMaxCharsSpinner
+        )
+        addSpacerRow(grid, 4)
+        addRowFull(grid, "Manual context JSON", contextCompactJson)
         addSpacerRow(grid, 8)
         addRowFull(grid, "Status", passiveAiStatusLabel)
         addSpacerRow(grid, 4)

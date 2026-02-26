@@ -55,4 +55,19 @@ class ConversationHistoryTest {
         assertTrue(snapshot.all { it["role"] == "user" || it["role"] == "assistant" })
         assertTrue(snapshot.all { !it["content"].isNullOrBlank() })
     }
+
+    @Test
+    fun trimsByTotalCharsWhileKeepingRecentExchange() {
+        val history = ConversationHistory(maxMessages = 20, maxTotalChars = 30)
+        history.addUser("x".repeat(100))
+        history.addAssistant("ok")
+        history.addUser("ok")
+
+        val snapshot = history.snapshot()
+        assertEquals(2, snapshot.size)
+        assertEquals("assistant", snapshot[0]["role"])
+        assertEquals("ok", snapshot[0]["content"])
+        assertEquals("user", snapshot[1]["role"])
+        assertEquals("ok", snapshot[1]["content"])
+    }
 }

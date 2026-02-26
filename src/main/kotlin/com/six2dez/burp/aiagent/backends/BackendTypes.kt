@@ -18,6 +18,33 @@ data class BackendLaunchConfig(
 
 data class ChatMessage(val role: String, val content: String)
 
+data class TokenUsage(
+    val inputTokens: Int,
+    val outputTokens: Int
+)
+
+sealed class HealthCheckResult {
+    data object Healthy : HealthCheckResult()
+    data class Degraded(val message: String) : HealthCheckResult()
+    data class Unavailable(val message: String) : HealthCheckResult()
+    data object Unknown : HealthCheckResult()
+
+    val isHealthy: Boolean
+        get() = this is Healthy
+
+    val isReachable: Boolean
+        get() = this is Healthy || this is Degraded
+
+    fun summary(): String {
+        return when (this) {
+            Healthy -> "Healthy"
+            is Degraded -> "Degraded: $message"
+            is Unavailable -> "Unavailable: $message"
+            Unknown -> "Unknown"
+        }
+    }
+}
+
 interface AgentConnection {
     fun isAlive(): Boolean
     fun send(
@@ -34,11 +61,16 @@ interface DiagnosableConnection {
     fun lastOutputTail(): String?
 }
 
+interface UsageAwareConnection {
+    fun lastTokenUsage(): TokenUsage?
+}
+
 interface AiBackend {
     val id: String
     val displayName: String
     fun launch(config: BackendLaunchConfig): AgentConnection
     fun isAvailable(settings: com.six2dez.burp.aiagent.config.AgentSettings): Boolean = true
+    fun healthCheck(settings: com.six2dez.burp.aiagent.config.AgentSettings): HealthCheckResult = HealthCheckResult.Unknown
 }
 
 interface SessionAwareConnection : AgentConnection {

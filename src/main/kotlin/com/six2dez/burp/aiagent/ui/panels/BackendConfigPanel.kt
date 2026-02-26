@@ -49,6 +49,7 @@ class BackendConfigPanel(
     initialState: BackendConfigState = BackendConfigState()
 ) : JPanel(BorderLayout()) {
     var onOpenCli: ((backendId: String, command: String) -> Unit)? = null
+    var onTestConnection: ((backendId: String) -> Unit)? = null
     private val cardLayout = CardLayout()
     private val cards = JPanel(cardLayout)
 
@@ -219,7 +220,14 @@ class BackendConfigPanel(
         panel.background = UiTheme.Colors.surface
         panel.border = EmptyBorder(4, 8, 0, 8)
         addRow(panel, 0, labelText, field)
-        addButtonRow(panel, 1, buildOpenCliButton(backendId, commandProvider))
+        addButtonRow(
+            panel,
+            1,
+            buildButtonRowPanel(
+                buildOpenCliButton(backendId, commandProvider),
+                buildTestConnectionButton(backendId)
+            )
+        )
         addVerticalFiller(panel, 2)
         return panel
     }
@@ -230,7 +238,14 @@ class BackendConfigPanel(
         panel.border = EmptyBorder(8, 8, 8, 8)
         var row = 0
         addRow(panel, row++, "Ollama CLI command", ollamaCliCmd)
-        addButtonRow(panel, row++, buildOpenCliButton("ollama", { ollamaCliCmd.text.trim() }))
+        addButtonRow(
+            panel,
+            row++,
+            buildButtonRowPanel(
+                buildOpenCliButton("ollama", { ollamaCliCmd.text.trim() }),
+                buildTestConnectionButton("ollama")
+            )
+        )
         addRow(panel, row++, "Ollama model", ollamaModel)
         addRow(panel, row++, "Ollama base URL", ollamaUrl)
         addRow(panel, row++, "Ollama API key (Bearer)", ollamaApiKey)
@@ -246,7 +261,14 @@ class BackendConfigPanel(
         panel.background = UiTheme.Colors.surface
         panel.border = EmptyBorder(8, 8, 8, 8)
         addRow(panel, 0, "OpenCode CLI command", opencodeCmd)
-        addButtonRow(panel, 1, buildOpenCliButton("opencode-cli", { opencodeCmd.text.trim() }))
+        addButtonRow(
+            panel,
+            1,
+            buildButtonRowPanel(
+                buildOpenCliButton("opencode-cli", { opencodeCmd.text.trim() }),
+                buildTestConnectionButton("opencode-cli")
+            )
+        )
         return panel
     }
 
@@ -255,12 +277,13 @@ class BackendConfigPanel(
         panel.background = UiTheme.Colors.surface
         panel.border = EmptyBorder(8, 8, 8, 8)
         addRow(panel, 0, "LM Studio base URL", lmStudioUrl)
-        addRow(panel, 1, "LM Studio model", lmStudioModel)
-        addRow(panel, 2, "LM Studio timeout (seconds)", lmStudioTimeout)
-        addRow(panel, 3, "LM Studio serve command", lmStudioServeCmd)
-        addRow(panel, 4, "LM Studio API key (Bearer)", lmStudioApiKey)
-        addRow(panel, 5, "LM Studio extra headers", JScrollPane(lmStudioHeaders))
-        addToggleRow(panel, 6, "Auto-start LM Studio server", lmStudioAutoStart)
+        addButtonRow(panel, 1, buildButtonRowPanel(buildTestConnectionButton("lmstudio")))
+        addRow(panel, 2, "LM Studio model", lmStudioModel)
+        addRow(panel, 3, "LM Studio timeout (seconds)", lmStudioTimeout)
+        addRow(panel, 4, "LM Studio serve command", lmStudioServeCmd)
+        addRow(panel, 5, "LM Studio API key (Bearer)", lmStudioApiKey)
+        addRow(panel, 6, "LM Studio extra headers", JScrollPane(lmStudioHeaders))
+        addToggleRow(panel, 7, "Auto-start LM Studio server", lmStudioAutoStart)
         return panel
     }
 
@@ -269,11 +292,12 @@ class BackendConfigPanel(
         panel.background = UiTheme.Colors.surface
         panel.border = EmptyBorder(8, 8, 8, 8)
         addRow(panel, 0, "Base URL", openAiCompatUrl)
-        addRow(panel, 1, "Model", openAiCompatModel)
-        addRow(panel, 2, "API key (Bearer)", openAiCompatApiKey)
-        addRow(panel, 3, "Extra headers", JScrollPane(openAiCompatHeaders))
-        addRow(panel, 4, "Timeout (seconds)", openAiCompatTimeout)
-        addVerticalFiller(panel, 5)
+        addButtonRow(panel, 1, buildButtonRowPanel(buildTestConnectionButton("openai-compatible")))
+        addRow(panel, 2, "Model", openAiCompatModel)
+        addRow(panel, 3, "API key (Bearer)", openAiCompatApiKey)
+        addRow(panel, 4, "Extra headers", JScrollPane(openAiCompatHeaders))
+        addRow(panel, 5, "Timeout (seconds)", openAiCompatTimeout)
+        addVerticalFiller(panel, 6)
         return panel
     }
 
@@ -299,7 +323,7 @@ class BackendConfigPanel(
         panel.add(field, fieldConstraints)
     }
 
-    private fun addButtonRow(panel: JPanel, row: Int, button: JButton) {
+    private fun addButtonRow(panel: JPanel, row: Int, component: JComponent) {
         val labelConstraints = GridBagConstraints().apply {
             gridx = 0
             gridy = row
@@ -313,7 +337,7 @@ class BackendConfigPanel(
             insets = Insets(4, 0, 4, 0)
         }
         panel.add(JLabel(""), labelConstraints)
-        panel.add(button, buttonConstraints)
+        panel.add(component, buttonConstraints)
     }
 
     private fun addToggleRow(panel: JPanel, row: Int, labelText: String, toggle: ToggleSwitch) {
@@ -371,6 +395,29 @@ class BackendConfigPanel(
             toolTipText = "Open a terminal with the configured command and MCP tools access."
             addActionListener {
                 onOpenCli?.invoke(backendId, commandProvider())
+            }
+        }
+    }
+
+    private fun buildTestConnectionButton(backendId: String): JButton {
+        return JButton("Test connection").apply {
+            font = UiTheme.Typography.body
+            toolTipText = "Run backend health check with current settings."
+            addActionListener {
+                onTestConnection?.invoke(backendId)
+            }
+        }
+    }
+
+    private fun buildButtonRowPanel(vararg buttons: JButton): JPanel {
+        return JPanel().apply {
+            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
+            isOpaque = false
+            buttons.forEachIndexed { index, button ->
+                add(button)
+                if (index < buttons.lastIndex) {
+                    add(javax.swing.Box.createRigidArea(java.awt.Dimension(8, 0)))
+                }
             }
         }
     }

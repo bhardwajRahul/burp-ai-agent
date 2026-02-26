@@ -20,6 +20,9 @@ class McpConfigPanel(
     private val mcpTlsAuto: JComponent,
     private val mcpKeystorePath: JComponent,
     private val mcpKeystorePassword: JComponent,
+    private val mcpAllowedOrigins: JComponent,
+    private val mcpCorsWarning: JComponent,
+    private val mcpRiskWarning: JComponent,
     private val mcpMaxConcurrent: JComponent,
     private val mcpMaxBodyMb: JComponent,
     private val mcpUnsafe: JComponent,
@@ -47,6 +50,12 @@ class McpConfigPanel(
         addRowFull(grid, "TLS keystore path", mcpKeystorePath)
         addSpacerRow(grid, 4)
         addRowFull(grid, "TLS keystore password", mcpKeystorePassword)
+        addSpacerRow(grid, 4)
+        addRowFull(grid, "Allowed origins (external mode)", mcpAllowedOrigins)
+        addSpacerRow(grid, 4)
+        addRowFull(grid, "CORS warning", mcpCorsWarning)
+        addSpacerRow(grid, 4)
+        addRowFull(grid, "Risk warning", mcpRiskWarning)
         addSpacerRow(grid, 4)
         addRowFull(grid, "Token", tokenPanelFactory())
         addSpacerRow(grid, 4)

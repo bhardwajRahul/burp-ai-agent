@@ -11,6 +11,7 @@ import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.config.Defaults
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
+import com.six2dez.burp.aiagent.util.IssueUtils
 import com.six2dez.burp.aiagent.util.IssueText
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -189,6 +190,32 @@ class ActiveAiScanner(
     fun clearQueue() {
         scanQueue.clear()
         api.logging().logToOutput("[ActiveAiScanner] Queue cleared")
+    }
+
+    fun getQueueItems(limit: Int = 500): List<ActiveScanQueueItem> {
+        val max = limit.coerceIn(1, 10_000)
+        val snapshot = scanQueue.toList()
+            .sortedBy { it.queuedAtEpochMs }
+            .take(max)
+        return snapshot.map { target ->
+            ActiveScanQueueItem(
+                id = target.id,
+                url = target.originalRequest.request().url(),
+                vulnClass = target.vulnHint.vulnClass.name,
+                injectionPoint = "${target.injectionPoint.type}:${target.injectionPoint.name}",
+                status = "QUEUED",
+                queuedAtEpochMs = target.queuedAtEpochMs
+            )
+        }
+    }
+
+    fun cancelQueuedTarget(targetId: String): Boolean {
+        val match = scanQueue.firstOrNull { it.id == targetId } ?: return false
+        val removed = scanQueue.remove(match)
+        if (removed) {
+            api.logging().logToOutput("[ActiveAiScanner] Removed queued target: $targetId")
+        }
+        return removed
     }
 
     fun resetStats() {
@@ -868,7 +895,7 @@ class ActiveAiScanner(
         detailLines.add("  Evidence: ${confirmation.evidence}")
         detailLines.add("")
         detailLines.addAll(metadataSection.split("\r\n"))
-        val detail = formatIssueDetailHtml(detailLines)
+        val detail = IssueUtils.formatIssueDetailHtml(detailLines)
         
         val severity = ScannerIssueSupport.mapSeverity(target.vulnHint.vulnClass)
         val confidence = when {
@@ -965,22 +992,12 @@ class ActiveAiScanner(
         return lines.joinToString("\r\n")
     }
 
-    private fun formatIssueDetailHtml(lines: List<String>): String {
-        return lines.joinToString("<br>") { line ->
-            val escaped = line
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-            if (escaped.startsWith("  ")) {
-                "&nbsp;&nbsp;" + escaped.drop(2)
-            } else {
-                escaped
-            }
-        }
-    }
-
     private fun hasExistingIssue(name: String, baseUrl: String): Boolean {
-        return api.siteMap().issues().any { it.name() == name && it.baseUrl() == baseUrl }
+        return IssueUtils.hasExistingIssue(
+            name = name,
+            baseUrl = baseUrl,
+            issues = api.siteMap().issues().map { issue -> issue.name() to issue.baseUrl() }
+        )
     }
 
     private fun injectPayload(request: HttpRequest, point: InjectionPoint, payload: String): HttpRequest {

@@ -22,4 +22,16 @@ class McpSettingsTest {
         assertTrue(token.isNotBlank())
         assertTrue(token.length >= 32)
     }
+
+    @Test
+    fun roundTripAllowedOrigins() {
+        val input = listOf(
+            "https://app.example.com",
+            "https://app.example.com",
+            "http://localhost:3000"
+        )
+        val serialized = McpSettings.serializeAllowedOrigins(input)
+        val parsed = McpSettings.parseAllowedOrigins(serialized)
+        assertEquals(listOf("https://app.example.com", "http://localhost:3000"), parsed)
+    }
 }

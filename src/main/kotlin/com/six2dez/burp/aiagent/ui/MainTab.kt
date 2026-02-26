@@ -2,10 +2,12 @@ package com.six2dez.burp.aiagent.ui
 
 import burp.api.montoya.MontoyaApi
 import com.six2dez.burp.aiagent.audit.AuditLogger
+import com.six2dez.burp.aiagent.backends.HealthCheckResult
 import com.six2dez.burp.aiagent.backends.BackendRegistry
 import com.six2dez.burp.aiagent.config.AgentSettingsRepository
 import com.six2dez.burp.aiagent.context.ContextCapture
 import com.six2dez.burp.aiagent.mcp.McpSupervisor
+import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
 import com.six2dez.burp.aiagent.ui.components.DependencyBanner
 import com.six2dez.burp.aiagent.ui.components.ToggleSwitch
@@ -48,6 +50,7 @@ class MainTab(
     private val mcpStatusLabel = JLabel("MCP: -")
     private val backendStatusLabel = JLabel("AI: ?")
     private val activeScanStatsLabel = JLabel("Scans: 0 | Vulns: 0")
+    private val safetySummaryLabel = JLabel("Safety: -")
 
     private val statusLabel = JLabel("Idle")
     private val sessionLabel = JLabel("Session: -")
@@ -57,6 +60,7 @@ class MainTab(
         updateMcpControls()
         updateBackendBadge()
         updateActiveScanStats()
+        updateSafetySummary()
     }
     private val baseTabCaption = "AI Agent"
     private var tabbedPane: JTabbedPane? = null
@@ -146,10 +150,28 @@ class MainTab(
         healthTimer = Timer(5000) {
             val settings = settingsPanel.currentSettings()
             Thread {
-                val healthy = supervisor.isBackendHealthy(settings)
+                val health = supervisor.backendHealth(settings)
                 SwingUtilities.invokeLater {
-                    backendStatusLabel.text = if(healthy) "AI: OK" else "AI: Offline"
-                    backendStatusLabel.background = if(healthy) UiTheme.Colors.statusRunning else UiTheme.Colors.statusCrashed
+                    when (health) {
+                        is HealthCheckResult.Healthy -> {
+                            backendStatusLabel.text = "AI: OK"
+                            backendStatusLabel.background = UiTheme.Colors.statusRunning
+                            backendStatusLabel.toolTipText = "Backend health check passed."
+                        }
+                        is HealthCheckResult.Degraded -> {
+                            backendStatusLabel.text = "AI: Degraded"
+                            backendStatusLabel.background = UiTheme.Colors.statusTerminal
+                            backendStatusLabel.toolTipText = health.message
+                        }
+                        else -> {
+                            backendStatusLabel.text = "AI: Offline"
+                            backendStatusLabel.background = UiTheme.Colors.statusCrashed
+                            backendStatusLabel.toolTipText = when (health) {
+                                is HealthCheckResult.Unavailable -> health.message
+                                else -> "Backend did not respond."
+                            }
+                        }
+                    }
                 }
             }.start()
         }
@@ -220,6 +242,12 @@ class MainTab(
 
         top.add(titleBox, BorderLayout.CENTER)
         top.add(actions, BorderLayout.EAST)
+        styleStatusLabel(safetySummaryLabel)
+        val safetyRow = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0))
+        safetyRow.isOpaque = false
+        safetyRow.border = EmptyBorder(8, 0, 0, 0)
+        safetyRow.add(safetySummaryLabel)
+        top.add(safetyRow, BorderLayout.SOUTH)
 
         val north = JPanel(BorderLayout())
         north.background = UiTheme.Colors.surface
@@ -251,7 +279,15 @@ class MainTab(
         })
         imap.put(javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "toggleSettings")
         amap.put("toggleSettings", object : javax.swing.AbstractAction() {
-            override fun actionPerformed(e: java.awt.event.ActionEvent?) { bottomTabsPanel.toggle() }
+            override fun actionPerformed(e: java.awt.event.ActionEvent?) {
+                if (!chatPanel.cancelInFlightRequest()) {
+                    bottomTabsPanel.toggle()
+                }
+            }
+        })
+        imap.put(javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_T, meta), "openToolsDialog")
+        amap.put("openToolsDialog", object : javax.swing.AbstractAction() {
+            override fun actionPerformed(e: java.awt.event.ActionEvent?) { chatPanel.openToolDialog() }
         })
 
         wireActions()
@@ -390,6 +426,7 @@ class MainTab(
             updateMcpControls()
             updateMcpBadge()
             chatPanel.refreshPrivacyMode()
+            updateSafetySummary()
         }
     }
 
@@ -443,6 +480,30 @@ class MainTab(
             is com.six2dez.burp.aiagent.mcp.McpServerState.Starting -> UiTheme.Colors.statusTerminal
             is com.six2dez.burp.aiagent.mcp.McpServerState.Stopping -> UiTheme.Colors.statusTerminal
             else -> UiTheme.Colors.outlineVariant
+        }
+    }
+
+    private fun updateSafetySummary() {
+        val settings = settingsPanel.currentSettings()
+        val privacy = settings.privacyMode.name
+        val mcpExposure = when {
+            !settings.mcpSettings.enabled -> "MCP off"
+            settings.mcpSettings.externalEnabled -> "MCP external"
+            else -> "MCP local"
+        }
+        val unsafe = if (settings.mcpSettings.unsafeEnabled) "Unsafe on" else "Unsafe off"
+        val scanners = "Passive ${if (settings.passiveAiEnabled) "on" else "off"} / Active ${if (settings.activeAiEnabled) "on" else "off"}"
+
+        safetySummaryLabel.text = "Safety: $privacy | $mcpExposure | $unsafe | $scanners"
+        safetySummaryLabel.background = when {
+            settings.mcpSettings.enabled &&
+                settings.mcpSettings.externalEnabled &&
+                settings.mcpSettings.unsafeEnabled -> UiTheme.Colors.statusCrashed
+            settings.privacyMode == PrivacyMode.OFF && settings.mcpSettings.enabled -> UiTheme.Colors.statusCrashed
+            settings.privacyMode == PrivacyMode.OFF ||
+                settings.mcpSettings.externalEnabled ||
+                settings.mcpSettings.unsafeEnabled -> UiTheme.Colors.statusTerminal
+            else -> UiTheme.Colors.statusRunning
         }
     }
     

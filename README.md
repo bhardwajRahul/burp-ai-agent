@@ -106,6 +106,14 @@ Full documentation is available at **[burp-ai-agent.six2dez.com](https://burp-ai
 - [Settings Reference](https://burp-ai-agent.six2dez.com/reference/settings-reference)
 - [Troubleshooting](https://burp-ai-agent.six2dez.com/reference/troubleshooting)
 
+## Operator Playbooks
+
+- [MCP Hardening](docs/mcp-hardening.md)
+- [UI Safety Guide](docs/ui-safety-guide.md)
+- [Backend Troubleshooting](docs/backend-troubleshooting.md)
+
+Settings are schema-versioned internally (`settings.schema.version`) and migrated additively on load for safe upgrades.
+
 ## Requirements
 
 - **Burp Suite** Community or Professional (2023.12+)

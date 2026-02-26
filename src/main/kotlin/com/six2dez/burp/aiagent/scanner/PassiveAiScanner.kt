@@ -18,8 +18,12 @@ import com.six2dez.burp.aiagent.config.Defaults
 import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
+import com.six2dez.burp.aiagent.util.IssueUtils
 import com.six2dez.burp.aiagent.util.IssueText
+import com.six2dez.burp.aiagent.util.TokenTracker
 import java.net.URI
+import java.security.MessageDigest
+import java.util.LinkedHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -74,6 +78,65 @@ class PassiveAiScanner(
     var rateLimitSeconds: Int = 5
     var scopeOnly: Boolean = true
     var maxSizeKb: Int = 96
+    @Volatile
+    var endpointDedupMinutes: Int = DEFAULT_ENDPOINT_DEDUP_MINUTES
+        set(value) {
+            field = value.coerceIn(MIN_DEDUP_TTL_MINUTES, MAX_DEDUP_TTL_MINUTES)
+        }
+    @Volatile
+    var responseFingerprintDedupMinutes: Int = DEFAULT_RESPONSE_FINGERPRINT_DEDUP_MINUTES
+        set(value) {
+            field = value.coerceIn(MIN_DEDUP_TTL_MINUTES, MAX_DEDUP_TTL_MINUTES)
+        }
+    @Volatile
+    var promptCacheTtlMinutes: Int = DEFAULT_PROMPT_CACHE_TTL_MINUTES
+        set(value) {
+            field = value.coerceIn(MIN_DEDUP_TTL_MINUTES, MAX_DEDUP_TTL_MINUTES)
+        }
+    @Volatile
+    var endpointCacheEntries: Int = DEFAULT_ENDPOINT_CACHE_MAX_ENTRIES
+        set(value) {
+            field = value.coerceIn(MIN_ENDPOINT_CACHE_ENTRIES, MAX_ENDPOINT_CACHE_ENTRIES)
+            synchronized(endpointRecentCache) {
+                trimLruCache(endpointRecentCache, field)
+            }
+        }
+    @Volatile
+    var responseFingerprintCacheEntries: Int = DEFAULT_RESPONSE_FINGERPRINT_CACHE_MAX_ENTRIES
+        set(value) {
+            field = value.coerceIn(MIN_RESPONSE_FINGERPRINT_CACHE_ENTRIES, MAX_RESPONSE_FINGERPRINT_CACHE_ENTRIES)
+            synchronized(responseFingerprintCache) {
+                trimLruCache(responseFingerprintCache, field)
+            }
+        }
+    @Volatile
+    var promptCacheEntries: Int = DEFAULT_PROMPT_RESULT_CACHE_MAX_ENTRIES
+        set(value) {
+            field = value.coerceIn(MIN_PROMPT_RESULT_CACHE_ENTRIES, MAX_PROMPT_RESULT_CACHE_ENTRIES)
+            synchronized(promptResultCache) {
+                trimLruCache(promptResultCache, field)
+            }
+        }
+    @Volatile
+    var requestBodyPromptMaxChars: Int = DEFAULT_REQUEST_BODY_PROMPT_MAX_CHARS
+        set(value) {
+            field = value.coerceIn(MIN_REQUEST_BODY_PROMPT_MAX_CHARS, MAX_REQUEST_BODY_PROMPT_MAX_CHARS)
+        }
+    @Volatile
+    var responseBodyPromptMaxChars: Int = DEFAULT_RESPONSE_BODY_PROMPT_MAX_CHARS
+        set(value) {
+            field = value.coerceIn(MIN_RESPONSE_BODY_PROMPT_MAX_CHARS, MAX_RESPONSE_BODY_PROMPT_MAX_CHARS)
+        }
+    @Volatile
+    var headerMaxCount: Int = DEFAULT_HEADERS_MAX_COUNT
+        set(value) {
+            field = value.coerceIn(MIN_HEADERS_MAX_COUNT, MAX_HEADERS_MAX_COUNT)
+        }
+    @Volatile
+    var paramMaxCount: Int = DEFAULT_PARAMS_MAX_COUNT
+        set(value) {
+            field = value.coerceIn(MIN_PARAMS_MAX_COUNT, MAX_PARAMS_MAX_COUNT)
+        }
 
     private val allowedMimeTypes = setOf(
         "html", "json", "javascript", "xml", "text", "unknown", "script"
@@ -94,6 +157,81 @@ class PassiveAiScanner(
         "x-access-token"
     )
     private val authCookieHint = Regex("(session|auth|token|sid|jwt|remember)", RegexOption.IGNORE_CASE)
+    private val cacheBustingParamRegex = Regex("^(?:_|t|ts|timestamp|cachebust|cb|rnd|nonce)$", RegexOption.IGNORE_CASE)
+    private val staticAssetPathRegex = Regex(
+        "\\.(?:css|js|map|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot)(?:\\?|$)",
+        RegexOption.IGNORE_CASE
+    )
+    private val uuidLikeRegex = Regex("^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$", RegexOption.IGNORE_CASE)
+    private val objectIdLikeRegex = Regex("^[a-f0-9]{24}$", RegexOption.IGNORE_CASE)
+    private val numericIdRegex = Regex("^\\d{2,}$")
+    private val requestHeaderAllowlist = setOf(
+        "authorization",
+        "cookie",
+        "x-api-key",
+        "x-auth-token",
+        "x-access-token",
+        "content-type",
+        "origin",
+        "referer",
+        "host",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-requested-with"
+    )
+    private val responseHeaderAllowlist = setOf(
+        "set-cookie",
+        "www-authenticate",
+        "x-frame-options",
+        "content-security-policy",
+        "content-security-policy-report-only",
+        "strict-transport-security",
+        "x-content-type-options",
+        "x-xss-protection",
+        "location",
+        "content-type",
+        "content-disposition",
+        "server",
+        "x-powered-by",
+        "access-control-allow-origin",
+        "access-control-allow-credentials",
+        "access-control-allow-methods",
+        "access-control-allow-headers",
+        "access-control-expose-headers"
+    )
+    private val headerNoiseDenylist = setOf(
+        "accept-encoding",
+        "accept-language",
+        "connection",
+        "keep-alive",
+        "date",
+        "etag",
+        "last-modified",
+        "vary",
+        "transfer-encoding",
+        "content-length",
+        "accept-ranges",
+        "age",
+        "via"
+    )
+
+    private data class CachedAiIssues(val createdAtMs: Long, val issues: List<AiIssueItem>)
+
+    private val endpointRecentCache = object : LinkedHashMap<String, Long>(1024, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
+            return size > endpointCacheEntries
+        }
+    }
+    private val responseFingerprintCache = object : LinkedHashMap<String, Long>(2048, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
+            return size > responseFingerprintCacheEntries
+        }
+    }
+    private val promptResultCache = object : LinkedHashMap<String, CachedAiIssues>(512, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedAiIssues>?): Boolean {
+            return size > promptCacheEntries
+        }
+    }
 
     private val handler = object : ProxyResponseHandler {
         override fun handleResponseReceived(response: InterceptedResponse): ProxyResponseReceivedAction {
@@ -161,6 +299,39 @@ class PassiveAiScanner(
     }
 
     fun isEnabled(): Boolean = enabled.get()
+
+    fun applyOptimizationSettings(settings: AgentSettings) {
+        if (endpointDedupMinutes != settings.passiveAiEndpointDedupMinutes) {
+            endpointDedupMinutes = settings.passiveAiEndpointDedupMinutes
+        }
+        if (responseFingerprintDedupMinutes != settings.passiveAiResponseFingerprintDedupMinutes) {
+            responseFingerprintDedupMinutes = settings.passiveAiResponseFingerprintDedupMinutes
+        }
+        if (promptCacheTtlMinutes != settings.passiveAiPromptCacheTtlMinutes) {
+            promptCacheTtlMinutes = settings.passiveAiPromptCacheTtlMinutes
+        }
+        if (endpointCacheEntries != settings.passiveAiEndpointCacheEntries) {
+            endpointCacheEntries = settings.passiveAiEndpointCacheEntries
+        }
+        if (responseFingerprintCacheEntries != settings.passiveAiResponseFingerprintCacheEntries) {
+            responseFingerprintCacheEntries = settings.passiveAiResponseFingerprintCacheEntries
+        }
+        if (promptCacheEntries != settings.passiveAiPromptCacheEntries) {
+            promptCacheEntries = settings.passiveAiPromptCacheEntries
+        }
+        if (requestBodyPromptMaxChars != settings.passiveAiRequestBodyMaxChars) {
+            requestBodyPromptMaxChars = settings.passiveAiRequestBodyMaxChars
+        }
+        if (responseBodyPromptMaxChars != settings.passiveAiResponseBodyMaxChars) {
+            responseBodyPromptMaxChars = settings.passiveAiResponseBodyMaxChars
+        }
+        if (headerMaxCount != settings.passiveAiHeaderMaxCount) {
+            headerMaxCount = settings.passiveAiHeaderMaxCount
+        }
+        if (paramMaxCount != settings.passiveAiParamMaxCount) {
+            paramMaxCount = settings.passiveAiParamMaxCount
+        }
+    }
     
     private fun ensureBackendRunning(settings: AgentSettings): Boolean {
         val targetBackend = settings.preferredBackendId
@@ -310,23 +481,17 @@ class PassiveAiScanner(
     private fun doAnalysis(requestResponse: HttpRequestResponse) {
         try {
             val settings = getSettings()
+            applyOptimizationSettings(settings)
             val request = requestResponse.request()
             val response = requestResponse.response()
 
-            // Extract request body (truncated)
-            val requestBody = try {
-                val bodyStr = request.bodyToString()
-                if (bodyStr.length > 3000) bodyStr.take(3000) + "..." else bodyStr
-            } catch (_: Exception) { "" }
-
-            // Extract response body (truncated for AI analysis)
-            val responseBody = try {
-                val bodyStr = response?.bodyToString() ?: ""
-                if (bodyStr.length > 6000) bodyStr.take(6000) + "..." else bodyStr
-            } catch (_: Exception) { "" }
+            val requestBodyRaw = runCatching { request.bodyToString() }.getOrDefault("")
+            val responseBodyRaw = runCatching { response?.bodyToString().orEmpty() }.getOrDefault("")
+            val requestBodyForLocalChecks = truncateWithEllipsis(requestBodyRaw, REQUEST_BODY_LOCAL_CHECK_MAX_CHARS)
+            val responseBodyForLocalChecks = truncateWithEllipsis(responseBodyRaw, RESPONSE_BODY_LOCAL_CHECK_MAX_CHARS)
 
             // Local passive checks (independent of AI backend availability)
-            val localFindings = runLocalChecks(request, response, requestBody, responseBody)
+            val localFindings = runLocalChecks(request, response, requestBodyForLocalChecks, responseBodyForLocalChecks)
             for (finding in localFindings) {
                 handleFinding(
                     requestResponse,
@@ -338,6 +503,27 @@ class PassiveAiScanner(
                     settings,
                     "local"
                 )
+            }
+
+            if (shouldSkipAiAfterLocalFindings(localFindings, request, requestBodyRaw)) {
+                requestsAnalyzed.incrementAndGet()
+                lastAnalysisTime.set(System.currentTimeMillis())
+                return
+            }
+            if (shouldSkipUninterestingTraffic(request, response, responseBodyRaw)) {
+                requestsAnalyzed.incrementAndGet()
+                lastAnalysisTime.set(System.currentTimeMillis())
+                return
+            }
+            if (shouldSkipRecentlyAnalyzedEndpoint(request)) {
+                requestsAnalyzed.incrementAndGet()
+                lastAnalysisTime.set(System.currentTimeMillis())
+                return
+            }
+            if (shouldSkipKnownResponseFingerprint(request, response, responseBodyRaw)) {
+                requestsAnalyzed.incrementAndGet()
+                lastAnalysisTime.set(System.currentTimeMillis())
+                return
             }
 
             // Ensure backend is running for AI analysis
@@ -353,29 +539,24 @@ class PassiveAiScanner(
                 return
             }
 
-            // Build params sample with more detail
-            val params = request.parameters().take(20).map { p ->
-                val value = if (p.value().length > 300) p.value().take(300) + "..." else p.value()
-                mapOf(
-                    "name" to p.name(),
-                    "value" to value,
-                    "type" to p.type().name
-                )
-            }
+            val params = request.parameters()
+                .asSequence()
+                .filterNot { cacheBustingParamRegex.matches(it.name().trim()) }
+                .take(paramMaxCount)
+                .map { p ->
+                    val value = truncateWithEllipsis(p.value(), PARAM_VALUE_MAX_CHARS)
+                    "${p.name()}=$value (${p.type().name})"
+                }
+                .toList()
 
-            // Extract ALL headers for security analysis
-            val requestHeaders = request.headers().map { h ->
-                "${h.name()}: ${if (h.value().length > 150) h.value().take(150) + "..." else h.value()}"
-            }
-            val responseHeaders = response?.headers()?.map { h ->
-                "${h.name()}: ${if (h.value().length > 150) h.value().take(150) + "..." else h.value()}"
-            } ?: emptyList()
+            val requestHeaders = sanitizeHeadersForPrompt(request.headers(), isRequest = true)
+            val responseHeaders = sanitizeHeadersForPrompt(response?.headers().orEmpty(), isRequest = false)
 
             // Extract cookies separately for auth analysis
             val cookies = request.headers()
                 .filter { it.name().equals("Cookie", ignoreCase = true) }
                 .flatMap { it.value().split(";").map { c -> c.trim() } }
-                .take(10)
+                .take(COOKIES_MAX_COUNT)
 
             // Check for auth headers
             val authHeaders = request.headers()
@@ -393,16 +574,17 @@ class PassiveAiScanner(
 
             // Look for potential object IDs in URL
             val potentialIds = Regex("\\b([0-9]+|[a-f0-9-]{36}|[a-f0-9]{24})\\b", RegexOption.IGNORE_CASE)
-                .findAll(urlPath + "?" + params.joinToString("&") { "${it["name"]}=${it["value"]}" })
+                .findAll(urlPath + "?" + params.joinToString("&"))
                 .map { it.value }
                 .distinct()
-                .take(10)
+                .take(POTENTIAL_IDS_MAX_COUNT)
                 .toList()
 
             val redactionPolicy = RedactionPolicy.fromMode(settings.privacyMode)
             val displayUrl = redactUrlForPrompt(request.url(), redactionPolicy, settings.hostAnonymizationSalt)
+            val requestBody = buildCompactRequestBody(requestBodyRaw, request.headerValue("Content-Type").orEmpty())
+            val responseBody = buildCompactResponseBody(responseBodyRaw, response?.headerValue("Content-Type").orEmpty())
 
-            // Build simple text-based metadata
             val metadataText = buildString {
                 appendLine("URL: $displayUrl")
                 appendLine("Path: $urlPath")
@@ -432,9 +614,7 @@ class PassiveAiScanner(
                 }
                 if (params.isNotEmpty()) {
                     appendLine("=== PARAMETERS ===")
-                    params.forEach { p ->
-                        appendLine("${p["name"]} (${p["type"]}): ${p["value"]}")
-                    }
+                    params.forEach { appendLine(it) }
                     appendLine()
                 }
                 if (requestBody.isNotEmpty()) {
@@ -459,6 +639,31 @@ class PassiveAiScanner(
             }
 
             val prompt = buildAnalysisPrompt(safeMetadataText, settings.passiveAiMinSeverity.name)
+            val promptHash = sha256Hex(prompt)
+            val cachedIssues = promptResultCacheValue(promptHash)
+            if (cachedIssues != null) {
+                handleParsedAiIssues(cachedIssues, requestResponse, settings.passiveAiMinSeverity.name)
+                requestsAnalyzed.incrementAndGet()
+                lastAnalysisTime.set(System.currentTimeMillis())
+                TokenTracker.record(
+                    flow = "passive_scanner",
+                    backendId = settings.preferredBackendId,
+                    inputChars = prompt.length,
+                    outputChars = 0,
+                    cacheHit = true
+                )
+                audit.logEvent(
+                    "passive_ai_scan_cache_hit",
+                    mapOf(
+                        "url" to request.url(),
+                        "method" to request.method(),
+                        "status" to (response?.statusCode() ?: 0).toString(),
+                        "promptChars" to prompt.length.toString(),
+                        "issues" to cachedIssues.size.toString()
+                    )
+                )
+                return
+            }
 
             // Send to AI backend
             val responseBuffer = StringBuilder()
@@ -493,68 +698,334 @@ class PassiveAiScanner(
                 }
                 api.logging().logToError("[PassiveAiScanner] AI error: $err")
             } else if (responseBuffer.isNotEmpty()) {
-                handleAiResponse(responseBuffer.toString(), requestResponse, settings.passiveAiMinSeverity.name)
+                val issues = parseIssuesFromAiResponse(responseBuffer.toString())
+                putPromptResultCacheValue(promptHash, issues)
+                handleParsedAiIssues(issues, requestResponse, settings.passiveAiMinSeverity.name)
             }
+
+            TokenTracker.record(
+                flow = "passive_scanner",
+                backendId = settings.preferredBackendId,
+                inputChars = prompt.length,
+                outputChars = responseBuffer.length
+            )
 
             audit.logEvent("passive_ai_scan", mapOf(
                 "url" to request.url(),
                 "method" to request.method(),
-                "status" to (response?.statusCode() ?: 0).toString()
+                "status" to (response?.statusCode() ?: 0).toString(),
+                "promptChars" to prompt.length.toString(),
+                "responseChars" to responseBuffer.length.toString()
             ))
         } catch (e: Exception) {
             api.logging().logToError("[PassiveAiScanner] Error: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
+    private fun truncateWithEllipsis(text: String, maxChars: Int): String {
+        if (text.length <= maxChars) return text
+        return text.take(maxChars) + "..."
+    }
+
+    private fun endpointDedupWindowMs(): Long {
+        return endpointDedupMinutes.toLong().coerceAtLeast(1L) * 60_000L
+    }
+
+    private fun responseFingerprintDedupWindowMs(): Long {
+        return responseFingerprintDedupMinutes.toLong().coerceAtLeast(1L) * 60_000L
+    }
+
+    private fun promptCacheTtlMs(): Long {
+        return promptCacheTtlMinutes.toLong().coerceAtLeast(1L) * 60_000L
+    }
+
+    private fun <K, V> trimLruCache(cache: LinkedHashMap<K, V>, maxEntries: Int) {
+        while (cache.size > maxEntries) {
+            val iterator = cache.entries.iterator()
+            if (!iterator.hasNext()) return
+            iterator.next()
+            iterator.remove()
+        }
+    }
+
+    private fun shouldSkipAiAfterLocalFindings(
+        localFindings: List<LocalFinding>,
+        request: burp.api.montoya.http.message.requests.HttpRequest,
+        requestBody: String
+    ): Boolean {
+        if (localFindings.isEmpty()) return false
+        val hasHighConfidenceLocal = localFindings.any { it.confidence >= LOCAL_FINDING_SKIP_CONFIDENCE }
+        if (!hasHighConfidenceLocal) return false
+        val hasInterestingInput = request.parameters().isNotEmpty() ||
+            requestBody.length > MIN_BODY_SIZE_FOR_AI ||
+            request.method().uppercase() in setOf("POST", "PUT", "PATCH", "DELETE")
+        return !hasInterestingInput
+    }
+
+    private fun shouldSkipUninterestingTraffic(
+        request: burp.api.montoya.http.message.requests.HttpRequest,
+        response: burp.api.montoya.http.message.responses.HttpResponse?,
+        responseBody: String
+    ): Boolean {
+        val status = response?.statusCode() ?: return false
+        if (status == 204.toShort() || status == 304.toShort()) return true
+        val path = runCatching { URI(request.url()).path.orEmpty().lowercase() }.getOrDefault("")
+        if (path.isNotBlank() && staticAssetPathRegex.containsMatchIn(path)) return true
+        if (responseBody.length < MIN_RESPONSE_BODY_CHARS && !hasInterestingResponseHeaders(response)) return true
+        return false
+    }
+
+    private fun hasInterestingResponseHeaders(response: burp.api.montoya.http.message.responses.HttpResponse): Boolean {
+        return response.headers().any { header ->
+            val name = header.name().lowercase()
+            responseHeaderAllowlist.contains(name) || name.startsWith("x-")
+        }
+    }
+
+    private fun shouldSkipRecentlyAnalyzedEndpoint(
+        request: burp.api.montoya.http.message.requests.HttpRequest
+    ): Boolean {
+        val key = buildEndpointCacheKey(request)
+        val now = System.currentTimeMillis()
+        synchronized(endpointRecentCache) {
+            val previous = endpointRecentCache[key]
+            if (previous != null && now - previous < endpointDedupWindowMs()) {
+                return true
+            }
+            endpointRecentCache[key] = now
+        }
+        return false
+    }
+
+    private fun buildEndpointCacheKey(request: burp.api.montoya.http.message.requests.HttpRequest): String {
+        val method = request.method().uppercase()
+        val normalizedPath = runCatching {
+            val uri = URI(request.url())
+            normalizePathSegments(uri.path.orEmpty())
+        }.getOrElse { normalizePathSegments(request.url()) }
+        val host = runCatching { URI(request.url()).host.orEmpty().lowercase() }.getOrDefault("")
+        return "$method:$host:$normalizedPath"
+    }
+
+    private fun normalizePathSegments(path: String): String {
+        if (path.isBlank()) return "/"
+        return path.split('/')
+            .joinToString("/") { segment ->
+                when {
+                    segment.isBlank() -> ""
+                    numericIdRegex.matches(segment) -> "{id}"
+                    uuidLikeRegex.matches(segment) -> "{uuid}"
+                    objectIdLikeRegex.matches(segment) -> "{oid}"
+                    else -> segment.take(64)
+                }
+            }
+            .ifBlank { "/" }
+    }
+
+    private fun shouldSkipKnownResponseFingerprint(
+        request: burp.api.montoya.http.message.requests.HttpRequest,
+        response: burp.api.montoya.http.message.responses.HttpResponse?,
+        responseBody: String
+    ): Boolean {
+        val fingerprint = buildResponseFingerprint(request, response, responseBody) ?: return false
+        val now = System.currentTimeMillis()
+        synchronized(responseFingerprintCache) {
+            val previous = responseFingerprintCache[fingerprint]
+            if (previous != null && now - previous < responseFingerprintDedupWindowMs()) {
+                return true
+            }
+            responseFingerprintCache[fingerprint] = now
+        }
+        return false
+    }
+
+    private fun buildResponseFingerprint(
+        request: burp.api.montoya.http.message.requests.HttpRequest,
+        response: burp.api.montoya.http.message.responses.HttpResponse?,
+        responseBody: String
+    ): String? {
+        if (response == null) return null
+        val headers = sanitizeHeadersForPrompt(response.headers(), isRequest = false)
+            .take(10)
+            .joinToString("\n")
+        val bodyPrefix = responseBody.take(RESPONSE_FINGERPRINT_BODY_PREFIX_CHARS)
+        val raw = buildString {
+            append(request.method()).append('\n')
+            append(request.url()).append('\n')
+            append(response.statusCode()).append('\n')
+            append(headers).append('\n')
+            append(bodyPrefix)
+        }
+        return sha256Hex(raw)
+    }
+
+    private fun sanitizeHeadersForPrompt(
+        headers: List<burp.api.montoya.http.message.HttpHeader>,
+        isRequest: Boolean
+    ): List<String> {
+        return headers.asSequence()
+            .filter { header ->
+                val name = header.name().lowercase()
+                if (name in headerNoiseDenylist) return@filter false
+                if (name.startsWith("x-")) return@filter true
+                if (name.contains("auth") || name.contains("token") || name.contains("cookie")) return@filter true
+                if (isRequest) {
+                    name in requestHeaderAllowlist
+                } else {
+                    name in responseHeaderAllowlist
+                }
+            }
+            .take(headerMaxCount)
+            .map { header ->
+                val value = truncateWithEllipsis(header.value(), HEADER_VALUE_MAX_CHARS)
+                "${header.name()}: $value"
+            }
+            .toList()
+    }
+
+    private fun buildCompactRequestBody(body: String, contentType: String): String {
+        if (body.isBlank()) return ""
+        return if (looksLikeJson(contentType, body)) {
+            compactJsonBody(body, requestBodyPromptMaxChars)
+        } else {
+            truncateWithEllipsis(body, requestBodyPromptMaxChars)
+        }
+    }
+
+    private fun buildCompactResponseBody(body: String, contentType: String): String {
+        if (body.isBlank()) return ""
+        if (looksLikeJson(contentType, body)) {
+            return compactJsonBody(body, responseBodyPromptMaxChars)
+        }
+        if (contentType.contains("html", ignoreCase = true) || body.contains("<html", ignoreCase = true)) {
+            return compactHtmlBody(body, responseBodyPromptMaxChars)
+        }
+        return truncateWithEllipsis(body, responseBodyPromptMaxChars)
+    }
+
+    private fun looksLikeJson(contentType: String, body: String): Boolean {
+        val trimmed = body.trimStart()
+        return contentType.contains("json", ignoreCase = true) ||
+            trimmed.startsWith("{") ||
+            trimmed.startsWith("[")
+    }
+
+    private fun compactJsonBody(body: String, maxChars: Int): String {
+        val node = runCatching { jsonMapper.readTree(body) }.getOrNull()
+        if (node == null) return truncateWithEllipsis(body, maxChars)
+        if (node.isArray && node.size() > JSON_ARRAY_SAMPLE_SIZE) {
+            val sample = jsonMapper.createArrayNode()
+            val iterator = node.elements()
+            var added = 0
+            while (iterator.hasNext() && added < JSON_ARRAY_SAMPLE_SIZE) {
+                sample.add(iterator.next())
+                added++
+            }
+            val summarized = buildString {
+                append(sample.toString())
+                append("\n...[array truncated: ")
+                append(node.size() - JSON_ARRAY_SAMPLE_SIZE)
+                append(" more item(s)]...")
+            }
+            return truncateWithEllipsis(summarized, maxChars)
+        }
+        return truncateWithEllipsis(node.toString(), maxChars)
+    }
+
+    private fun compactHtmlBody(body: String, maxChars: Int): String {
+        val head = Regex("(?is)<head[^>]*>(.*?)</head>").find(body)?.groupValues?.getOrNull(1).orEmpty().trim()
+        val forms = Regex("(?is)<form\\b[^>]*>.*?</form>").findAll(body)
+            .map { it.value.trim() }
+            .take(HTML_FORMS_SAMPLE_MAX)
+            .toList()
+        val scripts = Regex("(?is)<script(?![^>]*\\bsrc=)[^>]*>.*?</script>").findAll(body)
+            .map { it.value.trim() }
+            .take(HTML_INLINE_SCRIPTS_SAMPLE_MAX)
+            .toList()
+        if (head.isBlank() && forms.isEmpty() && scripts.isEmpty()) {
+            return truncateWithEllipsis(body, maxChars)
+        }
+        val summarized = buildString {
+            if (head.isNotBlank()) {
+                appendLine("HEAD:")
+                appendLine(truncateWithEllipsis(head, 1200))
+                appendLine()
+            }
+            if (forms.isNotEmpty()) {
+                appendLine("FORMS:")
+                forms.forEachIndexed { index, form ->
+                    appendLine("[$index] ${truncateWithEllipsis(form, 1200)}")
+                }
+                appendLine()
+            }
+            if (scripts.isNotEmpty()) {
+                appendLine("INLINE_SCRIPTS:")
+                scripts.forEachIndexed { index, script ->
+                    appendLine("[$index] ${truncateWithEllipsis(script, 1200)}")
+                }
+            }
+        }.trim()
+        return truncateWithEllipsis(summarized, maxChars)
+    }
+
+    private fun promptResultCacheValue(promptHash: String): List<AiIssueItem>? {
+        val now = System.currentTimeMillis()
+        synchronized(promptResultCache) {
+            val cached = promptResultCache[promptHash] ?: return null
+            if (now - cached.createdAtMs > promptCacheTtlMs()) {
+                promptResultCache.remove(promptHash)
+                return null
+            }
+            return cached.issues
+        }
+    }
+
+    private fun putPromptResultCacheValue(promptHash: String, issues: List<AiIssueItem>) {
+        synchronized(promptResultCache) {
+            promptResultCache[promptHash] = CachedAiIssues(
+                createdAtMs = System.currentTimeMillis(),
+                issues = issues
+            )
+        }
+    }
+
+    private fun sha256Hex(text: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
     private fun buildAnalysisPrompt(metadata: String, minSeverity: String): String {
         val severityInstruction = when (minSeverity) {
-            "CRITICAL" -> "Only report CRITICAL severity findings."
-            "HIGH" -> "Only report HIGH or CRITICAL severity findings."
-            "MEDIUM" -> "Only report MEDIUM, HIGH or CRITICAL severity findings."
-            else -> "Report all findings (LOW, MEDIUM, HIGH, CRITICAL)."
+            "CRITICAL" -> "Severity filter: only CRITICAL."
+            "HIGH" -> "Severity filter: HIGH or CRITICAL."
+            "MEDIUM" -> "Severity filter: MEDIUM/HIGH/CRITICAL."
+            else -> "Severity filter: LOW/MEDIUM/HIGH/CRITICAL."
         }
-        
-        return """
-### ROLE
-You are a senior security researcher analyzing HTTP traffic.
-Response Language: English.
 
-### TASK
-Analyze the provided HTTP data for vulnerabilities and misconfigurations.
+        return """
+You are a security researcher. Analyze this HTTP traffic for real vulnerabilities.
 $severityInstruction
 
-### SCOPE
-1. **Injection**: XSS (Reflected/DOM/Stored), SQLi, CMDI, SSTI, LDAP/XPath.
-2. **Auth & Access**: IDOR, BOLA, BAC (Horizontal/Vertical), Mass Assignment, Broken Auth, JWT Issues, CSRF.
-3. **Info Disclosure**: Sensitive Data (PII, Secrets), Debug Info, Source Code, Git/Backup Files.
-4. **Config**: Missing Headers, CORS, Open Redirect, SSRF, Deserialization, XXE.
-5. **High Value**: Account Takeover, Host/Email Header Injection, OAuth Misconfig, MFA Bypass, Cache Poisoning/Deception, Request Smuggling, Prototype Pollution.
-6. **API**: Version Bypass, GraphQL Introspection.
+Check: Injection (XSS/SQLi/CMDI/SSTI/SSRF/XXE/NoSQL), Auth (IDOR/BOLA/BAC/CSRF/JWT), Info disclosure (secrets/debug/source), Config (security headers/CORS/open redirect), High-value (ATO/cache poison/smuggling/host-header), API (version bypass/GraphQL).
+Rules: evidence required, no speculation, confidence >=85 only, output JSON array only.
+Output schema: [{"reasoning":"...","title":"...","severity":"High|Medium|Low|Information","detail":"...with evidence","confidence":0-100}]
+Return [] when no supported issue exists.
 
-### RULES
-1. **Evidence First**: ONLY report findings with CONCRETE EVIDENCE in the provided data.
-2. **Quality**: Confidence 95-100 (Certain), 85-94 (Firm), <85 (Ignore).
-3. **No Speculation**: Do not report theoretical issues without proof in this specific traffic.
-4. **JSON Output**: Output ONLY a JSON array. If no issues found, output [].
-
-### OUTPUT FORMAT
-[
-  {
-    "reasoning": "Step-by-step logic explaining why this is a vulnerability",
-    "title": "Short descriptive title",
-    "severity": "High|Medium|Low|Information",
-    "detail": "Technical description with evidence quotes",
-    "confidence": 0-100
-  }
-]
-
-### HTTP DATA
+HTTP DATA:
 $metadata
 """.trim()
     }
 
     private fun handleAiResponse(aiText: String, requestResponse: HttpRequestResponse, minSeverity: String) {
         val issues = parseIssuesFromAiResponse(aiText)
+        handleParsedAiIssues(issues, requestResponse, minSeverity)
+    }
+
+    private fun handleParsedAiIssues(
+        issues: List<AiIssueItem>,
+        requestResponse: HttpRequestResponse,
+        minSeverity: String
+    ) {
         if (issues.isEmpty()) return
         val settings = getSettings()
 
@@ -629,7 +1100,7 @@ $metadata
                     fullDetailLines.addAll(sanitizedDetail.split("\n"))
                     fullDetailLines.add("")
                     fullDetailLines.addAll(metadataSection.split("\r\n"))
-                    val fullDetail = formatIssueDetailHtml(fullDetailLines)
+                    val fullDetail = IssueUtils.formatIssueDetailHtml(fullDetailLines)
                     
                     val issue = AuditIssue.auditIssue(
                         issueName,
@@ -705,19 +1176,11 @@ $metadata
     }
 
     private fun hasExistingIssue(name: String, baseUrl: String): Boolean {
-        val canonicalName = canonicalIssueName(name)
-        return api.siteMap().issues().any { issue ->
-            issue.baseUrl() == baseUrl && canonicalIssueName(issue.name()) == canonicalName
-        }
-    }
-
-    private fun canonicalIssueName(name: String): String {
-        return name
-            .trim()
-            .replace(Regex("^\\[(?:AI(?:\\s+Passive)?)\\]\\s*", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("^\\[(?:AI(?:\\s+Passive)?)\\]\\s*", RegexOption.IGNORE_CASE), "")
-            .trim()
-            .lowercase()
+        return IssueUtils.hasEquivalentIssue(
+            name = name,
+            baseUrl = baseUrl,
+            issues = api.siteMap().issues().map { issue -> issue.name() to issue.baseUrl() }
+        )
     }
     
     private fun queueToActiveScanner(
@@ -1262,6 +1725,45 @@ $metadata
     private companion object {
         private const val GEMINI_CAPACITY_BACKOFF_MS = 60_000L
         private const val BACKOFF_LOG_INTERVAL_MS = 10_000L
+        private const val MIN_DEDUP_TTL_MINUTES = 1
+        private const val MAX_DEDUP_TTL_MINUTES = 240
+        private const val DEFAULT_ENDPOINT_DEDUP_MINUTES = 30
+        private const val DEFAULT_RESPONSE_FINGERPRINT_DEDUP_MINUTES = 30
+        private const val DEFAULT_PROMPT_CACHE_TTL_MINUTES = 30
+        private const val MIN_ENDPOINT_CACHE_ENTRIES = 100
+        private const val MAX_ENDPOINT_CACHE_ENTRIES = 50_000
+        private const val DEFAULT_ENDPOINT_CACHE_MAX_ENTRIES = 5_000
+        private const val MIN_RESPONSE_FINGERPRINT_CACHE_ENTRIES = 100
+        private const val MAX_RESPONSE_FINGERPRINT_CACHE_ENTRIES = 50_000
+        private const val DEFAULT_RESPONSE_FINGERPRINT_CACHE_MAX_ENTRIES = 5_000
+        private const val MIN_PROMPT_RESULT_CACHE_ENTRIES = 50
+        private const val MAX_PROMPT_RESULT_CACHE_ENTRIES = 5_000
+        private const val DEFAULT_PROMPT_RESULT_CACHE_MAX_ENTRIES = 500
+        private const val RESPONSE_FINGERPRINT_BODY_PREFIX_CHARS = 2_000
+        private const val REQUEST_BODY_LOCAL_CHECK_MAX_CHARS = 3_000
+        private const val RESPONSE_BODY_LOCAL_CHECK_MAX_CHARS = 6_000
+        private const val MIN_REQUEST_BODY_PROMPT_MAX_CHARS = 256
+        private const val MAX_REQUEST_BODY_PROMPT_MAX_CHARS = 20_000
+        private const val DEFAULT_REQUEST_BODY_PROMPT_MAX_CHARS = 2_000
+        private const val MIN_RESPONSE_BODY_PROMPT_MAX_CHARS = 512
+        private const val MAX_RESPONSE_BODY_PROMPT_MAX_CHARS = 40_000
+        private const val DEFAULT_RESPONSE_BODY_PROMPT_MAX_CHARS = 4_000
+        private const val MIN_RESPONSE_BODY_CHARS = 50
+        private const val LOCAL_FINDING_SKIP_CONFIDENCE = 90
+        private const val MIN_BODY_SIZE_FOR_AI = 80
+        private const val MIN_PARAMS_MAX_COUNT = 5
+        private const val MAX_PARAMS_MAX_COUNT = 100
+        private const val DEFAULT_PARAMS_MAX_COUNT = 15
+        private const val PARAM_VALUE_MAX_CHARS = 200
+        private const val POTENTIAL_IDS_MAX_COUNT = 10
+        private const val MIN_HEADERS_MAX_COUNT = 5
+        private const val MAX_HEADERS_MAX_COUNT = 120
+        private const val DEFAULT_HEADERS_MAX_COUNT = 40
+        private const val HEADER_VALUE_MAX_CHARS = 120
+        private const val COOKIES_MAX_COUNT = 6
+        private const val JSON_ARRAY_SAMPLE_SIZE = 3
+        private const val HTML_FORMS_SAMPLE_MAX = 3
+        private const val HTML_INLINE_SCRIPTS_SAMPLE_MAX = 3
     }
 
     private fun buildMetadataSectionPlain(
@@ -1289,17 +1791,4 @@ $metadata
         return lines.joinToString("\r\n")
     }
 
-    private fun formatIssueDetailHtml(lines: List<String>): String {
-        return lines.joinToString("<br>") { line ->
-            val escaped = line
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-            if (escaped.startsWith("  ")) {
-                "&nbsp;&nbsp;" + escaped.drop(2)
-            } else {
-                escaped
-            }
-        }
-    }
 }

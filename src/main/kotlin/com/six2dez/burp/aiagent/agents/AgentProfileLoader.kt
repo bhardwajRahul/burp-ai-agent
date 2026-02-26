@@ -33,6 +33,8 @@ object AgentProfileLoader {
     @Volatile
     private var cachedModified: Long = -1L
 
+    private const val MAX_INSTRUCTION_CHARS = 8_000
+
     fun setActiveProfile(profileName: String) {
         val normalized = normalizeProfileName(profileName)
         if (normalized.isBlank()) return
@@ -130,10 +132,44 @@ object AgentProfileLoader {
             sections.add(section.trim())
         }
         if (sections.isEmpty()) return null
+        val compacted = compactInstructions(sections.joinToString("\n\n"))
         return buildString {
             appendLine("System instructions (AGENTS):")
-            append(sections.joinToString("\n\n").trim())
+            append(compacted)
         }.trim()
+    }
+
+    private fun compactInstructions(raw: String): String {
+        val withoutToolCatalog = stripExplicitToolCatalog(raw)
+        val compactWhitespace = withoutToolCatalog
+            .replace("\r\n", "\n")
+            .replace(Regex("[ \t]+\n"), "\n")
+            .replace(Regex("\n{3,}"), "\n\n")
+            .trim()
+        if (compactWhitespace.length <= MAX_INSTRUCTION_CHARS) return compactWhitespace
+        return compactWhitespace.take(MAX_INSTRUCTION_CHARS) + "\n...[instructions truncated]..."
+    }
+
+    private fun stripExplicitToolCatalog(text: String): String {
+        val lines = text.replace("\r\n", "\n").lines()
+        val out = mutableListOf<String>()
+        var skipping = false
+        for (line in lines) {
+            val trimmed = line.trim()
+            if (!skipping && trimmed.equals("Available MCP Tools:", ignoreCase = true)) {
+                skipping = true
+                continue
+            }
+            if (skipping) {
+                val isBullet = trimmed.startsWith("-") || trimmed.startsWith("*")
+                if (isBullet || trimmed.isBlank()) {
+                    continue
+                }
+                skipping = false
+            }
+            out.add(line)
+        }
+        return out.joinToString("\n")
     }
 
     private fun loadProfile(): AgentProfile? {

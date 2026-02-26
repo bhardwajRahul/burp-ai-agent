@@ -24,7 +24,11 @@ import com.six2dez.burp.aiagent.mcp.schema.toSerializableForm
 import com.six2dez.burp.aiagent.mcp.schema.toSiteMapEntry
 import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
+import com.six2dez.burp.aiagent.util.IssueUtils
 import com.six2dez.burp.aiagent.util.IssueText
+import io.modelcontextprotocol.kotlin.sdk.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -42,7 +46,21 @@ import javax.swing.JTextArea
 
 private val toolJson = Json { encodeDefaults = true }
 
+@Suppress("UNUSED_PARAMETER")
 fun Server.registerTools(api: MontoyaApi, context: McpToolContext) {
+    registerUtilityTools(context)
+    registerHistoryTools(context)
+    registerSiteMapTools(context)
+    registerRequestTools(context)
+    registerScannerTools(context)
+    registerConfigTools(context)
+    registerEditorTools(context)
+    registerCollaboratorTools(context)
+    registerIssueTools(context)
+}
+
+@Suppress("unused")
+private fun Server.registerToolsLegacy(api: MontoyaApi, context: McpToolContext) {
     mcpTool("status", "Returns basic extension and Burp version status.", context) {
         val version = api.burpSuite().version()
         buildString {
@@ -856,19 +874,11 @@ private fun withAiIssuePrefix(rawName: String): String {
 }
 
 private fun hasEquivalentIssue(api: MontoyaApi, name: String, baseUrl: String): Boolean {
-    val canonicalName = canonicalIssueName(name)
-    return api.siteMap().issues().any { issue ->
-        issue.baseUrl() == baseUrl && canonicalIssueName(issue.name()) == canonicalName
-    }
-}
-
-private fun canonicalIssueName(name: String): String {
-    return name
-        .trim()
-        .replace(Regex("^\\[(?:AI(?:\\s+Passive)?)\\]\\s*", RegexOption.IGNORE_CASE), "")
-        .replace(Regex("^\\[(?:AI(?:\\s+Passive)?)\\]\\s*", RegexOption.IGNORE_CASE), "")
-        .trim()
-        .lowercase()
+    return IssueUtils.hasEquivalentIssue(
+        name = name,
+        baseUrl = baseUrl,
+        issues = api.siteMap().issues().map { issue -> issue.name() to issue.baseUrl() }
+    )
 }
 
 /**
@@ -1085,11 +1095,12 @@ data class ToolSpec(
 object McpToolExecutor {
     private val decodeJson = Json { ignoreUnknownKeys = true }
 
-    fun describeTools(context: McpToolContext, includeSchemas: Boolean): String {
-        val specs = McpToolCatalog.all().map { desc ->
+    fun describeTools(context: McpToolContext, includeSchemas: Boolean, includeDisabled: Boolean = true): String {
+        val specs = McpToolCatalog.all().mapNotNull { desc ->
             val enabled = context.isToolEnabled(desc.id) &&
-                (!desc.unsafeOnly || context.unsafeEnabled) &&
+                context.isUnsafeToolAllowed(desc.id) &&
                 (!desc.proOnly || context.edition == BurpSuiteEdition.PROFESSIONAL)
+            if (!includeDisabled && !enabled) return@mapNotNull null
             val schema = if (includeSchemas) schemaString(desc.id) else null
             ToolSpec(
                 id = desc.id,
@@ -1102,11 +1113,13 @@ object McpToolExecutor {
         }
 
         return buildString {
-            appendLine("MCP tools (enabled based on your toggles and privacy mode):")
+            appendLine(if (includeDisabled) "MCP tools (enabled based on your toggles and privacy mode):" else "Enabled MCP tools:")
             for (spec in specs) {
                 val status = if (spec.enabled) "enabled" else "disabled"
                 append("- ").append(spec.id).append(": ").append(spec.description)
-                append(" [").append(status).append("]")
+                if (includeDisabled) {
+                    append(" [").append(status).append("]")
+                }
                 if (spec.unsafeOnly) append(" [unsafe]")
                 if (spec.proOnly) append(" [pro]")
                 val schema = spec.argsSchema
@@ -1118,17 +1131,17 @@ object McpToolExecutor {
         }.trim()
     }
 
-    fun executeTool(name: String, argsJson: String?, context: McpToolContext): String {
+    fun executeToolResult(name: String, argsJson: String?, context: McpToolContext): CallToolResult {
         val resolvedName = resolveAlias(name)
         val descriptor = McpToolCatalog.all().firstOrNull { it.id == resolvedName }
-            ?: return "Unknown tool: $name"
+            ?: return errorResult("Unknown tool: $name")
         if (descriptor.proOnly && context.edition != BurpSuiteEdition.PROFESSIONAL) {
-            return "Tool requires Burp Suite Professional: $resolvedName"
+            return errorResult("Tool requires Burp Suite Professional: $resolvedName")
         }
 
         val api = context.api
         val normalizedArgs = normalizeArgs(resolvedName, argsJson)
-        val result = runTool(context, resolvedName) {
+        val result = runTool(context, resolvedName, normalizedArgs) {
             val output = when (resolvedName) {
                 "status" -> {
                     val version = api.burpSuite().version()
@@ -1427,9 +1440,11 @@ object McpToolExecutor {
                     } else {
                         issues.asSequence()
                     }
-                    seq.drop(input.offset).take(input.count).joinToString("\n\n") {
-                        toolJson.encodeToString(it.toSerializableForm())
-                    }
+                    context.limitedJoin(
+                        seq.drop(input.offset)
+                            .take(input.count)
+                            .map { toolJson.encodeToString(it.toSerializableForm()) }
+                    )
                 }
                 "scan_audit_start" -> {
                     ensurePro(context, resolvedName)
@@ -1536,9 +1551,11 @@ object McpToolExecutor {
                     } else {
                         items.asSequence()
                     }
-                    seq.drop(input.offset).take(input.count).joinToString("\n\n") {
-                        truncateIfNeeded(toolJson.encodeToString(it.toSerializableForm()), context.maxBodyBytes)
-                    }
+                    context.limitedJoin(
+                        seq.drop(input.offset)
+                            .take(input.count)
+                            .map { toolJson.encodeToString(it.toSerializableForm()) }
+                    )
                 }
                 "proxy_http_history_regex" -> {
                     val input = decode<GetProxyHttpHistoryRegex>(normalizedArgs)
@@ -1549,9 +1566,11 @@ object McpToolExecutor {
                     } else {
                         items.asSequence()
                     }
-                    seq.drop(input.offset).take(input.count).joinToString("\n\n") {
-                        truncateIfNeeded(toolJson.encodeToString(it.toSerializableForm()), context.maxBodyBytes)
-                    }
+                    context.limitedJoin(
+                        seq.drop(input.offset)
+                            .take(input.count)
+                            .map { toolJson.encodeToString(it.toSerializableForm()) }
+                    )
                 }
                 "proxy_history_annotate" -> {
                     val input = decode<ProxyHistoryAnnotate>(normalizedArgs)
@@ -1611,9 +1630,11 @@ object McpToolExecutor {
                     } else {
                         items.asSequence()
                     }
-                    seq.drop(input.offset).take(input.count).joinToString("\n\n") {
-                        truncateIfNeeded(toolJson.encodeToString(it.toSerializableForm()), context.maxBodyBytes)
-                    }
+                    context.limitedJoin(
+                        seq.drop(input.offset)
+                            .take(input.count)
+                            .map { toolJson.encodeToString(it.toSerializableForm()) }
+                    )
                 }
                 "proxy_ws_history_regex" -> {
                     val input = decode<GetProxyWebsocketHistoryRegex>(normalizedArgs)
@@ -1624,9 +1645,11 @@ object McpToolExecutor {
                     } else {
                         items.asSequence()
                     }
-                    seq.drop(input.offset).take(input.count).joinToString("\n\n") {
-                        truncateIfNeeded(toolJson.encodeToString(it.toSerializableForm()), context.maxBodyBytes)
-                    }
+                    context.limitedJoin(
+                        seq.drop(input.offset)
+                            .take(input.count)
+                            .map { toolJson.encodeToString(it.toSerializableForm()) }
+                    )
                 }
                 "site_map" -> {
                     val input = decode<GetSiteMap>(normalizedArgs)
@@ -1636,9 +1659,11 @@ object McpToolExecutor {
                     } else {
                         items.asSequence()
                     }
-                    seq.drop(input.offset).take(input.count).joinToString("\n\n") {
-                        truncateIfNeeded(toolJson.encodeToString(it.toSiteMapEntry()), context.maxBodyBytes)
-                    }
+                    context.limitedJoin(
+                        seq.drop(input.offset)
+                            .take(input.count)
+                            .map { toolJson.encodeToString(it.toSiteMapEntry()) }
+                    )
                 }
                 "site_map_regex" -> {
                     val input = decode<GetSiteMapRegex>(normalizedArgs)
@@ -1652,9 +1677,11 @@ object McpToolExecutor {
                     } else {
                         items.asSequence()
                     }
-                    seq.drop(input.offset).take(input.count).joinToString("\n\n") {
-                        truncateIfNeeded(toolJson.encodeToString(it.toSiteMapEntry()), context.maxBodyBytes)
-                    }
+                    context.limitedJoin(
+                        seq.drop(input.offset)
+                            .take(input.count)
+                            .map { toolJson.encodeToString(it.toSiteMapEntry()) }
+                    )
                 }
                 "scope_check" -> {
                     val input = decode<ScopeCheck>(normalizedArgs)
@@ -1693,14 +1720,22 @@ object McpToolExecutor {
             context.redactIfNeeded(output)
         }
 
-        val text = result.content.filterIsInstance<io.modelcontextprotocol.kotlin.sdk.TextContent>()
+        return result
+    }
+
+    fun executeTool(name: String, argsJson: String?, context: McpToolContext): String {
+        val result = executeToolResult(name, argsJson, context)
+        val text = result.content.filterIsInstance<TextContent>()
             .map { it.text?.toString().orEmpty() }
             .joinToString("\n")
         val isError = result.isError == true
+        if (text.startsWith("Unknown tool:") || text.startsWith("Tool requires Burp Suite Professional:")) {
+            return text
+        }
         return if (isError && text.isNotBlank()) {
             "Error: $text"
         } else {
-            text.ifBlank { "Tool executed: $resolvedName" }
+            text.ifBlank { "Tool executed: ${resolveAlias(name)}" }
         }
     }
 
@@ -1708,6 +1743,13 @@ object McpToolExecutor {
         if (context.edition != BurpSuiteEdition.PROFESSIONAL) {
             throw IllegalStateException("Tool requires Burp Suite Professional: $name")
         }
+    }
+
+    private fun errorResult(message: String): CallToolResult {
+        return CallToolResult(
+            content = listOf(TextContent(message)),
+            isError = true
+        )
     }
 
     private inline fun <reified T : Any> decode(raw: String?): T {
@@ -1770,12 +1812,12 @@ object McpToolExecutor {
         }
     }
 
-    private fun schemaString(toolName: String): String {
-        val input = when (toolName) {
+    fun inputSchema(toolName: String): Tool.Input {
+        return when (toolName) {
             "status",
             "editor_get",
             "project_options_get",
-            "user_options_get" -> io.modelcontextprotocol.kotlin.sdk.Tool.Input()
+            "user_options_get" -> Tool.Input()
             "http1_request" -> SendHttp1Request::class.asInputSchema()
             "http2_request" -> SendHttp2Request::class.asInputSchema()
             "repeater_tab" -> CreateRepeaterTab::class.asInputSchema()
@@ -1824,9 +1866,13 @@ object McpToolExecutor {
             "task_engine_state" -> SetTaskExecutionEngineState::class.asInputSchema()
             "proxy_intercept" -> SetProxyInterceptState::class.asInputSchema()
             "editor_set" -> SetActiveEditorContents::class.asInputSchema()
-            else -> io.modelcontextprotocol.kotlin.sdk.Tool.Input()
+            "issue_create" -> CreateAuditIssue::class.asInputSchema()
+            else -> Tool.Input()
         }
+    }
 
+    private fun schemaString(toolName: String): String {
+        val input = inputSchema(toolName)
         val props = input.properties.toString()
         val requiredList = input.required ?: emptyList()
         val required = if (requiredList.isEmpty()) "[]" else requiredList.joinToString(prefix = "[", postfix = "]") { "\"$it\"" }

@@ -108,4 +108,14 @@ object Redaction {
     fun deAnonymizeHost(host: String, salt: String): String? {
         return hostReverseMap[salt]?.get(host)
     }
+
+    fun clearMappings(salt: String? = null) {
+        if (salt == null) {
+            hostForwardMap.clear()
+            hostReverseMap.clear()
+            return
+        }
+        hostForwardMap.remove(salt)
+        hostReverseMap.remove(salt)
+    }
 }

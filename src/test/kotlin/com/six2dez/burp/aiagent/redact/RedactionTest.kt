@@ -33,4 +33,19 @@ class RedactionTest {
         assertEquals(a, b)
         assertTrue(a != c)
     }
+
+    @Test
+    fun clearMappings_removesOnlyRequestedSaltOrAll() {
+        val anonA = Redaction.anonymizeHost("a.example", "salt-a")
+        val anonB = Redaction.anonymizeHost("b.example", "salt-b")
+        assertEquals("a.example", Redaction.deAnonymizeHost(anonA, "salt-a"))
+        assertEquals("b.example", Redaction.deAnonymizeHost(anonB, "salt-b"))
+
+        Redaction.clearMappings("salt-a")
+        assertEquals(null, Redaction.deAnonymizeHost(anonA, "salt-a"))
+        assertEquals("b.example", Redaction.deAnonymizeHost(anonB, "salt-b"))
+
+        Redaction.clearMappings()
+        assertEquals(null, Redaction.deAnonymizeHost(anonB, "salt-b"))
+    }
 }

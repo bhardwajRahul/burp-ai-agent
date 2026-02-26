@@ -12,13 +12,17 @@ data class McpSettings(
     val externalEnabled: Boolean,
     val stdioEnabled: Boolean,
     val token: String,
+    val allowedOrigins: List<String>,
     val tlsEnabled: Boolean,
     val tlsAutoGenerate: Boolean,
     val tlsKeystorePath: String,
     val tlsKeystorePassword: String,
+    val scanTaskTtlMinutes: Int,
+    val collaboratorClientTtlMinutes: Int,
     val maxConcurrentRequests: Int,
     val maxBodyBytes: Int,
     val toolToggles: Map<String, Boolean>,
+    val enabledUnsafeTools: Set<String>,
     val unsafeEnabled: Boolean
 ) {
     companion object {
@@ -63,6 +67,47 @@ data class McpSettings(
             } catch (_: Exception) {
                 "{}"
             }
+        }
+
+        fun parseAllowedOrigins(raw: String?): List<String> {
+            if (raw.isNullOrBlank()) return emptyList()
+            return raw
+                .split('\n', ',', ';')
+                .asSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .toList()
+        }
+
+        fun serializeAllowedOrigins(origins: List<String>): String {
+            if (origins.isEmpty()) return ""
+            return origins
+                .asSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .joinToString("\n")
+        }
+
+        fun parseUnsafeToolSet(raw: String?): Set<String> {
+            if (raw.isNullOrBlank()) return emptySet()
+            return raw
+                .split(',', '\n', ';')
+                .asSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .toSet()
+        }
+
+        fun serializeUnsafeToolSet(ids: Set<String>): String {
+            if (ids.isEmpty()) return ""
+            return ids
+                .asSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .sorted()
+                .joinToString(",")
         }
     }
 }

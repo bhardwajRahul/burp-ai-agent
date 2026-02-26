@@ -14,7 +14,9 @@ class PrivacyConfigPanel(
     private val determinism: JComponent,
     private val rotateSaltBtn: JComponent,
     private val privacyWarning: JComponent,
-    private val privacyActiveWarning: JComponent
+    private val privacyActiveWarning: JComponent,
+    private val privacyRiskWarning: JComponent,
+    private val saveFeedback: JComponent
 ) : ConfigPanel {
     override fun build(): JPanel {
         val grid = formGrid()
@@ -31,6 +33,10 @@ class PrivacyConfigPanel(
         addRowFull(grid, "Privacy warning", privacyWarning)
         addSpacerRow(grid, 4)
         addRowFull(grid, "Active scan warning", privacyActiveWarning)
+        addSpacerRow(grid, 4)
+        addRowFull(grid, "Risk warning", privacyRiskWarning)
+        addSpacerRow(grid, 4)
+        addRowFull(grid, "Save feedback", saveFeedback)
         return sectionPanel(
             "Privacy & Logging",
             "Controls redaction and stable ordering of context.",

@@ -69,6 +69,19 @@ data class AgentSettings(
     val passiveAiScopeOnly: Boolean = true,
     val passiveAiMaxSizeKb: Int = 96,
     val passiveAiMinSeverity: SeverityLevel = SeverityLevel.LOW,
+    val passiveAiEndpointDedupMinutes: Int = 30,
+    val passiveAiResponseFingerprintDedupMinutes: Int = 30,
+    val passiveAiPromptCacheTtlMinutes: Int = 30,
+    val passiveAiEndpointCacheEntries: Int = 5_000,
+    val passiveAiResponseFingerprintCacheEntries: Int = 5_000,
+    val passiveAiPromptCacheEntries: Int = 500,
+    val passiveAiRequestBodyMaxChars: Int = 2_000,
+    val passiveAiResponseBodyMaxChars: Int = 4_000,
+    val passiveAiHeaderMaxCount: Int = 40,
+    val passiveAiParamMaxCount: Int = 15,
+    val contextRequestBodyMaxChars: Int = 4_000,
+    val contextResponseBodyMaxChars: Int = 8_000,
+    val contextCompactJson: Boolean = true,
     // Active AI Scanner settings
     val activeAiEnabled: Boolean = false,
     val activeAiMaxConcurrent: Int = 3,
@@ -92,6 +105,7 @@ class AgentSettingsRepository(api: MontoyaApi) {
     private val prefs: Preferences = api.persistence().preferences()
 
     fun load(): AgentSettings {
+        migrateIfNeeded()
         val privacy = PrivacyMode.fromString(prefs.getString(KEY_PRIVACY_MODE))
         val mcpSettings = loadMcpSettings()
         val rawGeminiCmd = prefs.getString(KEY_GEMINI_CMD).orEmpty().trim()
@@ -111,7 +125,7 @@ class AgentSettingsRepository(api: MontoyaApi) {
             ollamaTimeoutSeconds = (prefs.getInteger(KEY_OLLAMA_TIMEOUT) ?: defaultOllamaTimeoutSeconds())
                 .coerceIn(30, 3600),
             ollamaContextWindow = (prefs.getInteger(KEY_OLLAMA_CONTEXT_WINDOW) ?: defaultOllamaContextWindow())
-                .coerceIn(2048, 128000),
+                .coerceIn(2048, 256000),
             lmStudioUrl = (prefs.getString(KEY_LMSTUDIO_URL) ?: "http://127.0.0.1:1234").trim(),
             lmStudioModel = prefs.getString(KEY_LMSTUDIO_MODEL).orEmpty().trim().ifBlank { defaultLmStudioModel() },
             lmStudioTimeoutSeconds = (prefs.getInteger(KEY_LMSTUDIO_TIMEOUT) ?: defaultLmStudioTimeoutSeconds())
@@ -151,6 +165,19 @@ class AgentSettingsRepository(api: MontoyaApi) {
             passiveAiScopeOnly = prefs.getBoolean(KEY_PASSIVE_AI_SCOPE_ONLY) ?: true,
             passiveAiMaxSizeKb = (prefs.getInteger(KEY_PASSIVE_AI_MAX_SIZE) ?: 96).coerceIn(16, 1024),
             passiveAiMinSeverity = SeverityLevel.fromString(prefs.getString(KEY_PASSIVE_AI_MIN_SEVERITY)),
+            passiveAiEndpointDedupMinutes = (prefs.getInteger(KEY_PASSIVE_AI_ENDPOINT_DEDUP_MINUTES) ?: 30).coerceIn(1, 240),
+            passiveAiResponseFingerprintDedupMinutes = (prefs.getInteger(KEY_PASSIVE_AI_FINGERPRINT_DEDUP_MINUTES) ?: 30).coerceIn(1, 240),
+            passiveAiPromptCacheTtlMinutes = (prefs.getInteger(KEY_PASSIVE_AI_PROMPT_CACHE_TTL_MINUTES) ?: 30).coerceIn(1, 240),
+            passiveAiEndpointCacheEntries = (prefs.getInteger(KEY_PASSIVE_AI_ENDPOINT_CACHE_ENTRIES) ?: 5_000).coerceIn(100, 50_000),
+            passiveAiResponseFingerprintCacheEntries = (prefs.getInteger(KEY_PASSIVE_AI_FINGERPRINT_CACHE_ENTRIES) ?: 5_000).coerceIn(100, 50_000),
+            passiveAiPromptCacheEntries = (prefs.getInteger(KEY_PASSIVE_AI_PROMPT_CACHE_ENTRIES) ?: 500).coerceIn(50, 5_000),
+            passiveAiRequestBodyMaxChars = (prefs.getInteger(KEY_PASSIVE_AI_REQUEST_BODY_MAX_CHARS) ?: 2_000).coerceIn(256, 20_000),
+            passiveAiResponseBodyMaxChars = (prefs.getInteger(KEY_PASSIVE_AI_RESPONSE_BODY_MAX_CHARS) ?: 4_000).coerceIn(512, 40_000),
+            passiveAiHeaderMaxCount = (prefs.getInteger(KEY_PASSIVE_AI_HEADER_MAX_COUNT) ?: 40).coerceIn(5, 120),
+            passiveAiParamMaxCount = (prefs.getInteger(KEY_PASSIVE_AI_PARAM_MAX_COUNT) ?: 15).coerceIn(5, 100),
+            contextRequestBodyMaxChars = (prefs.getInteger(KEY_CONTEXT_REQUEST_BODY_MAX_CHARS) ?: 4_000).coerceIn(256, 40_000),
+            contextResponseBodyMaxChars = (prefs.getInteger(KEY_CONTEXT_RESPONSE_BODY_MAX_CHARS) ?: 8_000).coerceIn(512, 80_000),
+            contextCompactJson = prefs.getBoolean(KEY_CONTEXT_COMPACT_JSON) ?: true,
             activeAiEnabled = prefs.getBoolean(KEY_ACTIVE_AI_ENABLED) ?: false,
             activeAiMaxConcurrent = (prefs.getInteger(KEY_ACTIVE_AI_MAX_CONCURRENT) ?: 3).coerceIn(1, 10),
             activeAiMaxPayloadsPerPoint = (prefs.getInteger(KEY_ACTIVE_AI_MAX_PAYLOADS) ?: 10).coerceIn(1, 50),
@@ -222,6 +249,19 @@ class AgentSettingsRepository(api: MontoyaApi) {
             passiveAiScopeOnly = true,
             passiveAiMaxSizeKb = 96,
             passiveAiMinSeverity = SeverityLevel.LOW,
+            passiveAiEndpointDedupMinutes = 30,
+            passiveAiResponseFingerprintDedupMinutes = 30,
+            passiveAiPromptCacheTtlMinutes = 30,
+            passiveAiEndpointCacheEntries = 5_000,
+            passiveAiResponseFingerprintCacheEntries = 5_000,
+            passiveAiPromptCacheEntries = 500,
+            passiveAiRequestBodyMaxChars = 2_000,
+            passiveAiResponseBodyMaxChars = 4_000,
+            passiveAiHeaderMaxCount = 40,
+            passiveAiParamMaxCount = 15,
+            contextRequestBodyMaxChars = 4_000,
+            contextResponseBodyMaxChars = 8_000,
+            contextCompactJson = true,
             activeAiEnabled = false,
             activeAiMaxConcurrent = 3,
             activeAiMaxPayloadsPerPoint = 10,
@@ -288,6 +328,52 @@ class AgentSettingsRepository(api: MontoyaApi) {
         prefs.setBoolean(KEY_PASSIVE_AI_SCOPE_ONLY, settings.passiveAiScopeOnly)
         prefs.setInteger(KEY_PASSIVE_AI_MAX_SIZE, settings.passiveAiMaxSizeKb)
         prefs.setString(KEY_PASSIVE_AI_MIN_SEVERITY, settings.passiveAiMinSeverity.name)
+        prefs.setInteger(KEY_PASSIVE_AI_ENDPOINT_DEDUP_MINUTES, settings.passiveAiEndpointDedupMinutes.coerceIn(1, 240))
+        prefs.setInteger(
+            KEY_PASSIVE_AI_FINGERPRINT_DEDUP_MINUTES,
+            settings.passiveAiResponseFingerprintDedupMinutes.coerceIn(1, 240)
+        )
+        prefs.setInteger(
+            KEY_PASSIVE_AI_PROMPT_CACHE_TTL_MINUTES,
+            settings.passiveAiPromptCacheTtlMinutes.coerceIn(1, 240)
+        )
+        prefs.setInteger(
+            KEY_PASSIVE_AI_ENDPOINT_CACHE_ENTRIES,
+            settings.passiveAiEndpointCacheEntries.coerceIn(100, 50_000)
+        )
+        prefs.setInteger(
+            KEY_PASSIVE_AI_FINGERPRINT_CACHE_ENTRIES,
+            settings.passiveAiResponseFingerprintCacheEntries.coerceIn(100, 50_000)
+        )
+        prefs.setInteger(
+            KEY_PASSIVE_AI_PROMPT_CACHE_ENTRIES,
+            settings.passiveAiPromptCacheEntries.coerceIn(50, 5_000)
+        )
+        prefs.setInteger(
+            KEY_PASSIVE_AI_REQUEST_BODY_MAX_CHARS,
+            settings.passiveAiRequestBodyMaxChars.coerceIn(256, 20_000)
+        )
+        prefs.setInteger(
+            KEY_PASSIVE_AI_RESPONSE_BODY_MAX_CHARS,
+            settings.passiveAiResponseBodyMaxChars.coerceIn(512, 40_000)
+        )
+        prefs.setInteger(
+            KEY_PASSIVE_AI_HEADER_MAX_COUNT,
+            settings.passiveAiHeaderMaxCount.coerceIn(5, 120)
+        )
+        prefs.setInteger(
+            KEY_PASSIVE_AI_PARAM_MAX_COUNT,
+            settings.passiveAiParamMaxCount.coerceIn(5, 100)
+        )
+        prefs.setInteger(
+            KEY_CONTEXT_REQUEST_BODY_MAX_CHARS,
+            settings.contextRequestBodyMaxChars.coerceIn(256, 40_000)
+        )
+        prefs.setInteger(
+            KEY_CONTEXT_RESPONSE_BODY_MAX_CHARS,
+            settings.contextResponseBodyMaxChars.coerceIn(512, 80_000)
+        )
+        prefs.setBoolean(KEY_CONTEXT_COMPACT_JSON, settings.contextCompactJson)
         prefs.setBoolean(KEY_ACTIVE_AI_ENABLED, settings.activeAiEnabled)
         prefs.setInteger(KEY_ACTIVE_AI_MAX_CONCURRENT, settings.activeAiMaxConcurrent)
         prefs.setInteger(KEY_ACTIVE_AI_MAX_PAYLOADS, settings.activeAiMaxPayloadsPerPoint)
@@ -309,6 +395,35 @@ class AgentSettingsRepository(api: MontoyaApi) {
             KEY_BOUNTY_PROMPT_ENABLED_IDS,
             serializeIdSet(settings.bountyPromptEnabledPromptIds)
         )
+        prefs.setInteger(KEY_SETTINGS_SCHEMA_VERSION, CURRENT_SETTINGS_SCHEMA_VERSION)
+    }
+
+    private fun migrateIfNeeded() {
+        val storedVersion = prefs.getInteger(KEY_SETTINGS_SCHEMA_VERSION) ?: 1
+        var effectiveVersion = storedVersion.coerceAtLeast(1)
+
+        if (effectiveVersion < 2) {
+            migrateToSchemaV2()
+            effectiveVersion = 2
+        }
+
+        if (storedVersion != effectiveVersion) {
+            prefs.setInteger(KEY_SETTINGS_SCHEMA_VERSION, effectiveVersion)
+        }
+    }
+
+    private fun migrateToSchemaV2() {
+        val rawOrigins = prefs.getString(KEY_MCP_ALLOWED_ORIGINS).orEmpty()
+        val normalizedOrigins = McpSettings.serializeAllowedOrigins(McpSettings.parseAllowedOrigins(rawOrigins))
+        if (rawOrigins != normalizedOrigins) {
+            prefs.setString(KEY_MCP_ALLOWED_ORIGINS, normalizedOrigins)
+        }
+
+        val rawGeminiCmd = prefs.getString(KEY_GEMINI_CMD).orEmpty().trim()
+        val legacyDefault = "gemini --output-format text --model gemini-2.5-flash"
+        if (rawGeminiCmd == legacyDefault) {
+            prefs.setString(KEY_GEMINI_CMD, defaultGeminiCmd())
+        }
     }
 
     companion object {
@@ -359,19 +474,36 @@ class AgentSettingsRepository(api: MontoyaApi) {
         private const val KEY_MCP_EXTERNAL = "mcp.external.enabled"
         private const val KEY_MCP_STDIO = "mcp.stdio.enabled"
         private const val KEY_MCP_TOKEN = "mcp.token"
+        private const val KEY_MCP_ALLOWED_ORIGINS = "mcp.allowed.origins"
         private const val KEY_MCP_TLS_ENABLED = "mcp.tls.enabled"
         private const val KEY_MCP_TLS_AUTO = "mcp.tls.auto"
         private const val KEY_MCP_TLS_KEYSTORE = "mcp.tls.keystore.path"
         private const val KEY_MCP_TLS_PASSWORD = "mcp.tls.keystore.password"
+        private const val KEY_MCP_SCAN_TASK_TTL_MINUTES = "mcp.scan.task.ttl.minutes"
+        private const val KEY_MCP_COLLABORATOR_TTL_MINUTES = "mcp.collaborator.ttl.minutes"
         private const val KEY_MCP_MAX_CONCURRENT = "mcp.max.concurrent"
         private const val KEY_MCP_MAX_BODY_BYTES = "mcp.max.body.bytes"
         private const val KEY_MCP_TOOL_TOGGLES = "mcp.tools.toggles"
+        private const val KEY_MCP_UNSAFE_TOOLS = "mcp.unsafe.tools"
         private const val KEY_MCP_UNSAFE = "mcp.unsafe.enabled"
         private const val KEY_PASSIVE_AI_ENABLED = "passive.ai.enabled"
         private const val KEY_PASSIVE_AI_RATE = "passive.ai.rate.seconds"
         private const val KEY_PASSIVE_AI_SCOPE_ONLY = "passive.ai.scope.only"
         private const val KEY_PASSIVE_AI_MAX_SIZE = "passive.ai.max.size.kb"
         private const val KEY_PASSIVE_AI_MIN_SEVERITY = "passive.ai.min.severity"
+        private const val KEY_PASSIVE_AI_ENDPOINT_DEDUP_MINUTES = "passive.ai.endpoint.dedup.minutes"
+        private const val KEY_PASSIVE_AI_FINGERPRINT_DEDUP_MINUTES = "passive.ai.fingerprint.dedup.minutes"
+        private const val KEY_PASSIVE_AI_PROMPT_CACHE_TTL_MINUTES = "passive.ai.prompt.cache.ttl.minutes"
+        private const val KEY_PASSIVE_AI_ENDPOINT_CACHE_ENTRIES = "passive.ai.endpoint.cache.entries"
+        private const val KEY_PASSIVE_AI_FINGERPRINT_CACHE_ENTRIES = "passive.ai.fingerprint.cache.entries"
+        private const val KEY_PASSIVE_AI_PROMPT_CACHE_ENTRIES = "passive.ai.prompt.cache.entries"
+        private const val KEY_PASSIVE_AI_REQUEST_BODY_MAX_CHARS = "passive.ai.request.body.max.chars"
+        private const val KEY_PASSIVE_AI_RESPONSE_BODY_MAX_CHARS = "passive.ai.response.body.max.chars"
+        private const val KEY_PASSIVE_AI_HEADER_MAX_COUNT = "passive.ai.header.max.count"
+        private const val KEY_PASSIVE_AI_PARAM_MAX_COUNT = "passive.ai.param.max.count"
+        private const val KEY_CONTEXT_REQUEST_BODY_MAX_CHARS = "context.request.body.max.chars"
+        private const val KEY_CONTEXT_RESPONSE_BODY_MAX_CHARS = "context.response.body.max.chars"
+        private const val KEY_CONTEXT_COMPACT_JSON = "context.compact.json"
         private const val KEY_ACTIVE_AI_ENABLED = "active.ai.enabled"
         private const val KEY_ACTIVE_AI_MAX_CONCURRENT = "active.ai.max.concurrent"
         private const val KEY_ACTIVE_AI_MAX_PAYLOADS = "active.ai.max.payloads"
@@ -387,6 +519,8 @@ class AgentSettingsRepository(api: MontoyaApi) {
         private const val KEY_BOUNTY_PROMPT_AUTO_CREATE_ISSUES = "bountyprompt.auto.issue"
         private const val KEY_BOUNTY_PROMPT_CONFIDENCE_THRESHOLD = "bountyprompt.issue.threshold"
         private const val KEY_BOUNTY_PROMPT_ENABLED_IDS = "bountyprompt.enabled.ids"
+        private const val KEY_SETTINGS_SCHEMA_VERSION = "settings.schema.version"
+        private const val CURRENT_SETTINGS_SCHEMA_VERSION = 2
 
         private fun defaultCodexCmd(): String {
             return "codex chat"
@@ -612,13 +746,17 @@ Response Language: English.
                 externalEnabled = false,
                 stdioEnabled = false,
                 token = McpSettings.generateToken(),
+                allowedOrigins = emptyList(),
                 tlsEnabled = false,
                 tlsAutoGenerate = true,
                 tlsKeystorePath = defaultPath.absolutePath,
                 tlsKeystorePassword = McpSettings.generatePassword(),
+                scanTaskTtlMinutes = 120,
+                collaboratorClientTtlMinutes = 60,
                 maxConcurrentRequests = 4,
                 maxBodyBytes = 2 * 1024 * 1024,
                 toolToggles = emptyMap(),
+                enabledUnsafeTools = emptySet(),
                 unsafeEnabled = false
             )
         }
@@ -662,6 +800,8 @@ Response Language: English.
             generated
         }
         val toolToggles = McpSettings.parseToolToggles(prefs.getString(KEY_MCP_TOOL_TOGGLES))
+        val enabledUnsafeTools = McpSettings.parseUnsafeToolSet(prefs.getString(KEY_MCP_UNSAFE_TOOLS))
+        val allowedOrigins = McpSettings.parseAllowedOrigins(prefs.getString(KEY_MCP_ALLOWED_ORIGINS))
         val externalEnabled = prefs.getBoolean(KEY_MCP_EXTERNAL) ?: false
         val tlsEnabledRaw = prefs.getBoolean(KEY_MCP_TLS_ENABLED) ?: false
         val tlsEnabled = if (externalEnabled) true else tlsEnabledRaw
@@ -675,14 +815,19 @@ Response Language: English.
             externalEnabled = externalEnabled,
             stdioEnabled = prefs.getBoolean(KEY_MCP_STDIO) ?: false,
             token = token,
+            allowedOrigins = allowedOrigins,
             tlsEnabled = tlsEnabled,
             tlsAutoGenerate = tlsAuto,
             tlsKeystorePath = resolvedKeystorePath,
             tlsKeystorePassword = tlsPassword,
+            scanTaskTtlMinutes = (prefs.getInteger(KEY_MCP_SCAN_TASK_TTL_MINUTES) ?: 120).coerceIn(5, 24 * 60),
+            collaboratorClientTtlMinutes = (prefs.getInteger(KEY_MCP_COLLABORATOR_TTL_MINUTES) ?: 60)
+                .coerceIn(5, 24 * 60),
             maxConcurrentRequests = (prefs.getInteger(KEY_MCP_MAX_CONCURRENT) ?: 4).coerceIn(1, 64),
             maxBodyBytes = (prefs.getInteger(KEY_MCP_MAX_BODY_BYTES) ?: 2 * 1024 * 1024)
                 .coerceIn(256 * 1024, 100 * 1024 * 1024),
             toolToggles = toolToggles,
+            enabledUnsafeTools = enabledUnsafeTools,
             unsafeEnabled = prefs.getBoolean(KEY_MCP_UNSAFE) ?: false
         )
     }
@@ -694,13 +839,20 @@ Response Language: English.
         prefs.setBoolean(KEY_MCP_EXTERNAL, settings.externalEnabled)
         prefs.setBoolean(KEY_MCP_STDIO, settings.stdioEnabled)
         prefs.setString(KEY_MCP_TOKEN, settings.token)
+        prefs.setString(KEY_MCP_ALLOWED_ORIGINS, McpSettings.serializeAllowedOrigins(settings.allowedOrigins))
         prefs.setBoolean(KEY_MCP_TLS_ENABLED, settings.tlsEnabled)
         prefs.setBoolean(KEY_MCP_TLS_AUTO, settings.tlsAutoGenerate)
         prefs.setString(KEY_MCP_TLS_KEYSTORE, settings.tlsKeystorePath)
         prefs.setString(KEY_MCP_TLS_PASSWORD, settings.tlsKeystorePassword)
+        prefs.setInteger(KEY_MCP_SCAN_TASK_TTL_MINUTES, settings.scanTaskTtlMinutes.coerceIn(5, 24 * 60))
+        prefs.setInteger(
+            KEY_MCP_COLLABORATOR_TTL_MINUTES,
+            settings.collaboratorClientTtlMinutes.coerceIn(5, 24 * 60)
+        )
         prefs.setInteger(KEY_MCP_MAX_CONCURRENT, settings.maxConcurrentRequests)
         prefs.setInteger(KEY_MCP_MAX_BODY_BYTES, settings.maxBodyBytes)
         prefs.setString(KEY_MCP_TOOL_TOGGLES, McpSettings.serializeToolToggles(settings.toolToggles))
+        prefs.setString(KEY_MCP_UNSAFE_TOOLS, McpSettings.serializeUnsafeToolSet(settings.enabledUnsafeTools))
         prefs.setBoolean(KEY_MCP_UNSAFE, settings.unsafeEnabled)
     }
 }

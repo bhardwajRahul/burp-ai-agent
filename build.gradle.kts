@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     kotlin("jvm") version "2.1.21"
@@ -7,7 +8,7 @@ plugins {
 }
 
 group = "com.six2dez.burp"
-version = "0.2.1"
+version = "0.3.0"
 
 repositories {
     mavenCentral()
@@ -81,4 +82,27 @@ tasks.build {
 
 tasks.test {
     useJUnitPlatform()
+    val excludeHeavyTests = (project.findProperty("excludeHeavyTests") as? String)
+        ?.trim()
+        ?.equals("true", ignoreCase = true) == true
+    if (excludeHeavyTests) {
+        filter {
+            excludeTestsMatching("*IntegrationTest")
+            excludeTestsMatching("*ConcurrencyTest")
+            excludeTestsMatching("*BackpressureTest")
+            excludeTestsMatching("*RestartPolicyTest")
+        }
+    }
+}
+
+tasks.register<Test>("nightlyRegressionTest") {
+    description = "Runs integration, concurrency, and resilience suites intended for nightly validation."
+    group = "verification"
+    useJUnitPlatform()
+    filter {
+        includeTestsMatching("*IntegrationTest")
+        includeTestsMatching("*ConcurrencyTest")
+        includeTestsMatching("*BackpressureTest")
+        includeTestsMatching("*RestartPolicyTest")
+    }
 }

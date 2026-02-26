@@ -4,6 +4,111 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-02-24
+
+### Added
+
+- **Security Test Coverage (MCP)**:
+  - Added unit tests for bearer token authorization and constant-time comparison in `KtorMcpServerManager`.
+  - Added unit tests for loopback TLS connection hardening behavior in `McpSupervisor`.
+- **Backend Registry Test Coverage**:
+  - Added tests for availability cache behavior and cache reset on reload/shutdown.
+- **Scanner/Issue Utilities Test Coverage**:
+  - Added tests for shared issue canonicalization, equivalent-issue detection, and HTML detail formatting.
+  - Added passive scanner confidence-threshold test to ensure AI findings below 85% confidence are skipped.
+- **Redaction Lifecycle Test Coverage**:
+  - Added tests for per-salt and global host mapping cleanup.
+- **Shared Issue Utilities**:
+  - New `IssueUtils` helper for canonical issue naming, equivalent issue detection, and safe issue detail HTML formatting.
+- **Redaction Cleanup API**:
+  - Added `Redaction.clearMappings(salt: String? = null)` to support deterministic cleanup of anonymization mappings.
+- **Token Optimization Controls (Passive + Context)**:
+  - Added persistent passive scanner controls for endpoint dedup TTL, response-fingerprint dedup TTL, prompt-cache TTL, and cache sizes.
+  - Added persistent passive scanner controls for request/response body prompt caps, maximum header count, and maximum parameter count.
+  - Added persistent manual-context controls for request/response body truncation and compact JSON serialization.
+- **Passive Scanner Prompt Result Cache**:
+  - Added prompt-hash result caching with TTL-aware reuse and cache-hit audit events to avoid repeated backend calls for identical payloads.
+- **Token Usage Telemetry**:
+  - Added shared `TokenTracker` flow accounting (input/output chars + token estimate) for chat and passive scanning paths.
+- **Active Scanner Queue Panel**:
+  - Added a dedicated queue viewer dialog with live refresh, per-item cancellation, and full queue clearing controls.
+  - Added queue snapshot APIs and selective cancellation support for queued active scan targets.
+- **Backend Health Contract and Diagnostics UX**:
+  - Added `HealthCheckResult` contract (`Healthy`, `Degraded`, `Unavailable`, `Unknown`) at backend level.
+  - Added backend-level health check integration in registry/supervisor flows.
+  - Added "Test connection" actions in backend settings panels.
+- **HTTP Backend Runtime Telemetry**:
+  - Added usage-aware connection support so HTTP backends can report real token usage when providers expose `usage` fields.
+- **Testing Expansion (Integration + Concurrency + Resilience)**:
+  - Added MCP server integration tests (`McpServerIntegrationTest`) covering health and auth/shutdown endpoints.
+  - Added MCP limiter concurrency stress tests (`McpRequestLimiterConcurrencyTest`).
+  - Added active scanner queue backpressure tests (`ScannerQueueBackpressureTest`).
+  - Added supervisor auto-restart policy tests (`AgentSupervisorRestartPolicyTest`).
+  - Added backend health contract tests (`BackendHealthCheckTest`) and settings migration tests (`AgentSettingsMigrationTest`).
+- **CI Workflows for Reliability**:
+  - Added `nightlyRegressionTest` Gradle task for heavy suites (integration/concurrency/resilience).
+  - Added `.github/workflows/nightly-regression.yml` with scheduled/manual execution and artifact publishing.
+- **Settings Schema Migration and Operator Docs**:
+  - Added schema version marker `settings.schema.version` with additive/idempotent migration flow.
+  - Added operator runbooks: `docs/mcp-hardening.md`, `docs/ui-safety-guide.md`, `docs/backend-troubleshooting.md`.
+
+### Changed
+
+- **Duplicate Issue Logic Consolidation**:
+  - Replaced duplicated issue matching/canonicalization code in Passive Scanner, Active Scanner, MCP tools, and UI actions with `IssueUtils`.
+- **Shutdown Reliability and Consistency**:
+  - Refactored `App.shutdown()` to use a unified safe shutdown step wrapper with consistent error handling.
+  - Added redaction mapping cleanup to app shutdown flow.
+- **Text Sanitization Performance**:
+  - Cached regex patterns in `IssueText` to avoid recompilation on each call.
+- **Passive Scanner Request Filtering and Deduplication**:
+  - Added pre-AI traffic pruning for low-value responses (204/304, static assets, tiny bodies without interesting headers).
+  - Added endpoint-path and response-fingerprint dedup windows to avoid repeated analysis of equivalent traffic.
+- **Passive Scanner Prompt Compaction**:
+  - Replaced full-header forwarding with security-focused header filtering (allowlist + noise denylist + custom `x-*` handling).
+  - Reduced parameter verbosity and removed cache-busting parameters from AI metadata.
+  - Added content-aware body compaction (JSON array sampling + HTML head/form/inline-script extraction).
+  - Updated passive scanner base prompt to a compact, evidence-first schema while preserving strict JSON output constraints.
+- **Context Collection Payload Size Control**:
+  - `ContextCollector` now supports body truncation controls and compact JSON output to reduce manual action token usage.
+  - Context menu actions now pass context size/compact settings from `AgentSettings` instead of relying on implicit defaults.
+- **HTTP Backend Conversation Trimming**:
+  - Conversation history trimming now enforces both message count and total character budget to prevent prompt blow-up in long sessions.
+- **BountyPrompt Context Limits**:
+  - Reduced default tag/chunk limits and added category-specific bounds to lower prompt size while keeping actionable context.
+- **Passive Scanner Settings UX**:
+  - Expanded AI Passive Scanner tab with advanced token/performance controls and live runtime application of optimization settings.
+- **Backend Health Status Presentation**:
+  - Main tab backend badge now supports richer status transitions (`AI: OK`, `AI: Degraded`, `AI: Offline`) with explanatory tooltips.
+- **Supervisor Health Flow**:
+  - Backend health resolution now routes through backend registry health contracts with compatibility fallback to availability checks.
+- **HTTP Backend Client Lifecycle**:
+  - HTTP backends now reuse shared `OkHttpClient` instances keyed by backend URL/timeout and close pools centrally on shutdown.
+- **Token Estimation Accuracy**:
+  - Token estimates now use backend-specific calibration factors and mix real usage values with estimated remainder when available.
+- **CI Gate Strategy**:
+  - PR pipeline now uses a fast verification gate (`test -PexcludeHeavyTests=true`) while preserving heavy suites for nightly runs.
+- **Architecture and README References**:
+  - Updated architecture and README docs to include schema migration behavior and operator playbook links.
+- **Ollama context limit**:
+  - Updated default Ollama Max Context Window to 256000.
+
+### Fixed
+
+- **Backend Registry Cache Lifecycle**:
+  - Fixed `availabilityCache` lifecycle by clearing it on `reload()` and `shutdown()`.
+  - Fixed initialization-order safety so cache is always available during startup/reload.
+- **Repeated Passive AI Cost on Equivalent Traffic**:
+  - Fixed repeated backend invocations for semantically identical passive traffic by combining endpoint/fingerprint dedup with prompt-result caching.
+- **Unbounded Manual Context Growth**:
+  - Fixed manual context actions sending oversized request/response payloads and pretty-printed JSON by introducing truncation + compact encoding.
+- **Long-Session Prompt Inflation (HTTP Backends)**:
+  - Fixed runaway history growth by adding total-character trimming in conversation history management.
+- **HTTP Backend Client Churn**:
+  - Fixed repeated per-request HTTP client construction that prevented efficient connection reuse.
+- **Legacy Settings Drift**:
+  - Fixed legacy preference normalization for MCP allowed origins and old Gemini default command values during migration.
+
 ## [0.2.0] - 2026-02-09
 
 ### Added

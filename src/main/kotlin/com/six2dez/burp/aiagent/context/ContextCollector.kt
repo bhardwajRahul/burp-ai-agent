@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
 import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
+import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
@@ -22,8 +23,16 @@ class ContextCollector(private val api: MontoyaApi) {
     fun fromRequestResponses(rr: List<HttpRequestResponse>, options: ContextOptions): ContextCapture {
         val policy = RedactionPolicy.fromMode(options.privacyMode)
         val items = rr.map { item ->
-            val req = item.request().toString()
-            val resp = item.response()?.toString()
+            val req = truncateHttpMessageBody(
+                item.request().toString(),
+                options.maxRequestBodyChars ?: DEFAULT_REQUEST_BODY_MAX_CHARS
+            )
+            val resp = item.response()?.toString()?.let {
+                truncateHttpMessageBody(
+                    it,
+                    options.maxResponseBodyChars ?: DEFAULT_RESPONSE_BODY_MAX_CHARS
+                )
+            }
 
             val redactedReq = Redaction.apply(req, policy, stableHostSalt = options.hostSalt)
             val redactedResp = resp?.let { Redaction.apply(it, policy, stableHostSalt = options.hostSalt) }
@@ -44,8 +53,8 @@ class ContextCollector(private val api: MontoyaApi) {
             items = items
         )
 
-        val json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(env)
-        val preview = buildPreview(items.size, "HTTP selection", policy, options.deterministic)
+        val json = toJson(env, options.compactJson)
+        val preview = buildHttpPreview(items, policy, options)
 
         return ContextCapture(contextJson = json, previewText = preview)
     }
@@ -73,13 +82,63 @@ class ContextCollector(private val api: MontoyaApi) {
             items = items
         )
 
-        val json = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(env)
-        val preview = buildPreview(items.size, "Scanner findings", policy, options.deterministic)
+        val json = toJson(env, options.compactJson)
+        val preview = buildIssuePreview(items, policy, options)
 
         return ContextCapture(contextJson = json, previewText = preview)
     }
 
-    private fun buildPreview(count: Int, kind: String, policy: RedactionPolicy, deterministic: Boolean): String {
+    private fun toJson(env: BurpContextEnvelope, compact: Boolean): String {
+        return if (compact) {
+            mapper.writeValueAsString(env)
+        } else {
+            mapper.writerWithDefaultPrettyPrinter().writeValueAsString(env)
+        }
+    }
+
+    private fun buildHttpPreview(
+        items: List<HttpItem>,
+        policy: RedactionPolicy,
+        options: ContextOptions
+    ): String {
+        val sampleLines = items.take(PREVIEW_MAX_ITEMS).map { item ->
+            val safeUrl = previewUrl(item.url, policy, options.hostSalt)
+            "${item.method ?: "?"} $safeUrl"
+        }
+        return buildPreview(
+            count = items.size,
+            kind = "HTTP selection",
+            policy = policy,
+            deterministic = options.deterministic,
+            sampleLines = sampleLines
+        )
+    }
+
+    private fun buildIssuePreview(
+        items: List<AuditIssueItem>,
+        policy: RedactionPolicy,
+        options: ContextOptions
+    ): String {
+        val sampleLines = items.take(PREVIEW_MAX_ITEMS).map { item ->
+            val host = item.affectedHost ?: "-"
+            "[${item.severity ?: "UNKNOWN"}] ${item.name} @ $host"
+        }
+        return buildPreview(
+            count = items.size,
+            kind = "Scanner findings",
+            policy = policy,
+            deterministic = options.deterministic,
+            sampleLines = sampleLines
+        )
+    }
+
+    private fun buildPreview(
+        count: Int,
+        kind: String,
+        policy: RedactionPolicy,
+        deterministic: Boolean,
+        sampleLines: List<String>
+    ): String {
         return """
             Kind: $kind
             Items: $count
@@ -88,7 +147,26 @@ class ContextCollector(private val api: MontoyaApi) {
               - Token redaction: ${policy.redactTokens}
               - Host anonymization: ${policy.anonymizeHosts}
             Deterministic: $deterministic
+            Sample:
+${sampleLines.ifEmpty { listOf("- (none)") }.joinToString(separator = "\n") { "  - $it" }}
         """.trimIndent()
+    }
+
+    private fun previewUrl(url: String?, policy: RedactionPolicy, hostSalt: String): String {
+        if (url.isNullOrBlank()) return "-"
+        if (!policy.anonymizeHosts) return url
+        return try {
+            val uri = URI(url)
+            val host = uri.host ?: return url
+            val safeHost = Redaction.anonymizeHost(host, hostSalt)
+            val scheme = uri.scheme ?: "https"
+            val portPart = if (uri.port > 0) ":${uri.port}" else ""
+            val path = uri.rawPath.orEmpty().ifBlank { "/" }
+            val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+            "$scheme://$safeHost$portPart$path$query"
+        } catch (_: Exception) {
+            url
+        }
     }
 
     private fun stableKey(item: HttpItem): String {
@@ -105,5 +183,24 @@ class ContextCollector(private val api: MontoyaApi) {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray(StandardCharsets.UTF_8))
         return digest.take(8).joinToString("") { "%02x".format(it) }
+    }
+
+    private fun truncateHttpMessageBody(raw: String, maxBodyChars: Int): String {
+        if (maxBodyChars <= 0) return raw
+        val crlfIndex = raw.indexOf("\r\n\r\n")
+        val splitIndex = if (crlfIndex >= 0) crlfIndex else raw.indexOf("\n\n")
+        if (splitIndex < 0) return raw
+        val delimiterLength = if (crlfIndex >= 0) 4 else 2
+        val bodyStart = splitIndex + delimiterLength
+        if (bodyStart >= raw.length) return raw
+        val body = raw.substring(bodyStart)
+        if (body.length <= maxBodyChars) return raw
+        return raw.substring(0, bodyStart) + body.take(maxBodyChars) + "\n...[body truncated]..."
+    }
+
+    private companion object {
+        private const val DEFAULT_REQUEST_BODY_MAX_CHARS = 4_000
+        private const val DEFAULT_RESPONSE_BODY_MAX_CHARS = 8_000
+        private const val PREVIEW_MAX_ITEMS = 3
     }
 }

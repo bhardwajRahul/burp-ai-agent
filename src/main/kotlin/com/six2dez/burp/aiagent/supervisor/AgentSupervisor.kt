@@ -6,6 +6,7 @@ import com.six2dez.burp.aiagent.backends.AgentConnection
 import com.six2dez.burp.aiagent.backends.BackendLaunchConfig
 import com.six2dez.burp.aiagent.backends.BackendRegistry
 import com.six2dez.burp.aiagent.backends.DiagnosableConnection
+import com.six2dez.burp.aiagent.backends.HealthCheckResult
 import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.config.Defaults
 import com.six2dez.burp.aiagent.redact.PrivacyMode
@@ -18,8 +19,6 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.UUID
 import java.util.concurrent.locks.ReentrantLock
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import kotlin.concurrent.withLock
 
 class AgentSupervisor(
@@ -52,10 +51,6 @@ class AgentSupervisor(
     private val chatSessionManager = ChatSessionManager()
     private val services = java.util.concurrent.ConcurrentHashMap<String, Process>()
     private val lifecycleLock = ReentrantLock()
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(java.time.Duration.ofSeconds(3))
-        .readTimeout(java.time.Duration.ofSeconds(3))
-        .build()
     private val monitorExec = Executors.newSingleThreadScheduledExecutor()
 
     init {
@@ -126,21 +121,7 @@ class AgentSupervisor(
     }
 
     fun isOllamaHealthy(settings: AgentSettings): Boolean {
-        val url = settings.ollamaUrl.trimEnd('/') + "/api/tags"
-        return try {
-            val headers = HeaderParser.withBearerToken(
-                settings.ollamaApiKey,
-                HeaderParser.parse(settings.ollamaHeaders)
-            )
-            val req = Request.Builder()
-                .url(url)
-                .apply { headers.forEach { (name, value) -> header(name, value) } }
-                .get()
-                .build()
-            httpClient.newCall(req).execute().use { it.isSuccessful }
-        } catch (_: Exception) {
-            false
-        }
+        return registry.healthCheck("ollama", settings).isReachable
     }
 
     fun startOllamaService(settings: AgentSettings): Boolean {
@@ -153,21 +134,7 @@ class AgentSupervisor(
     }
 
     fun isLmStudioHealthy(settings: AgentSettings): Boolean {
-        val url = settings.lmStudioUrl.trimEnd('/') + "/v1/models"
-        return try {
-            val headers = HeaderParser.withBearerToken(
-                settings.lmStudioApiKey,
-                HeaderParser.parse(settings.lmStudioHeaders)
-            )
-            val req = Request.Builder()
-                .url(url)
-                .apply { headers.forEach { (name, value) -> header(name, value) } }
-                .get()
-                .build()
-            httpClient.newCall(req).execute().use { it.isSuccessful }
-        } catch (_: Exception) {
-            false
-        }
+        return registry.healthCheck("lmstudio", settings).isReachable
     }
 
     fun startLmStudioService(settings: AgentSettings): Boolean {
@@ -180,31 +147,11 @@ class AgentSupervisor(
     }
 
     fun isBackendHealthy(settings: AgentSettings): Boolean {
-        return when (settings.preferredBackendId) {
-            "ollama" -> isOllamaHealthy(settings)
-            "lmstudio" -> isLmStudioHealthy(settings)
-            "openai-compatible" -> {
-                // Basic check for OpenAI compatible
-                val url = settings.openAiCompatibleUrl.trimEnd('/') + "/models"
-                try {
-                    val headers = HeaderParser.withBearerToken(
-                        settings.openAiCompatibleApiKey,
-                        HeaderParser.parse(settings.openAiCompatibleHeaders)
-                    )
-                    val req = Request.Builder()
-                        .url(url)
-                        .apply { headers.forEach { (name, value) -> header(name, value) } }
-                        .get()
-                        .build()
-                    httpClient.newCall(req).execute().close()
-                    true
-                } catch (_: Exception) {
-                    false
-                }
-            }
-            // CLI backends are considered "healthy" if configured (no easy poll)
-            else -> true
-        }
+        return backendHealth(settings).isHealthy
+    }
+
+    fun backendHealth(settings: AgentSettings): HealthCheckResult {
+        return registry.healthCheck(settings.preferredBackendId, settings)
     }
 
     fun stop() {
@@ -742,8 +689,6 @@ class AgentSupervisor(
             }
         }
         services.clear()
-        httpClient.dispatcher.executorService.shutdown()
-        httpClient.connectionPool.evictAll()
     }
 
     companion object {

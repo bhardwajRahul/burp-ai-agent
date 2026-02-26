@@ -8,8 +8,8 @@ import java.net.URI
 
 class BountyPromptTagResolver {
 
-    private val maxChunkChars = 6_000
-    private val maxTagChars = 28_000
+    private val defaultMaxChunkChars = 3_000
+    private val defaultMaxTagChars = 12_000
     private val sensitiveParamName = Regex(
         "(token|key|auth|session|jwt|cookie|password|secret|api_key|apikey)",
         RegexOption.IGNORE_CASE
@@ -21,8 +21,16 @@ class BountyPromptTagResolver {
         options: ContextOptions
     ): ResolvedBountyPrompt {
         val policy = RedactionPolicy.fromMode(options.privacyMode)
+        val limits = limitsForCategory(definition.category)
         val tagValues = definition.tagsUsed.associateWith { tag ->
-            buildTagValue(tag, requestResponses, policy, options.hostSalt)
+            buildTagValue(
+                tag = tag,
+                requestResponses = requestResponses,
+                policy = policy,
+                hostSalt = options.hostSalt,
+                maxChunkChars = limits.first,
+                maxTagChars = limits.second
+            )
         }
 
         var resolved = definition.userPrompt
@@ -57,7 +65,9 @@ class BountyPromptTagResolver {
         tag: BountyPromptTag,
         requestResponses: List<HttpRequestResponse>,
         policy: RedactionPolicy,
-        hostSalt: String
+        hostSalt: String,
+        maxChunkChars: Int,
+        maxTagChars: Int
     ): String {
         if (requestResponses.isEmpty()) return "<no request/response selected>"
         val sections = mutableListOf<String>()
@@ -70,25 +80,28 @@ class BountyPromptTagResolver {
             val label = "[${index + 1}] ${rr.request().method()} $safeUrl"
 
             val value = when (tag) {
-                BountyPromptTag.HTTP_REQUESTS -> truncateChunk(requestRedacted)
-                BountyPromptTag.HTTP_REQUESTS_HEADERS -> truncateChunk(extractHeaders(requestRedacted))
+                BountyPromptTag.HTTP_REQUESTS -> truncateChunk(requestRedacted, maxChunkChars)
+                BountyPromptTag.HTTP_REQUESTS_HEADERS -> truncateChunk(extractHeaders(requestRedacted), maxChunkChars)
                 BountyPromptTag.HTTP_REQUESTS_PARAMETERS -> truncateChunk(
-                    buildRequestParameters(rr, policy, hostSalt)
+                    buildRequestParameters(rr, policy, hostSalt),
+                    maxChunkChars
                 )
-                BountyPromptTag.HTTP_REQUEST_BODY -> truncateChunk(extractBody(requestRedacted))
-                BountyPromptTag.HTTP_RESPONSES -> truncateChunk(responseRedacted ?: "<no response>")
+                BountyPromptTag.HTTP_REQUEST_BODY -> truncateChunk(extractBody(requestRedacted), maxChunkChars)
+                BountyPromptTag.HTTP_RESPONSES -> truncateChunk(responseRedacted ?: "<no response>", maxChunkChars)
                 BountyPromptTag.HTTP_RESPONSE_HEADERS -> truncateChunk(
-                    responseRedacted?.let { extractHeaders(it) } ?: "<no response>"
+                    responseRedacted?.let { extractHeaders(it) } ?: "<no response>",
+                    maxChunkChars
                 )
                 BountyPromptTag.HTTP_RESPONSE_BODY -> truncateChunk(
-                    responseRedacted?.let { extractBody(it) } ?: "<no response>"
+                    responseRedacted?.let { extractBody(it) } ?: "<no response>",
+                    maxChunkChars
                 )
                 BountyPromptTag.HTTP_STATUS_CODE -> rr.response()?.statusCode()?.toString() ?: "<no response>"
-                BountyPromptTag.HTTP_COOKIES -> truncateChunk(extractCookies(requestRedacted, responseRedacted))
+                BountyPromptTag.HTTP_COOKIES -> truncateChunk(extractCookies(requestRedacted, responseRedacted), maxChunkChars)
             }
             sections.add("$label\n$value")
         }
-        return truncateTag(sections.joinToString("\n\n----------------------------------------------------------------\n\n"))
+        return truncateTag(sections.joinToString("\n\n----------------------------------------------------------------\n\n"), maxTagChars)
     }
 
     private fun buildRequestParameters(
@@ -146,14 +159,22 @@ class BountyPromptTagResolver {
         return if (idxNn >= 0 && idxNn + 2 <= raw.length) raw.substring(idxNn + 2) else ""
     }
 
-    private fun truncateChunk(text: String): String {
+    private fun truncateChunk(text: String, maxChunkChars: Int): String {
         if (text.length <= maxChunkChars) return text
         return text.take(maxChunkChars) + "\n...[truncated]..."
     }
 
-    private fun truncateTag(text: String): String {
+    private fun truncateTag(text: String, maxTagChars: Int): String {
         if (text.length <= maxTagChars) return text
         return text.take(maxTagChars) + "\n...[tag content truncated]..."
+    }
+
+    private fun limitsForCategory(category: BountyPromptCategory): Pair<Int, Int> {
+        return when (category) {
+            BountyPromptCategory.DETECTION -> 2_500 to 10_000
+            BountyPromptCategory.RECON -> 3_500 to 14_000
+            BountyPromptCategory.ADVISORY -> defaultMaxChunkChars to defaultMaxTagChars
+        }
     }
 
     private fun redactUrl(rawUrl: String, policy: RedactionPolicy, hostSalt: String): String {
