@@ -27,11 +27,23 @@ class OllamaBackend : AiBackend {
 
     private val mapper = ObjectMapper().registerKotlinModule()
 
+    companion object {
+        private const val DEFAULT_CONTEXT_WINDOW = 8192
+    }
+
     override fun launch(config: BackendLaunchConfig): AgentConnection {
         val baseUrl = config.baseUrl?.trimEnd('/') ?: "http://127.0.0.1:11434"
         val model = config.model?.ifBlank { "llama3.1" } ?: "llama3.1"
         val timeoutSeconds = (config.requestTimeoutSeconds ?: 120L).coerceIn(30L, 3600L)
         val client = HttpBackendSupport.sharedClient(baseUrl, timeoutSeconds)
+
+        val resolvedContextWindow = if (config.contextWindow == null || config.contextWindow == DEFAULT_CONTEXT_WINDOW) {
+            detectContextWindow(baseUrl, model, config.headers, config.contextWindow)
+        } else {
+            BackendDiagnostics.log("[ollama] Using user-configured context window: ${config.contextWindow}")
+            config.contextWindow
+        }
+
         return OllamaConnection(
             client = client,
             mapper = mapper,
@@ -40,7 +52,7 @@ class OllamaBackend : AiBackend {
             headers = config.headers,
             determinismMode = config.determinismMode,
             sessionId = config.sessionId,
-            contextWindow = config.contextWindow,
+            contextWindow = resolvedContextWindow,
             circuitBreaker = HttpBackendSupport.newCircuitBreaker(),
             debugLog = { BackendDiagnostics.log("[ollama] $it") },
             errorLog = { BackendDiagnostics.logError("[ollama] $it") }
@@ -60,6 +72,79 @@ class OllamaBackend : AiBackend {
             url = "${baseUrl.trimEnd('/')}/api/tags",
             headers = headers
         )
+    }
+
+    private fun detectContextWindow(
+        baseUrl: String,
+        model: String,
+        headers: Map<String, String>,
+        fallback: Int?
+    ): Int? {
+        try {
+            val client = HttpBackendSupport.sharedClient(baseUrl, 5L)
+            val requestJson = mapper.writeValueAsString(mapOf("name" to model))
+            val request = Request.Builder()
+                .url("$baseUrl/api/show")
+                .post(requestJson.toRequestBody("application/json".toMediaType()))
+                .apply {
+                    headers.forEach { (name, value) -> header(name, value) }
+                }
+                .build()
+
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    BackendDiagnostics.log(
+                        "[ollama] /api/show returned HTTP ${resp.code}, using fallback: $fallback"
+                    )
+                    return fallback
+                }
+                val body = resp.body?.string().orEmpty()
+                if (body.isBlank()) return fallback
+
+                val root = mapper.readTree(body)
+
+                // Priority 1: explicit num_ctx in parameters (user Modelfile override)
+                val parameters = root.path("parameters").asText("")
+                val numCtxMatch = Regex("""num_ctx\s+(\d+)""").find(parameters)
+                if (numCtxMatch != null) {
+                    val detected = numCtxMatch.groupValues[1].toIntOrNull()
+                    if (detected != null && detected > 0) {
+                        BackendDiagnostics.log(
+                            "[ollama] Detected context window from Modelfile parameters: $detected"
+                        )
+                        return detected
+                    }
+                }
+
+                // Priority 2: *.context_length in model_info (model default)
+                val modelInfo = root.path("model_info")
+                if (modelInfo.isObject) {
+                    val iter = modelInfo.fields()
+                    while (iter.hasNext()) {
+                        val entry = iter.next()
+                        if (entry.key.endsWith(".context_length")) {
+                            val detected = entry.value.asInt(-1)
+                            if (detected > 0) {
+                                BackendDiagnostics.log(
+                                    "[ollama] Detected context window from model_info: $detected"
+                                )
+                                return detected
+                            }
+                        }
+                    }
+                }
+
+                BackendDiagnostics.log(
+                    "[ollama] No context window found in /api/show response, using fallback: $fallback"
+                )
+                return fallback
+            }
+        } catch (e: Exception) {
+            BackendDiagnostics.log(
+                "[ollama] Failed to detect context window: ${e.message}, using fallback: $fallback"
+            )
+            return fallback
+        }
     }
 
     private class OllamaConnection(
