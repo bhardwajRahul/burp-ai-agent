@@ -60,7 +60,7 @@
     <ID>CyclomaticComplexMethod:SsrfGuard.kt$SsrfGuard$fun isPrivateOrLinkLocal(url: String): Boolean</ID>
     <ID>CyclomaticComplexMethod:ToolCallParser.kt$ToolCallParser$private fun extractJsonObjectCandidates(text: String): List&lt;String></ID>
     <ID>CyclomaticComplexMethod:UiActions.kt$UiActions$fun requestResponseMenuItems( api: MontoyaApi, event: ContextMenuEvent, tab: MainTab, mcpSupervisor: McpSupervisor, passiveAiScanner: PassiveAiScanner, activeAiScanner: ActiveAiScanner? = null, audit: AuditLogger? = null, ): List&lt;JMenuItem></ID>
-    <ID>CyclomaticComplexMethod:UiActions.kt$UiActions$private fun buildTargetedTestsMenu( tab: MainTab, targets: List&lt;HttpRequestResponse>, activeAiScanner: ActiveAiScanner?, targetLabel: String = "${targets.size}", ): JMenu</ID>
+    <ID>CyclomaticComplexMethod:UiActions.kt$UiActions$private fun buildTargetedTestsMenu( tab: MainTab, targets: Lazy&lt;List&lt;HttpRequestResponse>>, activeAiScanner: ActiveAiScanner?, targetLabel: String = "", ): JMenu</ID>
     <ID>CyclomaticComplexMethod:UiActions.kt$UiActions$private fun handleBountyPromptCompletion( api: MontoyaApi, tab: MainTab, definition: BountyPromptDefinition, responseText: String, targets: List&lt;HttpRequestResponse>, audit: AuditLogger?, )</ID>
     <ID>EmptyFunctionBlock:SecretCipherTest.kt$SecretCipherTest.&lt;no name provided>${}</ID>
     <ID>FunctionOnlyReturningConstant:AgentSettings.kt$AgentSettingsRepository.Companion$private fun defaultAgentProfile(): String</ID>
@@ -129,8 +129,8 @@
     <ID>LongMethod:SettingsPanelSettingsIO.kt$internal fun SettingsPanel.currentSettings(): AgentSettings</ID>
     <ID>LongMethod:TestSettings.kt$TestSettings$fun baselineSettings(preferredBackendId: String = "codex-cli"): AgentSettings</ID>
     <ID>LongMethod:UiActions.kt$UiActions$fun requestResponseMenuItems( api: MontoyaApi, event: ContextMenuEvent, tab: MainTab, mcpSupervisor: McpSupervisor, passiveAiScanner: PassiveAiScanner, activeAiScanner: ActiveAiScanner? = null, audit: AuditLogger? = null, ): List&lt;JMenuItem></ID>
-    <ID>LongMethod:UiActions.kt$UiActions$private fun buildBountyPromptMenu( api: MontoyaApi, tab: MainTab, mcpSupervisor: McpSupervisor, targets: List&lt;HttpRequestResponse>, audit: AuditLogger?, ): JMenu</ID>
-    <ID>LongMethod:UiActions.kt$UiActions$private fun buildTargetedTestsMenu( tab: MainTab, targets: List&lt;HttpRequestResponse>, activeAiScanner: ActiveAiScanner?, targetLabel: String = "${targets.size}", ): JMenu</ID>
+    <ID>LongMethod:UiActions.kt$UiActions$private fun buildBountyPromptMenu( api: MontoyaApi, tab: MainTab, mcpSupervisor: McpSupervisor, targets: Lazy&lt;List&lt;HttpRequestResponse>>, audit: AuditLogger?, ): JMenu</ID>
+    <ID>LongMethod:UiActions.kt$UiActions$private fun buildTargetedTestsMenu( tab: MainTab, targets: Lazy&lt;List&lt;HttpRequestResponse>>, activeAiScanner: ActiveAiScanner?, targetLabel: String = "", ): JMenu</ID>
     <ID>LongMethod:UiActions.kt$UiActions$private fun handleBountyPromptCompletion( api: MontoyaApi, tab: MainTab, definition: BountyPromptDefinition, responseText: String, targets: List&lt;HttpRequestResponse>, audit: AuditLogger?, )</ID>
     <ID>LongParameterList:ActiveScanConfigPanel.kt$ActiveScanConfigPanel$( private val activeAiEnabled: JComponent, private val activeAiScopeOnly: JCheckBox, private val activeAiAutoFromPassive: JCheckBox, private val activeAiMaxConcurrentSpinner: JSpinner, private val activeAiMaxPayloadsSpinner: JSpinner, private val activeAiTimeoutSpinner: JSpinner, private val activeAiDelaySpinner: JSpinner, private val activeAiRiskLevelCombo: JComboBox&lt;*>, private val activeAiScanModeCombo: JComboBox&lt;*>, private val activeAiUseCollaborator: JCheckBox, private val activeAiAdaptivePayloads: JCheckBox, private val activeAiRiskDescription: JLabel, private val activeAiStatusLabel: JLabel, private val activeAiViewFindings: JButton, private val activeAiViewQueue: JButton, private val activeAiClearQueue: JButton, private val activeAiResetStats: JButton, )</ID>
     <ID>LongParameterList:AgentSupervisor.kt$AgentSupervisor$( chatSessionId: String, backendId: String, text: String, history: List&lt;com.six2dez.burp.aiagent.backends.ChatMessage>? = null, contextJson: String?, privacyMode: PrivacyMode, determinismMode: Boolean, onChunk: (String) -> Unit, onComplete: (Throwable?) -> Unit, traceId: String? = null, systemPrompt: String? = null, maxOutputTokens: Int? = null, launchMetadata: Map&lt;String, String>? = null, )</ID>
@@ -185,12 +185,12 @@
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$3</ID>
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$30</ID>
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$3000</ID>
+    <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$300_000L</ID>
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$401</ID>
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$403</ID>
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$5</ID>
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$50</ID>
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$500</ID>
-    <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$5000L</ID>
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$80</ID>
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$90</ID>
     <ID>MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$95</ID>
@@ -833,7 +833,7 @@
     <ID>NestedBlockDepth:ActiveAiScanner.kt$ActiveAiScanner$private fun executeScan(target: ActiveScanTarget): ActiveScanResult</ID>
     <ID>NestedBlockDepth:AgentProfileLoader.kt$AgentProfileLoader$private fun extractReferencedTools(text: String): ReferencedTools</ID>
     <ID>NestedBlockDepth:AgentSupervisor.kt$AgentSupervisor.Companion$internal fun tokenizeCommand( command: String, isWindows: Boolean = System.getProperty("os.name").lowercase(java.util.Locale.ROOT).contains("win"), ): List&lt;String></ID>
-    <ID>NestedBlockDepth:AiScanCheck.kt$AiScanCheck$override fun activeAudit( baseRequestResponse: HttpRequestResponse, insertionPoint: AuditInsertionPoint, ): AuditResult</ID>
+    <ID>NestedBlockDepth:AiScanCheck.kt$AiScanCheck$override fun doCheck( baseRequestResponse: HttpRequestResponse, insertionPoint: AuditInsertionPoint, http: Http, ): AuditResult</ID>
     <ID>NestedBlockDepth:BountyPromptOutputParser.kt$BountyPromptOutputParser$private fun extractBalancedJsonCandidates(text: String): List&lt;String></ID>
     <ID>NestedBlockDepth:ChatPanel.kt$ChatPanel$fun restoreSessions()</ID>
     <ID>NestedBlockDepth:ChatPanel.kt$ChatPanel$private fun maybeMigrateGlobalToProject(projectStore: burp.api.montoya.persistence.PersistedObject)</ID>
@@ -849,7 +849,6 @@
     <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun analyzeIdor( target: ActiveScanTarget, baseline: HttpRequestResponse, modified: HttpRequestResponse, payload: Payload, ): VulnConfirmation?</ID>
     <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun confirmCacheDeception( target: ActiveScanTarget, modified: HttpRequestResponse, payload: Payload, ): VulnConfirmation?</ID>
     <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun confirmCachePoisoning( target: ActiveScanTarget, baseline: HttpRequestResponse, modified: HttpRequestResponse, payload: Payload, ): VulnConfirmation?</ID>
-    <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun confirmSsrfoob( target: ActiveScanTarget, baseline: HttpRequestResponse, settings: AgentSettings, ): VulnConfirmation?</ID>
     <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun execute403Bypass( target: ActiveScanTarget, baseline: HttpRequestResponse, ): ActiveScanResult</ID>
     <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun executeAuthzBypassCheck( target: ActiveScanTarget, baseline: HttpRequestResponse, ): VulnConfirmation?</ID>
     <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun executeIdorScan( target: ActiveScanTarget, baseline: HttpRequestResponse, ): ActiveScanResult</ID>
@@ -857,6 +856,9 @@
     <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun isAuthError(response: HttpRequestResponse): Boolean</ID>
     <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun isCacheHit(response: HttpRequestResponse): Boolean</ID>
     <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun isCacheable(response: HttpRequestResponse): Boolean</ID>
+    <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun obtainCollaboratorClient(): CollaboratorClient?</ID>
+    <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun pollOastInteractions()</ID>
+    <ID>ReturnCount:ActiveAiScanner.kt$ActiveAiScanner$private fun registerSsrfoob( target: ActiveScanTarget, baseline: HttpRequestResponse, settings: AgentSettings, )</ID>
     <ID>ReturnCount:AdaptivePayloadEngine.kt$AdaptivePayloadEngine$fun generateAdaptivePayloads( vulnClass: VulnClass, host: String, paramName: String, originalValue: String, maxPayloads: Int = 5, privacyMode: PrivacyMode = PrivacyMode.BALANCED, ): List&lt;Payload></ID>
     <ID>ReturnCount:AdaptivePayloadEngine.kt$AdaptivePayloadEngine$private fun parsePayloadResponse( text: String, vulnClass: VulnClass, ): List&lt;Payload></ID>
     <ID>ReturnCount:AgentProfileLoader.kt$AgentProfileLoader$fun buildInstructionBlock(actionName: String?): String?</ID>
@@ -873,7 +875,7 @@
     <ID>ReturnCount:AgentSupervisor.kt$AgentSupervisor.Companion$fun buildCliPathStatic(): String</ID>
     <ID>ReturnCount:AgentSupervisor.kt$AgentSupervisor.Companion$private fun capturePathFromShells(): String?</ID>
     <ID>ReturnCount:AgentSupervisor.kt$AgentSupervisor.Companion$private fun tryCapture( shellPath: String, args: List&lt;String>, ): String?</ID>
-    <ID>ReturnCount:AiScanCheck.kt$AiScanCheck$override fun activeAudit( baseRequestResponse: HttpRequestResponse, insertionPoint: AuditInsertionPoint, ): AuditResult</ID>
+    <ID>ReturnCount:AiScanCheck.kt$AiScanCheck$override fun doCheck( baseRequestResponse: HttpRequestResponse, insertionPoint: AuditInsertionPoint, http: Http, ): AuditResult</ID>
     <ID>ReturnCount:AiScanCheck.kt$AiScanCheck$private fun testPayload( baseRequestResponse: HttpRequestResponse, insertionPoint: AuditInsertionPoint, payload: Payload, vulnClass: VulnClass, ): AuditIssue?</ID>
     <ID>ReturnCount:BatchAnalysisQueue.kt$BatchAnalysisQueue$fun shouldFlush(): Boolean</ID>
     <ID>ReturnCount:BountyPromptLoader.kt$BountyPromptLoader$fun loadFromDirectory( directoryPath: String, enabledPromptIds: Set&lt;String>, ): LoadedBountyPrompts</ID>
@@ -972,7 +974,7 @@
     <ID>ReturnCount:ToolInvocationDialog.kt$ToolInvocationDialog$private fun collectArgsOrShowError(): String?</ID>
     <ID>ReturnCount:UiActions.kt$UiActions$fun requestResponseMenuItems( api: MontoyaApi, event: ContextMenuEvent, tab: MainTab, mcpSupervisor: McpSupervisor, passiveAiScanner: PassiveAiScanner, activeAiScanner: ActiveAiScanner? = null, audit: AuditLogger? = null, ): List&lt;JMenuItem></ID>
     <ID>ReturnCount:UiActions.kt$UiActions$private fun buildAiScanInsertionPointItem( tab: MainTab, event: ContextMenuEvent, activeAiScanner: ActiveAiScanner?, ): JMenuItem?</ID>
-    <ID>ReturnCount:UiActions.kt$UiActions$private fun buildBountyPromptMenu( api: MontoyaApi, tab: MainTab, mcpSupervisor: McpSupervisor, targets: List&lt;HttpRequestResponse>, audit: AuditLogger?, ): JMenu</ID>
+    <ID>ReturnCount:UiActions.kt$UiActions$private fun buildBountyPromptMenu( api: MontoyaApi, tab: MainTab, mcpSupervisor: McpSupervisor, targets: Lazy&lt;List&lt;HttpRequestResponse>>, audit: AuditLogger?, ): JMenu</ID>
     <ID>ReturnCount:UiActions.kt$UiActions$private fun ensureActiveScannerEnabled( tab: MainTab, activeAiScanner: ActiveAiScanner?, ): Boolean</ID>
     <ID>ReturnCount:UiActions.kt$UiActions$private fun handleBountyPromptCompletion( api: MontoyaApi, tab: MainTab, definition: BountyPromptDefinition, responseText: String, targets: List&lt;HttpRequestResponse>, audit: AuditLogger?, )</ID>
     <ID>SpreadOperator:BurpAiBackend.kt$BurpAiConnection$(promptOptions, *messages.toTypedArray())</ID>
@@ -994,10 +996,13 @@
     <ID>SwallowedException:SecretCipher.kt$SecretCipher$e: Exception</ID>
     <ID>SwallowedException:SsrfGuard.kt$SsrfGuard$e: Exception</ID>
     <ID>TooGenericExceptionCaught:ActiveAiScanner.kt$ActiveAiScanner$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:ActiveAiScanner.kt$ActiveAiScanner$e: Throwable</ID>
     <ID>TooGenericExceptionCaught:AgentProfileLoader.kt$AgentProfileLoader$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AgentSettings.kt$AgentSettingsRepository$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AgentSettings.kt$AgentSettingsRepository$e: Throwable</ID>
     <ID>TooGenericExceptionCaught:AgentSettings.kt$AgentSettingsRepository.Companion$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AgentSupervisor.kt$AgentSupervisor$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:AgentSupervisor.kt$AgentSupervisor$e: Throwable</ID>
     <ID>TooGenericExceptionCaught:AiLoggerPanel.kt$AiLoggerPanel$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AiScanCheck.kt$AiScanCheck$e: Exception</ID>
     <ID>TooGenericExceptionCaught:AnthropicBackend.kt$AnthropicBackend.AnthropicConnection$e: Exception</ID>
