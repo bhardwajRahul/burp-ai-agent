@@ -6,14 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
-### Fixed
-
-- **Copilot CLI backend**: removed automatic `--quiet` injection from Copilot command building (and strips legacy `--quiet` from saved Copilot extras) because current Copilot CLI versions no longer support that flag. To preserve clean non-interactive output, the backend now uses supported `--silent` by default.
-
-## [0.9.1] - 2026-07-15
+## [0.9.1] - 2026-07-29
 
 ### Fixed
 
+- **Startup crash on restart when external MCP servers were configured (#81)**: `loadExternalMcpServers()` could abort extension load when the stored `mcp.external.servers.v1` value was the empty-array sentinel `"[]"` (which a fresh install wrote), because a kotlin-reflect `Throwable` from jackson-module-kotlin escaped the fail-soft `catch`. Empty / `"[]"` values now short-circuit without Jackson, the loader fails soft on any `Throwable`, and an empty server list is stored as `""` rather than `"[]"`.
+- **Copilot CLI backend (#78)**: removed automatic `--quiet` injection from Copilot command building (and strips legacy `--quiet` from saved Copilot extras) because current Copilot CLI versions no longer support that flag; the backend now uses the supported `--silent` for clean non-interactive output. (Thanks @0-0eth0, #79.)
 - **BApp Store code-review remediation ([extension-portal#231](https://github.com/PortSwigger/extension-portal/issues/231))** — addressed every finding from PortSwigger's automated code reviewer ahead of resubmission:
   - **Active scan check on the modern API**: `AiScanCheck` now implements `ActiveScanCheck` (`doCheck` + `checkName`) and registers via `registerActiveScanCheck(..., PER_INSERTION_POINT)` instead of the deprecated `ScanCheck` / `registerScanCheck()`.
   - **Context menu no longer blocks the UI thread**: right-clicking from the site-map tree no longer scans the entire site map on the EDT (the subtree expansion is deferred until an action runs), and BountyPrompt definitions are cached off-thread — primed at startup and re-primed on settings save — instead of listing the prompt directory and parsing JSON on every right-click.

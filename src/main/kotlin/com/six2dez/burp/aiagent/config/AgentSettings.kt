@@ -1387,7 +1387,9 @@ Response Language: English.
                 config.copy(bearerToken = storedToken)
             }
         try {
-            val json = externalServerMapper.writeValueAsString(encryptedList)
+            // Store an empty list as "" (not "[]") so a later load never has to deserialize the
+            // empty-array sentinel via Jackson (#81).
+            val json = if (encryptedList.isEmpty()) "" else externalServerMapper.writeValueAsString(encryptedList)
             prefs.setString(KEY_EXT_MCP_SERVERS, json)
         } catch (e: Exception) {
             // Never log the token value — log only the key name (T-16-02-LOG).
@@ -1408,7 +1410,10 @@ Response Language: English.
      */
     private fun loadExternalMcpServers(): List<ExternalMcpServerConfig> {
         val json = prefs.getString(KEY_EXT_MCP_SERVERS)
-        if (json.isNullOrBlank()) return emptyList()
+        // Treat blank and the empty-array sentinel "[]" as "no servers" WITHOUT invoking Jackson:
+        // deserializing "[]" via jackson-module-kotlin can surface a kotlin-reflect Throwable in
+        // Burp's isolated classloader that would otherwise abort extension load on restart (#81).
+        if (json.isNullOrBlank() || json.trim() == "[]") return emptyList()
         return try {
             val stored = externalServerMapper.readValue(json, Array<ExternalMcpServerConfig>::class.java).toList()
             stored.map { config ->
@@ -1420,9 +1425,13 @@ Response Language: English.
                     }
                 config.copy(bearerToken = plainToken)
             }
-        } catch (e: Exception) {
-            // Fail-soft per D-01: log only the key name, never the raw value (T-16-02-LOG).
-            api.logging().logToError("loadExternalMcpServers: parse failed for key: $KEY_EXT_MCP_SERVERS")
+        } catch (e: Throwable) {
+            // Fail-soft per D-01: never let a config-parse failure abort extension load. Catch
+            // Throwable (not just Exception) so a kotlin-reflect Error degrades gracefully too
+            // (#81). Log only the key name + throwable type, never the raw value (T-16-02-LOG).
+            api.logging().logToError(
+                "loadExternalMcpServers: parse failed for key $KEY_EXT_MCP_SERVERS (${e.javaClass.simpleName})",
+            )
             emptyList()
         }
     }
