@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-07-29
+
+### Fixed
+
+- **Chat broken on Windows for HTTP backends (#80)**: the pre-send LM Studio / Ollama health check ran `api.http().sendRequest` on the Swing event dispatch thread, which Burp rejects ("Extensions should not make HTTP requests in the Swing event dispatch thread"), so sending a message failed. `MontoyaHttpTransport` now offloads the request to a short-lived worker thread when it is invoked on the EDT.
+
+### Changed
+
+- Bumped Jackson to 2.22.1 (#75) and OkHttp to 5.4.0 (#76); updated `actions/checkout` to v7 in CI (#72). (The Kotlin 2.4 / kotlinx / Ktor 3.5 upgrades remain deferred — Ktor 3.5 breaks MCP server startup while the MCP SDK is pinned at 0.5.0.)
+
 ## [0.9.1] - 2026-07-29
 
 ### Fixed

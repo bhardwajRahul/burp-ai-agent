@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "com.six2dez.burp"
-version = "0.9.1"
+version = "0.9.2"
 
 repositories {
     mavenCentral()
@@ -25,11 +25,11 @@ dependencies {
     compileOnly("net.portswigger.burp.extensions:montoya-api:2026.2")
 
     // JSON
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.22.0")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.22.0")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.22.1")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.22.1")
 
     // HTTP client (Ollama + webhooks)
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp:5.4.0")
 
     // MCP Server (Ktor + MCP SDK)
     implementation("io.modelcontextprotocol:kotlin-sdk:0.5.0")
@@ -56,7 +56,7 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:6.0.3")
     testImplementation("net.portswigger.burp.extensions:montoya-api:2026.2")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.4.0")
 }
 
 java {
