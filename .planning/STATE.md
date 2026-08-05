@@ -1,34 +1,73 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.9.0
-milestone_name: Hardening, Quality & New Capabilities
-status: milestone_verified
-stopped_at: "v0.9.0 — all 8 phases (12–19) complete and FULLY verified incl. both human-UATs (Phase 16 live SSE+stdio connect + fat-JAR load; Phase 19 SC5 live docs render at /backends/anthropic + /mcp-server/external-servers). Version 0.9.0 + CHANGELOG cut; burp-ai-agent and burp-ai-agent-docs both pushed. READY TO ARCHIVE: /gsd-complete-milestone v0.9.0 + /gsd-cleanup."
-last_updated: 2026-06-26T09:03:37.949Z
-last_activity: 2026-06-26
+milestone: v0.10.0
+milestone_name: Security Correctness & Agent Trust
+status: milestone_planning
+stopped_at: "v0.10.0 roadmap created from the 2026-08-05 deep code review of v0.9.2 — 7 phases (20-26), 12 requirements, 17 findings mapped. Two findings (SEC-04 MCP access-control bypass, PRIV-05 cookie leak) were reproduced against the shipped code. Next: /gsd-discuss-phase 20."
+last_updated: 2026-08-05
+last_activity: 2026-08-05
 progress:
-  total_phases: 8
-  completed_phases: 8
-  total_plans: 31
-  completed_plans: 31
-  percent: 100
+  total_phases: 7
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-10)
+See: .planning/PROJECT.md (updated 2026-08-05)
 
-**Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable, AI capability is additive.
-**Current focus:** v0.9.0 fully verified (all 8 phases + both human-UATs passed; both repos pushed) — ready to archive (/gsd-complete-milestone v0.9.0 + /gsd-cleanup)
+**Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable.
+**Current focus:** v0.10.0 — make the controls that already exist actually run on every path, and put a trust boundary around the agent loop.
 
 ## Current Position
 
-Phase: 19 (last) complete — milestone v0.9.0 fully verified
-Plan: 5/5 (Phase 19)
-Status: Milestone fully verified — ready to archive (/gsd-complete-milestone v0.9.0 + /gsd-cleanup)
-Last activity: 2026-07-14 - Completed quick task 260714-ekv: BApp Store code-review batch B (findings 1, 2, 7) — all 8 automated-review findings fixed
+Phase: 20 (MCP Access-Control Correctness) — not started
+Plan: none yet
+Status: Milestone planned; roadmap + requirements written. Next: `/gsd-discuss-phase 20`
+Last activity: 2026-08-05 - v0.9.0 archived; v0.10.0 roadmap created from deep code review
+
+## Milestone Origin
+
+v0.10.0 comes from a deep review of v0.9.2 on 2026-08-05 (17 findings). Two were confirmed by
+running the shipped code rather than by reading it:
+
+- **SEC-04** — the MCP access-control interceptor is registered after `routing{}` in Ktor's `Call`
+  phase, so it never executes for routes Ktor resolves. Reproduced: external mode, no
+  `Authorization` header, `POST /message` → `400 "sessionId query parameter is not provided"`
+  (handler ran) instead of `401`. Only unmatched paths return 401.
+- **PRIV-05** — the passive scanner re-emits cookies as bare `name=value` without the `Cookie:`
+  prefix that `cookieHeaderRegex` matches on. Verified against the live regexes: `JSESSIONID`,
+  `PHPSESSID`, `connect.sid`, `auth_token`, `csrftoken` all pass through unredacted in STRICT and
+  BALANCED; only a cookie literally named `session` is caught.
+
+Measured baselines at milestone start (for Phase 26 to improve against):
+coverage 34% line / 23% branch project-wide; detekt baseline 1096 entries; `test detekt ktlintCheck`
+all green on v0.9.2.
+
+## Deferred Items
+
+Items acknowledged and deferred at the v0.9.0 milestone close on 2026-08-05:
+
+| Category | Item | Status |
+|----------|------|--------|
+| uat_gap | Phase 01 — 01-HUMAN-UAT.md (1 open scenario) | partial |
+| uat_gap | Phase 02 — 02-HUMAN-UAT.md (6 open scenarios) | partial |
+| uat_gap | Phase 03 — 03-HUMAN-UAT.md (4 open scenarios) | partial |
+| uat_gap | Phase 13 — 13-HUMAN-UAT.md (3 open scenarios) | partial |
+| uat_gap | Phase 14 — 14-HUMAN-UAT.md (4 open scenarios) | partial |
+| uat_gap | Phase 15 — 15-HUMAN-UAT.md (1 open scenario) | partial |
+| uat_gap | Phase 17 — 17-HUMAN-UAT.md (1 open scenario) | partial |
+| verification_gap | Phase 01 — 01-VERIFICATION.md | human_needed |
+| verification_gap | Phase 03 — 03-VERIFICATION.md | human_needed |
+| quick_task | 260527-f7q-fix-bugs-66-67-68-cli-tokenizer-copilot- | unknown |
+
+Rationale: phases 01-03 belong to v0.7.0, shipped 2026-05-15. The formal
+`v0.9.0-MILESTONE-AUDIT.md` returned `passed` with 22/22 requirements satisfied, 8/8 phases
+verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than coverage gaps.
 
 ## Performance Metrics
 

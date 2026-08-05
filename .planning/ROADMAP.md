@@ -6,280 +6,197 @@
 
 Phases 1–8 closed. Features: Perplexity backend, AI scan on selected insertion point, custom prompt library UX, bug fixes #62/#66/#67/#68, proxy transport + MCP scope hardening (#69), BApp Store resubmission (#231).
 
-| Phase | Name | Status |
-|-------|------|--------|
-| 1 | Perplexity Backend Audit | Not started |
-| 2 | Insertion-Point Scan Audit | Complete (2026-05-13) |
-| 3 | Prompt Library UX Audit | Complete (2026-05-13) |
-| 4 | Release-Gating Bug Fixes | — |
-| 5 | Documentation Refresh | — |
-| 6 | v0.7.0 Release Cut | — |
-| 7 | Proxy Transport + MCP Scope Hardening | Complete (2026-05-27) |
-| 8 | BApp Store resubmission — MCP pivot + compliance | Complete (2026-06-09) |
-
 ### v0.8.0 — UI/UX Overhaul (shipped 2026-06-02)
 
 Phases 9–11 closed. Features: design system foundation (UI-01), MCP tools tab redesign (UI-03/04/05/07), all settings tabs rebuilt on design system with light/dark theme (UI-02/06/07/08).
 
-| Phase | Name | Status |
-|-------|------|--------|
-| 9 | Design System Foundation | Complete (2026-05-29) |
-| 10 | MCP Tools Tab Redesign | Complete (2026-05-29) |
-| 11 | Settings Tabs + Theme Rollout | Complete (2026-06-02) |
+### v0.9.0 — Hardening, Quality & New Capabilities (shipped 2026-06-26)
+
+Phases 12–19 closed, 22/22 requirements. Secrets encrypted at rest (AES-256-GCM + schema-v4 migration), redaction hardening (real HKDF, body-level patterns), pre-send secret tripwire, native Anthropic backend, token budgets, external MCP client (#41), reliability/EDT fixes (#71), detekt + blocking ktlint, mega-file split. Point releases 0.9.1 / 0.9.2 cut from this base.
+→ Archive: [`milestones/v0.9.0-ROADMAP.md`](milestones/v0.9.0-ROADMAP.md) · [`milestones/v0.9.0-REQUIREMENTS.md`](milestones/v0.9.0-REQUIREMENTS.md)
 
 ---
 
-## Active Milestone: v0.9.0 — Hardening, Quality & New Capabilities
+## Active Milestone: v0.10.0 — Security Correctness & Agent Trust
 
-**Status:** Planning — started 2026-06-10
+**Status:** Planning — started 2026-08-05
 
-**Goal:** Harden privacy/security, pay down quality and maintainability debt, and add new capabilities on the stable v0.8.0 base — without compromising the non-negotiable core value (privacy controls + audit trail).
+**Goal:** Make the security and privacy controls the project already ships actually take effect on every path, and give the agent loop a trust boundary. v0.9.0 built the machinery; a deep review of v0.9.2 on 2026-08-05 found that several controls sit in source but never execute, or match patterns that real-world data does not have.
 
-**Ordering rationale (from research):**
+**Why this milestone, framed honestly:** two of the seventeen findings were confirmed by running the shipped code, not by reading it.
 
-- SEC (Phase 12) must land first — all new secret fields (Anthropic key, external MCP tokens) must be encrypted from day one; migration ladder must exist before any new secret field is added.
-- Privacy hardening (Phase 13) is independent of SEC and can run after it without conflicts.
-- CAP-01/03/04 (Phase 14) depends on Phase 12; Anthropic API key must be encrypted from the first commit that introduces it.
-- PRIV-03 tripwire (Phase 15) depends on Phase 12 (meaningful once keys leave plaintext) and must land before QUAL-01 (the split moves the PassiveAiScanner hook points).
-- CAP-02 external MCP (Phase 16) is highest novelty/build-risk; placed after CAP-01; kotlin-sdk 0.5.0→0.13.0 bump gated on a Burp-JVM test-run.
-- REL reliability (Phase 17) is independent and can follow feature phases.
-- Quality tooling (Phase 18) adds detekt/ktlint gates and test coverage — independent, safe after features.
-- QUAL-01 mega-file split (Phase 19) is the last code phase — pure no-behaviour-change refactor; DOC-01/02 co-land here once features are stable.
+- The MCP server's auth / Origin / security-header interceptor is registered *after* `routing{}` in Ktor's `Call` phase. Ktor runs same-phase interceptors in registration order and `RoutingRoot.interceptor` never calls `finish()`, so any route that resolves is served **before** the checks run. In external mode an unauthenticated `POST /message` returns `400 "sessionId query parameter is not provided"` — the MCP handler ran — instead of `401`.
+- The passive scanner extracts cookies into a dedicated prompt section as bare `name=value`, dropping the `Cookie:` prefix that `cookieHeaderRegex` keys on. `JSESSIONID`, `PHPSESSID`, `connect.sid`, `auth_token` and `csrftoken` therefore reach the AI backend unredacted in both STRICT and BALANCED — directly against the project's stated core value.
+
+Everything else in this milestone is real but was found by reading: an agent loop that executes model-emitted tool calls with no user gate, EDT-blocking tool execution, three unguarded recurring schedulers, and a set of smaller hardening items.
+
+**Ordering rationale:**
+
+- Phases 20 and 21 lead — they are live defects in a published release. They touch disjoint files (`mcp/`, `redact/` + `scanner/`) and could run in parallel, but 20 goes first because it is the higher-severity of the two.
+- Phase 22 (tool-call confirmation) and Phase 23 (EDT) both rewrite `ChatPanel.maybeExecuteToolCall`. Sequential, never parallel — same merge-friction reasoning that sequenced Phases 12 and 13 last milestone. 22 first: the confirmation gate changes the call's shape, and moving it off the EDT is cleaner once that shape is settled.
+- Phases 24 and 25 are independent of everything above and of each other.
+- Phase 26 lands last so its coverage work can cover the code the earlier phases produce, and so the detekt baseline is trimmed once, at the end.
 
 ## Phases
 
-- [x] **Phase 12: Secrets at Rest & Transport Security** — Encrypt all stored API keys (AES-256-GCM), fix keytool argv password exposure, add soft SSRF backend URL warning ✓ 2026-06-10
-- [x] **Phase 13: Privacy & Redaction Hardening** — Fix host-anonymization algorithm (real HKDF), broaden redaction to request/response bodies with user-configurable patterns, add redaction-coverage UI (completed 2026-06-10)
-- [x] **Phase 14: Anthropic Backend + Token Budget + Listener Port** — Native Anthropic Messages API backend with streaming/tool-use/prompt-caching; per-session token-budget guardrails; MCP proxy-history listener port filter (completed 2026-06-10)
-- [x] **Phase 15: Pre-Send Secret Tripwire** — Post-redaction tripwire scanning final payload for high-entropy secrets before any send; warn-with-confirmation UI; audit-logged allowlist (completed 2026-06-11)
-- [x] **Phase 16: External MCP Client** — Connect to external/custom MCP servers (SSE + stdio transports); auth tokens encrypted; SSRF guard; untrusted-output trust boundary (completed 2026-06-26)
-- [x] **Phase 17: Reliability & Concurrency Hardening** — EDT confinement on ChatPanel session maps; CLI temp file cleanup via finally; bounded MCP shutdown; uniform HTTP timeouts/CircuitBreaker; fix CLI timeout bug #71 (completed 2026-06-11)
-- [x] **Phase 18: Quality Tooling & Build Hardening** — Raise scanner/CLI/cache test coverage; add detekt + blocking ktlint with committed baseline; audit 136 exception-logging sites; fix generateBuildFlags sourceSets wiring (completed 2026-06-11)
-- [x] **Phase 19: Mega-File Split + Docs** — Split 3 mega-files (no behaviour change); finalize .planning reconciliation; update user-facing docs for v0.9.0 changes (completed 2026-06-16)
+- [ ] **Phase 20: MCP Access-Control Correctness** — Move the auth/Origin/header interceptor ahead of routing so it runs on every request; regression tests that fail against today's code
+- [ ] **Phase 21: Redaction Completeness** — Close the cookie-section leak, match real-world sensitive key names, stop redaction failing open on large bodies
+- [ ] **Phase 22: Agent Tool-Call Trust Boundary** — User decision gate for model-emitted tool calls, plus the ADR that records the threat model
+- [ ] **Phase 23: EDT Confinement & UI Responsiveness** — Tool execution, backend HTTP and MCP stop() off the Swing EDT
+- [ ] **Phase 24: Scheduler & Process Robustness** — Guard recurring tasks against death-by-exception; fix the CLI output race and unbounded resource use
+- [ ] **Phase 25: Secondary Hardening** — Stop leaking the MCP token to unverified port holders; teach SsrfGuard the alternate IP notations
+- [ ] **Phase 26: Coverage, Static-Analysis Debt & Docs** — Allowlist shell escaping, raise coverage on security paths, shrink the detekt baseline, publish the advisory
 
 ## Phase Details
 
-### Phase 12: Secrets at Rest & Transport Security
+### Phase 20: MCP Access-Control Correctness
 
-**Goal**: All stored credentials are encrypted at rest from this phase forward — no professional tool stores secrets in plaintext; existing secrets are migrated non-destructively; two secondary transport-security gaps (keytool argv password, SSRF-blind backend URLs) are closed simultaneously.
-**Depends on**: Nothing (must be first — every subsequent phase that introduces a new secret relies on this)
-**Requirements**: SEC-01, SEC-02, SEC-03
+**Goal**: Every MCP request passes through the extension's access-control checks before any handler runs, in both local and external mode — and there are tests that would have caught the current bypass.
+**Depends on**: Nothing (highest severity, leads the milestone)
+**Requirements**: SEC-04, SEC-05
 **Success Criteria** (what must be TRUE):
 
-  1. A user who upgrades from v0.8.0 has all their existing API keys and MCP tokens transparently migrated to AES-256-GCM encrypted form; Settings loads correctly with plaintext values at runtime; plaintext form is overwritten only after round-trip decrypt succeeds.
-  2. Secrets never appear in Burp's output/error logs — the crypto path logs only the Preferences key name on failure, never the key material.
-  3. A user enabling MCP TLS no longer has the keystore password exposed in a `ps aux` listing during keytool execution; the password is written to a temp file with owner-read-only permissions or generated in-JVM.
-  4. A user who types a non-loopback private/link-local URL in any backend settings field sees a soft SSRF warning on save (non-blocking — the user can proceed deliberately).
-  5. Unit tests cover: AES-GCM round-trip, schema-V4 migration idempotency (re-running migration does not double-encrypt), and headless Linux fallback path (no `HeadlessException` with `java.awt.headless=true`).
+1. With `externalEnabled = true`, a request to `POST /message` with no `Authorization` header returns 401. Same for a GET SSE connect on the root path. (Today both reach the MCP SDK handler.)
+2. With `externalEnabled = false`, a request carrying `Origin: http://evil.example` returns 403 on `/__mcp/health`, on `/message`, and on the SSE root. A request with a browser `User-Agent` and no `Origin` returns 403. A request with a foreign `Host` returns 403.
+3. `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and `Content-Security-Policy: default-src 'none'` are present on responses from routes that Ktor resolves — not only on 404s.
+4. The regression tests added for SC1–SC3 **fail** when run against the pre-fix `KtorMcpServerManager` and pass after. This is the acceptance gate for the phase: a test that passes both before and after has not tested the bypass.
+5. The server advertises the real project version, not `0.6.0`; `isValidHost` accepts `[::1]:<port>` when the server is bound to `::1`; an external-mode request cannot authenticate with a blank token.
+6. `/__mcp/shutdown`'s existing in-handler token check still returns 401 without a token and 200 with one — the fix must not regress the one path that was already correct.
 
-**Plans**: 4 plans
+**Plans**: TBD (set at `/gsd-plan-phase`)
 
-Plans:
+**Implementation note**: the likely shape is an `ApplicationPlugin` with an `onCall` hook, or `intercept(ApplicationCallPipeline.Plugins)`, or simply registering the `intercept` before the first `routing{}` call. The research step should confirm which of these composes correctly with the MCP SDK's `mcp{}` (it calls `install(SSE)` then `routing{}` on the same `RoutingRoot`) and with the CORS plugin.
 
-- [ ] 12-01-PLAN.md — SecretCipher.kt: AES-256-GCM utility + per-install master key (SEC-01 foundation)
-- [ ] 12-02-PLAN.md — Schema v4 migration + encrypt/decrypt wiring in AgentSettingsRepository (SEC-01)
-- [ ] 12-03-PLAN.md — In-JVM TLS cert generation in McpTls.kt, removes keytool subprocess (SEC-02)
-- [ ] 12-04-PLAN.md — SsrfGuard + inline warning in BackendConfigPanel (SEC-03)
+---
 
-### Phase 13: Privacy & Redaction Hardening
+### Phase 21: Redaction Completeness
 
-**Goal**: The redaction pipeline's privacy claims match its implementation — host anonymization uses real HKDF; redaction covers request/response bodies (not just headers); users can add custom patterns and test them; a UI indicator surfaces when a known secret shape survived redaction.
-**Depends on**: Phase 12 (Phase 12 closes before Phase 13 begins, ensuring no conflicts on Redaction.kt; the two phases touch different files and are logically independent but sequencing avoids any merge friction)
-**Requirements**: PRIV-01, PRIV-02, PRIV-04
+**Goal**: No path sends cookie values or other credentials to an AI backend under STRICT or BALANCED, and redaction never silently declines to run.
+**Depends on**: Nothing (independent of Phase 20 — different files)
+**Requirements**: PRIV-05, PRIV-06
 **Success Criteria** (what must be TRUE):
 
-  1. `Redaction.anonymizeHost` uses `Mac.getInstance("HmacSHA256")` (HKDF extract/expand) not `MessageDigest.getInstance("SHA-256")` — the SPEC's stated privacy guarantee now matches the implementation; existing STRICT-mode tests stay green.
-  2. A secret in the leading field of a `application/x-www-form-urlencoded` request body (e.g. `apikey=sk-abc123&...`) is redacted in STRICT and BALANCED modes, confirmed by a unit test.
-  3. A user can enter a custom regex pattern in Settings; the pattern is applied during redaction and the UI validates it against an adversarial ReDoS test string (50 ms timeout) before accepting it.
-  4. The redaction preview dialog flags when a known secret shape (matching the same curated pattern set as the tripwire) passed through redaction, so the user can see what the pipeline missed before sending.
-  5. Unit tests cover STRICT/BALANCED/OFF mode matrix for the new body-redaction paths and the custom-pattern ReDoS guard.
+1. A passive scan of a request carrying `Cookie: JSESSIONID=...; PHPSESSID=...; connect.sid=...; auth_token=...; csrftoken=...` produces a prompt in which **none** of those values appear, in both STRICT and BALANCED. Asserted per cookie name, not on the aggregate.
+2. The same holds for cookies surfaced through `request.parameters()` as `COOKIE`-type params in the `=== PARAMETERS ===` section — the leak has two entry points and both are closed.
+3. Sensitive-key matching recognises compound and vendor names (`auth_token`, `api-key`, `X-Session-Id`, `remember_me`) rather than only exact members of the `SENSITIVE_KEYS` alternation, without over-redacting benign keys like `keyboard_layout` or `codename`. Both directions are asserted.
+4. A payload exceeding `MAX_REDACTION_BODY_CHARS` is truncated-and-redacted or refused; a test constructs an oversized body with an embedded secret and asserts the secret does not survive. (Today the body-level rules are skipped entirely above the cap.)
+5. The interaction between user custom patterns and `PrivacyMode.OFF` is settled deliberately and documented in `DECISIONS.md` — whichever way it goes, it is a decision rather than a side effect of the `redactTokens` branch.
+6. The existing `RedactionTest` suite including the RFC 5869 HKDF vector stays green; the fix must not perturb host anonymization.
 
-**Plans**: 3 plans
+**Plans**: TBD
 
-Plans:
-**Wave 1**
+---
 
-- [x] 13-01-PLAN.md — HKDF host anonymization (PRIV-01) + SafeRegex ReDoS-guard foundation (redact core) [wave 1]
+### Phase 22: Agent Tool-Call Trust Boundary
 
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 13-02-PLAN.md — Body/form/JSON redaction + custom-pattern engine, persistence, and Privacy panel wiring (PRIV-02) [wave 2]
-- [x] 13-03-PLAN.md — Shared SecretShapes curated set + survived-secret WARN banner in the preview dialog (PRIV-04) [wave 2]
-
-**UI hint**: yes
-
-### Phase 14: Anthropic Backend + Token Budget + Listener Port
-
-**Goal**: Users can select a native Anthropic Messages API backend (the highest-demand gap in the current backend roster); per-session token-budget guardrails surface consumption and enforce hard caps; and MCP proxy-history results can be filtered by listener port — all three ship together since CAP-03 and CAP-04 are small additions that share no conflicts with CAP-01.
-**Depends on**: Phase 12 (anthropicApiKey must be encrypted from the first commit that introduces it)
-**Requirements**: CAP-01, CAP-03, CAP-04
+**Goal**: A tool call the extension parsed out of model output cannot reach Burp without the user deciding, and the reasoning is written down so future tools inherit it.
+**Depends on**: Nothing structurally, but scheduled before Phase 23 — both rewrite `ChatPanel.maybeExecuteToolCall`
+**Requirements**: SEC-06
 **Success Criteria** (what must be TRUE):
 
-  1. A user can select "Anthropic" in Settings > Backend, enter an API key (encrypted on save), choose a model (editable, defaulting to a current alias), and send a chat message that streams tokens back through the Burp proxy — verified by a HUMAN-UAT smoke test with a live Anthropic API key.
-  2. Anthropic traffic appears in Burp's Proxy > HTTP history (confirming `MontoyaHttpTransport` is used, not a direct OkHttp client); `grep OkHttp AnthropicBackend.kt` returns empty on the production code path.
-  3. A 400 response from Anthropic that contains "model" in the error body surfaces a specific user-visible message ("Anthropic rejected the model ID — check Settings > Anthropic > Model") rather than a generic error.
-  4. A user can set a session token-budget warn threshold and hard cap; the passive scanner pauses when the hard cap fires; the chat UI shows a warning banner when the warn threshold is crossed.
-  5. A user using the MCP `proxy_http_history` tool can filter results by Burp listener port (e.g. `8080`), and only requests received on that port are returned.
+1. An ADR in `DECISIONS.md` records the threat model: model context contains attacker-controlled data (proxy traffic sent via "Send to AI", passive-scan findings, external MCP tool results), the model chooses tools, therefore tool selection is attacker-influenceable. The ADR states which tool classes require a decision and why the existing prompt-level `[EXTERNAL-TOOL-RESULT:...]` note is mitigation but not a control.
+2. A model-emitted tool call surfaces a decision to the user before execution: approve once, approve-for-session for that tool, or deny. Denial returns a result to the model that lets the conversation continue rather than erroring the session.
+3. Every decision is written to the audit log with the tool name, the decision, and the chain step — consistent with the existing `MCP_TOOL_CALL` telemetry shape.
+4. The auto-chain still terminates: `MAX_AUTO_TOOL_ITERATIONS = 8` is respected, and a denied call does not consume the remaining budget in a loop.
+5. A tool call the **user** initiated through `ToolInvocationDialog` is not double-prompted — the gate applies to model-originated calls, and the two paths are distinguishable in code.
+6. Read-only tools versus state-mutating tools (`http1_request`, `http2_request`, `repeater_tab`, `scope_include`, `scope_exclude`, intruder) are treated per the ADR's classification, not with one blanket rule chosen at implementation time.
 
-**Plans**: 3 plans
-- [x] 14-01-PLAN.md — Anthropic Messages API backend + supervisor branch + registration + all AgentSettings fields (encrypted key) + Anthropic settings card (CAP-01)
-- [x] 14-02-PLAN.md — Token-budget guardrails: AWT-free BudgetGuard + scanner budgetPaused gate + chat banner + Settings token-budget section (CAP-04)
-- [x] 14-03-PLAN.md — proxy_http_history listener_port filter on both dispatch paths (CAP-03, closes #70)
-**UI hint**: yes
+**Plans**: TBD
 
-### Phase 15: Pre-Send Secret Tripwire
+**Open question for `/gsd-discuss-phase`**: whether the gate defaults to prompting for all tools or only for the mutating set. This is a usability-vs-safety trade with no obvious right answer — it should be decided with the maintainer, not assumed.
 
-**Goal**: A post-redaction tripwire scans the final outbound payload for high-entropy strings that survived the redaction pipeline and warns the user before the payload leaves Burp — the warning is non-blocking (warn-with-confirmation, not hard-stop) so legitimate pentest payloads are never silently blocked.
-**Depends on**: Phase 12 (meaningful once existing keys are no longer plaintext in preferences; adds hooks to PassiveAiScanner before Phase 19 moves those methods)
-**Requirements**: PRIV-03
+---
+
+### Phase 23: EDT Confinement & UI Responsiveness
+
+**Goal**: The Burp UI stays responsive during an agent tool chain and during a Settings save.
+**Depends on**: Phase 22 (same method — `maybeExecuteToolCall` — sequential to avoid merge friction)
+**Requirements**: REL-05
 **Success Criteria** (what must be TRUE):
 
-  1. A request body containing a live AWS-format key (`AKIA...`) that survives BALANCED-mode redaction triggers a confirmation dialog ("This payload appears to contain a high-entropy value — send anyway?") before reaching the AI backend — verified by a unit test with a synthetic high-entropy string.
-  2. A legitimate high-entropy pentest payload (e.g. a base64-encoded fuzz string) also shows the confirmation dialog and the user can dismiss it to proceed; the send is never hard-blocked.
-  3. Allowlist actions (user chose "send anyway") are written to the audit log with the session ID and a truncated entropy score — the allowlist decision is auditable.
-  4. The tripwire fires on all three outbound paths: ChatPanel interactive send, PassiveAiScanner batch/single sends, and MCP tool output via `McpToolContext.redactIfNeeded()`.
-  5. The confirmation dialog is visible in the context preview dialog where the tripwire match is highlighted.
+1. `McpToolExecutor.executeTool` is never invoked on the EDT from the chat tool-chain path. Asserted by a test, not only by inspection — the existing `assertEdt()` is a no-op in production, so the new check must not rely on `-ea`.
+2. `api.http().sendRequest(...)` inside MCP tools and `runBlocking { manager.callTool(...) }` for external MCP servers both execute off the EDT.
+3. A tool chain of 8 iterations, each with a slow (multi-second) tool, leaves the UI repainting throughout; results still arrive in order and land on the EDT for rendering.
+4. Saving Settings with MCP enabled→disabled does not block the EDT on `KtorMcpServerManager.stop()`'s bounded 10-second wait. `settingsRepo.save()` and `backends.reload()` are likewise not blocking the EDT.
+5. No regression in the REL-01 EDT-confinement guarantees for `ChatPanel` session maps — those maps must still be touched only on the EDT while the *work* moves off it.
+6. `MainTab`'s existing `Thread { … } + SwingUtilities.invokeLater` health-check pattern is reused rather than a new concurrency idiom being introduced.
 
-**Plans**: 3 plans
+**Plans**: TBD
 
-Plans:
-**Wave 1**
+---
 
-- [x] 15-01-PLAN.md — Detector core: AWT-free Entropy.kt (Shannon) + SecretTripwire.kt reusing SecretShapes.findSurviving + EntropyTest/SecretTripwireTest (SC1/SC2/SC3-no-leak) [wave 1]
+### Phase 24: Scheduler & Process Robustness
 
-**Wave 2** *(blocked on Wave 1; file-disjoint, run in parallel)*
-
-- [x] 15-02-PLAN.md — Interactive path: ContextPreviewDialog RISK gate + "Send anyway"/Cancel + ChatPanel allowlist audit (SC5/SC3) [wave 2]
-- [x] 15-03-PLAN.md — Non-interactive paths: PassiveAiScanner three send sites + McpToolContext.redactIfNeeded, detect+audit+proceed (SC4/SC2) [wave 2]
-
-**UI hint**: yes
-
-### Phase 16: External MCP Client
-
-**Goal**: Users can register external/custom MCP servers and the agent can call their tools — the highest-novelty phase of the milestone; external server auth tokens are encrypted (Phase 12 dependency); untrusted tool output is wrapped before entering the AI context to prevent prompt injection; SSRF warning covers external MCP URLs.
-**Depends on**: Phase 12 (external MCP bearer tokens must be encrypted from day one). NOTE: Path A confirmed — kotlin-sdk 0.5.0 already ships the full MCP client; no Kotlin/Ktor bump required; Burp-JVM ClassLoader gate is a standard smoke test only
-**Requirements**: CAP-02
+**Goal**: A single exception cannot silently disable a background subsystem for the rest of the Burp session, and CLI output handling is thread-safe and bounded.
+**Depends on**: Nothing
+**Requirements**: REL-06, REL-07
 **Success Criteria** (what must be TRUE):
 
-  1. A user can add an external MCP server (SSE or stdio transport) in the MCP settings CRUD UI; the server connects and its tools appear alongside Burp's built-in tools in the agent's tool preamble — verified by a HUMAN-UAT with a real external MCP server.
-  2. External MCP tool results are wrapped in an explicit trust-boundary marker before they enter the AI prompt context; the audit log records every external tool invocation and its result summary.
-  3. Configuring an external MCP server URL that resolves to an RFC-1918 or link-local address triggers the same soft SSRF warning introduced in Phase 12.
-  4. External server auth tokens are stored encrypted (Phase 12 SecretStore); they are never logged or exposed in the Settings UI in plaintext (show/hide toggle, same as other API key fields).
-  5. The extension loads, the embedded MCP server starts, and the UI is responsive after the kotlin-sdk 0.13.0 bump — no `ClassLoader` conflicts or `NoClassDefFoundError` on Burp's JVM (verified in CI).
+1. `ActiveAiScanner.processQueue`, `ScannerTaskRegistry.cleanupExpired` and `CollaboratorRegistry.cleanupExpired` each survive a throw in their body and run again on the next tick. Asserted by injecting a throw — `scheduleWithFixedDelay` cancels the task permanently on an uncaught exception, which is exactly the failure mode being closed.
+2. The active scanner keeps processing its queue after an induced failure on one target, and the failure is logged with enough context to identify the target.
+3. CLI stdout capture is thread-safe: no unsynchronised `StringBuilder` is shared between the reader thread and the timeout path, where `readerThread.join(2000)` can time out while the reader is still appending.
+4. CLI output is bounded — a CLI emitting far more than the 2000 characters ultimately used does not accumulate all of it in memory.
+5. `deleteOnExit()` no longer registers one never-removed shutdown-hook entry per CLI invocation; temp-file cleanup still happens on the normal path and on crash.
+6. `App.workerPool` and `ActiveAiScanner.requestExecutor` use bounded pools; an active scan with many injection points cannot spawn unbounded threads. Executors created by this phase carry named thread factories so a Burp thread dump is readable.
 
-**Plans**: 6 plans
+**Plans**: TBD
 
-Plans:
-**Wave 1** *(parallel — disjoint file sets)*
+---
 
-- [x] 16-01-PLAN.md — Add 3 Ktor client deps to build.gradle.kts + Wave 0 test scaffolds (ExternalMcpClientManagerTest, ExternalMcpSettingsMigrationTest) [wave 1]
+### Phase 25: Secondary Hardening
 
-**Wave 2** *(parallel — disjoint file sets)*
-
-- [x] 16-02-PLAN.md — ExternalMcpServerConfig data model + McpSettings.externalMcpServers field + AgentSettings schema v5 migration (encrypted blob) [wave 2]
-- [x] 16-03-PLAN.md — ExternalMcpClientManager: SSE+stdio transport lifecycle, trust-boundary wrap, AuditLogger [wave 2]
-
-**Wave 3** *(parallel — disjoint file sets)*
-
-- [x] 16-04-PLAN.md — McpToolContext.externalClientManager field + McpTools describeTools fan-out + ext: routing + outbound arg redaction (D-03) [wave 3]
-- [x] 16-05-PLAN.md — ExternalServersPanel CRUD UI (16-UI-SPEC.md) + SettingsPanel MCP section wiring [wave 3]
-
-**Wave 4** *(blocking UAT checkpoint)*
-
-- [x] 16-06-PLAN.md — Pre-flight check gate + Human UAT: SC1 real-server connect + SC5 Burp fat-JAR smoke test [wave 4]
-
-**UI hint**: yes
-
-### Phase 17: Reliability & Concurrency Hardening
-
-**Goal**: The four known reliability gaps are closed: ChatPanel session state is safely EDT-confined; CLI temp files containing prompt content are reliably deleted even on crashes; all HTTP backends enforce consistent timeouts through the CircuitBreaker; and the CLI-command-timeout failure (issue #71) is diagnosed and fixed with a regression test.
-**Depends on**: Phase 14 (AnthropicBackend must be included in the CircuitBreaker/timeout audit); Phase 16 recommended (McpClientManager lifecycle included in shutdown-bound audit)
-**Requirements**: REL-01, REL-02, REL-03, REL-04
+**Goal**: Close the two remaining findings where a control exists but can be sidestepped.
+**Depends on**: Nothing
+**Requirements**: SEC-07
 **Success Criteria** (what must be TRUE):
 
-  1. `ChatPanel`'s four session maps (`sessionPanels`, `sessionStates`, `sessionsById`, `sessionDrafts`) carry `@GuardedBy("EDT")` annotations and an `assert(SwingUtilities.isEventDispatchThread())` guard at every write site; a `ChatPanelConcurrencyTest` verifies no off-EDT writes are reachable.
-  2. CLI temp files containing prompt/context content are deleted in `finally` blocks (not only in `catch`); `deleteOnExit()` is also called as a belt-and-suspenders fallback; confirmed by a test that simulates an exception mid-execution.
-  3. All HTTP backends (including the new AnthropicBackend from Phase 14) share consistent connect/read timeouts and route through `CircuitBreaker`; no backend can bypass `MontoyaHttpTransport` on the production code path.
-  4. Issue #71 (CLI command timeout failure) is reproduced, diagnosed, and fixed or given an actionable error message; a regression test prevents recurrence.
-  5. MCP server shutdown completes within a bounded timeout (no hang on `McpSupervisor.stop()`); host-anonymization maps are bounded or cleared to prevent memory growth over long pentests.
+1. The bind-conflict takeover path no longer sends `Authorization: Bearer <token>` to a listener identified only by a spoofable `X-Burp-AI-Agent: mcp` response header. Whatever replaces it (certificate-fingerprint pinning against our own keystore, a challenge/response, or dropping automatic takeover) is chosen deliberately and recorded.
+2. A local process that squats the MCP port and echoes the probe header does not receive the token. Asserted by a test that stands up a fake listener.
+3. `SsrfGuard.isPrivateOrLinkLocal` returns true for `http://2130706433/`, `http://0177.0.0.1/`, `http://0x7f.1/` and the decimal form of `169.254.169.254`, matching its behaviour on dotted-quad input.
+4. `SsrfGuard` still returns false for loopback (Ollama / LM Studio local use must not start warning) and still performs no DNS resolution.
+5. The `openConnection` loopback trust-all path is either scoped to exactly the certificate the extension generated, or its residual risk is documented — a blanket trust-all on loopback is what makes finding 7 exploitable.
 
-**Plans**: 3 plans (all wave 1 — files_modified disjoint, fully parallel)
+**Plans**: TBD
 
-Plans:
-**Wave 1** *(no inter-plan dependencies; disjoint file sets — run in parallel)*
+---
 
-- [x] 17-01-PLAN.md — REL-03: shared 429/5xx → CircuitBreaker.recordFailure helper in HttpBackendSupport + wire all 4 HTTP backends (OpenAiCompatible/Anthropic/Ollama/LmStudio) + HttpBackendCircuitFailureTest (closes Phase 14 WR-05)
-- [x] 17-02-PLAN.md — REL-01: local SOURCE-retained @GuardedBy annotation + ChatPanel EDT confinement (invokeLater on off-EDT tool-result map reads + addMessage) + jvmArgs("-ea") + ChatPanelConcurrencyTest
-- [x] 17-03-PLAN.md — REL-02 + REL-04: CLI deleteOnExit + configurable cliTimeoutSeconds + actionable buildTimeoutMessage (#71); bounded McpServerManager.stop(); LRU-capped host-anonymization maps + 4 tests
+### Phase 26: Coverage, Static-Analysis Debt & Docs
 
-### Phase 18: Quality Tooling & Build Hardening
-
-**Goal**: The build and test infrastructure is hardened so regressions surface quickly: detekt static analysis and blocking ktlint are added with committed baselines; test coverage for the scanner queue, CLI supervision, and cache module is raised from near-zero; 136 silently-swallowed exception sites are audited; and the `generateBuildFlags` Gradle wiring is fixed so `./gradlew ktlintCheck` runs standalone.
-**Depends on**: Phase 17 recommended (reliability fixes increase coverage scope); independent of Phase 19
-**Requirements**: QUAL-02, QUAL-03, QUAL-04, QUAL-05
+**Goal**: The milestone's code is covered by tests, the static-analysis baseline shrinks rather than grows, and users on affected versions are told.
+**Depends on**: Phases 20–25 (covers the code they produce; trims the baseline once, at the end)
+**Requirements**: QUAL-06, QUAL-07, DOC-03
 **Success Criteria** (what must be TRUE):
 
-  1. `./gradlew ktlintCheck` passes standalone (without init-script workarounds), confirming the `generateBuildFlags` task is wired via `sourceSets` so consumers inherit the dependency automatically.
-  2. `detekt` runs as a blocking CI check with a committed `detekt-baseline.xml`; new code must be clean; existing violations are captured in the baseline and do not break CI.
-  3. `ktlintFormat` has been run on the entire codebase in a dedicated commit that precedes the `ktlintCheck` blocking-gate commit — confirmed by git log ordering.
-  4. Test coverage for `scanner` queue/dedup, `cli` backend supervision, and the `cache` module is measurably raised from the current 0–3% baseline (target: at least one meaningful test class per module that exercises the critical path).
-  5. Silently-swallowed `catch (Exception)` sites have been audited; each site either logs a contextual message via a shared helper or carries a `// INTENTIONAL: <reason>` comment; the audit is documented in a short tracking note.
+1. `shellEscape` quotes by allowlist — an argument matching anything outside `[A-Za-z0-9._/-]` is quoted. `foo;id` and `$(cmd)` reach `sh -c` quoted. Asserted directly on the helper.
+2. Line coverage on `redact`, `mcp` and `config` rises measurably against the recorded 2026-08-05 baseline (project-wide 34% line / 23% branch); the exact target is set at `/gsd-discuss-phase` once the earlier phases' diffs are known.
+3. The detekt baseline has fewer entries than the 1096 it starts with, and no finding introduced by Phases 20–25 was added to it.
+4. `assert()`-based EDT enforcement is either upgraded to something observable in production Burp or explicitly documented as a test-only mechanism — the current state reads as a runtime guarantee and is not one.
+5. `SECURITY.md` carries an advisory for SEC-04 and PRIV-05 naming affected versions (0.9.0–0.9.2), impact, and the fixed version.
+6. `README.md`, `SPEC.md`, `DECISIONS.md` and the GitBook repo (`burp-ai-agent-docs`) describe the tool-call confirmation flow and state `SecretCipher`'s at-rest guarantee accurately — the master key is stored beside the ciphertext in Burp Preferences, so this is obfuscation against casual inspection, not protection against a local attacker.
 
-**Plans**: 4 plans
-
-Plans:
-**Wave 1** *(SC1 + SC2 — both modify build.gradle.kts, serialized within one plan)*
-
-- [x] 18-01-PLAN.md — Fix generateBuildFlags srcDir wiring (SC1/QUAL-05) + add detekt 1.23.8 with committed baseline (SC2/QUAL-02-detekt) [wave 1]
-
-**Wave 2** *(SC3 — depends on SC1 for standalone ktlintCheck; two-commit sequence within plan)*
-
-- [x] 18-02-PLAN.md — ktlintFormat mass-format commit then ktlint strict-by-default gate-flip commit (SC3/QUAL-02-ktlint) [wave 2]
-
-**Wave 3** *(SC4 + SC5 — both depend on Wave 2 ktlintFormat; file-disjoint, run in parallel)*
-
-- [x] 18-03-PLAN.md — Raise test coverage: PersistentPromptCacheTest, ActiveScannerDedupTest, CliSupervisionTest (SC4/QUAL-03) [wave 3]
-- [x] 18-04-PLAN.md — Exception audit: annotate/log ~30-50 catch sites in cache/scanner/supervisor/cli; tracking note (SC5/QUAL-04) [wave 3]
-
-### Phase 19: Mega-File Split + Docs
-
-**Goal**: The three mega-files are split into focused files with no behaviour change (the last code change of the milestone, so no subsequent feature lands on top of the refactor); planning artifacts reflect the shipped v0.7.0/v0.8.0 state; user-facing docs are updated for all v0.9.0 additions.
-**Depends on**: All code phases (12–18) complete — pure refactor must be last so no in-flight feature conflicts; PRIV-03 hooks (Phase 15) are inside PassiveAiScanner and must be committed before the split
-**Requirements**: QUAL-01, DOC-01, DOC-02
-**Success Criteria** (what must be TRUE):
-
-  1. `McpTools.kt`, `SettingsPanel.kt`, and `PassiveAiScanner.kt` are each under 400–500 lines after the split; the full test suite (`./gradlew test`) passes before and after each individual extraction with zero behaviour changes.
-  2. `ServiceLoader` registration (`META-INF/services`) is intact after the split — `BackendRegistryTest.loadAll()` asserts the expected number of built-in factories; no `ClassNotFoundException` at runtime.
-  3. `.planning/` (PROJECT.md, STATE.md, ROADMAP.md, REQUIREMENTS.md) reflects shipped v0.7.0 and v0.8.0; closed issues #62/#66/#67/#68/#69 are acknowledged in the relevant planning artifacts with no stale carryover entries.
-  4. `README.md`, `SPEC.md`, and `DECISIONS.md` are updated to document the Anthropic backend, secret encryption (AES-256-GCM), redaction changes (real HKDF, body patterns, custom patterns), external MCP client, and token-budget guardrails.
-  5. The public docs site (`burp-ai-agent.six2dez.com`) has pages or sections for the Anthropic backend and external MCP servers, so v0.9.0 ships with no doc drift on the two highest-novelty features.
-
-**Plans**: 5 plans
-
-Plans:
-**Wave 1** *(all parallel — disjoint file sets)*
-
-- [x] 19-01-PLAN.md — McpTools.kt split: McpToolModels + McpToolHelpers + McpToolExecutorImpl (QUAL-01) [wave 1]
-- [x] 19-02-PLAN.md — PassiveAiScanner.kt split: Models + Heuristics + Parsing + Prompts (QUAL-01) [wave 1]
-- [x] 19-03-PLAN.md — SettingsPanel.kt split: ScannerTabs + McpTabs as internal extensions (QUAL-01) [wave 1]
-- [x] 19-04-PLAN.md — .planning/ reconciliation: prune stale blockers/todos, update traceability (DOC-01) [wave 1]
-- [x] 19-05-PLAN.md — User-facing docs: README + DECISIONS + SPEC + 2 docs/ pages (DOC-02) [wave 1]
+**Plans**: TBD
 
 ---
 
 ## Progress
 
-**Execution Order (v0.9.0):**
+**Execution Order (v0.10.0):**
 
-Phase 12 (SEC) must be first. Phase 13 (Privacy) and Phase 12 are sequential (avoid merge friction on crypto/redaction files). Phase 14 (Anthropic/CAP) depends on Phase 12. Phase 15 (tripwire) depends on Phase 12 and must precede Phase 19. Phase 16 (external MCP) depends on Phase 12; requires kotlin-sdk Burp-JVM test-run gate. Phase 17 (reliability) follows Phases 14 and 16 for full scope. Phase 18 (quality tooling) is independent, runs after Phase 17. Phase 19 (split + docs) is the last code phase.
+Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 → 23 strictly sequential (both rewrite `maybeExecuteToolCall`). Phases 24 and 25 independent, may run any time after 20. Phase 26 last.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 12. Secrets at Rest & Transport Security | 4/4 | ✅ Complete | 2026-06-10 |
-| 13. Privacy & Redaction Hardening | 3/3 | Complete    | 2026-06-10 |
-| 14. Anthropic Backend + Token Budget + Listener Port | 3/3 | Complete    | 2026-06-10 |
-| 15. Pre-Send Secret Tripwire | 3/3 | Complete    | 2026-06-11 |
-| 16. External MCP Client | 6/6 | Complete    | 2026-06-26 |
-| 17. Reliability & Concurrency Hardening | 3/3 | Complete    | 2026-06-11 |
-| 18. Quality Tooling & Build Hardening | 4/4 | Complete    | 2026-06-12 |
-| 19. Mega-File Split + Docs | 5/5 | Complete    | 2026-06-26 |
+| 20. MCP Access-Control Correctness | 0/? | Not started | — |
+| 21. Redaction Completeness | 0/? | Not started | — |
+| 22. Agent Tool-Call Trust Boundary | 0/? | Not started | — |
+| 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
+| 24. Scheduler & Process Robustness | 0/? | Not started | — |
+| 25. Secondary Hardening | 0/? | Not started | — |
+| 26. Coverage, Static-Analysis Debt & Docs | 0/? | Not started | — |
+
+## Backlog
+
+- Mega-file refactor: `ChatPanel.kt` (2237 lines), `ActiveAiScanner.kt` (1668), `AgentSettings.kt` (1438), `McpToolExecutorImpl.kt` (1291), `AgentSupervisor.kt` (1277). Deferred out of v0.10.0 so the security diffs stay legible.
+- Anthropic native tool-use and prompt-caching (deferred from CAP-01, v0.9.0).
+- Interactive custom-pattern sample tester (deferred from PRIV-04, v0.9.0).
+- BApp Store submission #231 — stalled; revisit when it moves.

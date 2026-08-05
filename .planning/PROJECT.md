@@ -8,23 +8,32 @@ A production-grade Burp Suite extension (Kotlin + Montoya API) that embeds an AI
 
 Bring modern AI to a real security workflow **without** leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable, AI capability is additive.
 
-## Current Milestone: v0.9.0 — Hardening, Quality & New Capabilities
+## Current State
 
-**Status:** ▶ IN PROGRESS — started 2026-06-10. Derived from the approved project-review roadmap (`~/.claude/plans/haz-una-revision-completa-sleepy-puddle.md`); 18 items across 6 themes.
+**Shipped:** v0.9.2 (v0.9.0 milestone closed 2026-06-26; point releases 0.9.1 / 0.9.2 cut from it).
+Backends: CLI agents (claude, gemini, codex, opencode, copilot, ollama), HTTP (Anthropic, OpenAI-compatible, NVIDIA NIM, Perplexity, LM Studio, Ollama, Burp AI). MCP server with 50+ tools plus an external MCP client. Passive and active AI scanners. Privacy modes STRICT / BALANCED / OFF with HKDF host anonymization, body-level redaction, and a pre-send secret tripwire. Secrets encrypted at rest (AES-256-GCM).
 
-**Goal:** Harden privacy/security, pay down quality and maintainability debt, and add new capabilities on the stable v0.8.0 base — without compromising the non-negotiable core value (privacy controls + audit trail).
+**Measured, 2026-08-05:** ~38.9k lines Kotlin main, 94 test files; coverage 34% line / 23% branch; detekt baseline 1096 entries; `test detekt ktlintCheck` green.
 
-**Target features (6 themes):**
-- **Privacy & redaction** — host-anonymization correctness (A1), broaden redaction pattern coverage + user-configurable patterns + tests (A2), pre-send secret tripwire (C4), redaction-coverage report in UI (C6)
-- **Secrets at rest & transport** — encrypt stored API keys / TLS keystore password (C2), remove keytool argv password exposure (A3), soft SSRF warning on user-set backend URLs (A6)
-- **Reliability & concurrency** — EDT-confinement audit of ChatPanel session maps (A4), resource hardening (CLI temp files, bounded MCP shutdown, anonymization-map cleanup) (A5), uniform HTTP timeouts + CircuitBreaker (B6), CLI timeout bug #71
-- **Quality & maintainability** — split the 3 mega-files (B1), raise scanner/CLI/cache test coverage (B2), add detekt + blocking ktlint (B3), exception-logging audit of 136 catch sites (B4), fix generateBuildFlags build wiring via sourceSets (B5)
-- **New capabilities** — native Anthropic Messages API backend (C1), external/custom MCP servers #41 (C3), proxy-history listener port #70 (C5), per-session token-budget guardrails (C7)
-- **Planning reconciliation** — sync `.planning/` with shipped releases v0.7.0/v0.8.0 and closed issues #62/#66/#67/#68/#69 (A7)
+## Current Milestone: v0.10.0 — Security Correctness & Agent Trust
 
-**Embedded decisions (resolved at each item's discuss/plan-phase):** A1 = implement real HKDF vs documentation-only fix; C2 = OS keychain vs portable passphrase-derived encryption.
+**Status:** ▶ PLANNING — started 2026-08-05. Derived from a deep code review of v0.9.2 (17 findings).
 
-**Predecessor:** v0.8.0 (UI/UX Overhaul) shipped 2026-06-02 — all features moved to Validated below; v0.7.0 (Release Cut) shipped 2026-05-15. Both tagged and released.
+**Goal:** Make the security and privacy controls the project already ships actually take effect on every path, and give the agent loop a trust boundary.
+
+The framing matters: v0.9.0 built the machinery. This milestone found that some of it is not in the request path. Two findings were reproduced by running the shipped code — the MCP access-control interceptor never executes for routes Ktor resolves (so external-mode bearer auth does not protect `POST /message`), and the passive scanner leaks session cookies to the AI backend in STRICT and BALANCED because it re-emits them without the `Cookie:` prefix the redaction regex keys on.
+
+**Target themes (7 phases, 20–26):**
+- **Access control** — MCP interceptor ordering so auth/Origin/security-headers run on every request (SEC-04); version, IPv6 host and blank-token fixes (SEC-05)
+- **Privacy** — cookie-section leak, real-world sensitive key names, redaction no longer failing open above 1 MB (PRIV-05, PRIV-06)
+- **Agent trust** — user decision gate for model-emitted tool calls plus the ADR recording the threat model (SEC-06)
+- **Reliability** — tool execution and MCP stop() off the EDT (REL-05); recurring schedulers that survive exceptions (REL-06); CLI output race and unbounded resource use (REL-07)
+- **Secondary hardening** — no MCP token to unverified port holders, SsrfGuard alternate IP notations (SEC-07)
+- **Quality & docs** — allowlist shell escaping, coverage on security paths, shrinking detekt baseline, security advisory (QUAL-06, QUAL-07, DOC-03)
+
+**Embedded decisions (resolved at each phase's discuss-phase):** SEC-06 = whether the tool-call gate prompts for all tools or only state-mutating ones; PRIV-06 = whether user custom patterns apply under `PrivacyMode.OFF`; SEC-07 = certificate pinning vs challenge/response vs dropping automatic MCP takeover.
+
+**Predecessor:** v0.9.0 (Hardening, Quality & New Capabilities) shipped 2026-06-26, 22/22 requirements — archived to `.planning/milestones/`. v0.8.0 shipped 2026-06-02; v0.7.0 shipped 2026-05-15.
 
 ## Requirements
 
