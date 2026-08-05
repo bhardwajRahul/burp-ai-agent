@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
 status: milestone_planning
-stopped_at: "v0.10.0 roadmap created from the 2026-08-05 deep code review of v0.9.2 — 7 phases (20-26), 12 requirements, 17 findings mapped. Two findings (SEC-04 MCP access-control bypass, PRIV-05 cookie leak) were reproduced against the shipped code. Next: /gsd-discuss-phase 20."
+stopped_at: "Phase 20 context gathered — 20-CONTEXT.md written (4 route/takeover decisions, 4 observability decisions; local-mode auth + gate mechanism left to Claude discretion with recommendations). Next: /gsd-plan-phase 20."
 last_updated: 2026-08-05
 last_activity: 2026-08-05
 progress:
@@ -25,10 +25,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 20 (MCP Access-Control Correctness) — not started
+Phase: 20 (MCP Access-Control Correctness) — context gathered
 Plan: none yet
-Status: Milestone planned; roadmap + requirements written. Next: `/gsd-discuss-phase 20`
-Last activity: 2026-08-05 - v0.9.0 archived; v0.10.0 roadmap created from deep code review
+Status: CONTEXT.md written. Next: `/gsd-plan-phase 20`
+Resume file: .planning/phases/20-mcp-access-control-correctness/20-CONTEXT.md
+Last activity: 2026-08-05 - Phase 20 discuss complete (exemptions/takeover + blocked-request observability)
 
 ## Milestone Origin
 
