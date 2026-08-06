@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.10.0
-milestone_name: Security Correctness & Agent Trust
-status: milestone_planning
-stopped_at: "Phase 20 planned and verified — 6 plans in 4 waves. Plan-checker: 1 blocker + 8 warnings on pass 1, all resolved; pass 2 returned 0 blockers. Next: /gsd-execute-phase 20."
-last_updated: 2026-08-06
-last_activity: 2026-08-05
+milestone_name: — Security Correctness & Agent Trust
+status: executing
+stopped_at: Completed 19-03-PLAN.md
+last_updated: "2026-08-06T11:43:16.968Z"
+last_activity: 2026-08-06 -- Phase 20 execution started
 progress:
   total_phases: 7
   completed_phases: 0
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-05)
 
 **Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable.
-**Current focus:** v0.10.0 — make the controls that already exist actually run on every path, and put a trust boundary around the agent loop.
+**Current focus:** Phase 20 — mcp-access-control-correctness
 
 ## Current Position
 
-Phase: 20 (MCP Access-Control Correctness) — planned, verified, not started
-Plan: 0/6 executed
-Status: 6 plans in 4 waves, plan-checker passed with 0 blockers. Next: `/gsd-execute-phase 20`
+Phase: 20 (mcp-access-control-correctness) — EXECUTING
+Plan: 1 of 6
+Status: Executing Phase 20
 Resume file: .planning/phases/20-mcp-access-control-correctness/20-01-PLAN.md
-Last activity: 2026-08-06 - Phase 20 planning complete (research + patterns + plans + 2 checker passes)
+Last activity: 2026-08-06 -- Phase 20 execution started
 
 ## Milestone Origin
 
@@ -40,6 +40,7 @@ running the shipped code rather than by reading it:
   phase, so it never executes for routes Ktor resolves. Reproduced: external mode, no
   `Authorization` header, `POST /message` → `400 "sessionId query parameter is not provided"`
   (handler ran) instead of `401`. Only unmatched paths return 401.
+
 - **PRIV-05** — the passive scanner re-emits cookies as bare `name=value` without the `Cookie:`
   prefix that `cookieHeaderRegex` matches on. Verified against the live regexes: `JSESSIONID`,
   `PHPSESSID`, `connect.sid`, `auth_token`, `csrftoken` all pass through unredacted in STRICT and
