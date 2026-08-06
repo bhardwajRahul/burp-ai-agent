@@ -19,11 +19,16 @@ class KtorMcpServerManagerSecurityTest {
         assertFalse(invokeBoolean("isAuthorized", "bearer token-123", "token-123"))
     }
 
+    /**
+     * The manager's private `constantTimeEquals` was deleted in favour of the decision core's
+     * `constantTimeCompare`, which is `internal` and therefore reachable from the test source set with
+     * no reflection at all (the `redact/Redaction.kt:215-228` test-seam precedent).
+     */
     @Test
-    fun constantTimeEquals_handlesEqualAndDifferentLengths() {
-        assertTrue(invokeBoolean("constantTimeEquals", "abc123", "abc123"))
-        assertFalse(invokeBoolean("constantTimeEquals", "abc123", "abc124"))
-        assertFalse(invokeBoolean("constantTimeEquals", "short", "much-longer-value"))
+    fun constantTimeCompare_handlesEqualAndDifferentLengths() {
+        assertTrue(constantTimeCompare("abc123", "abc123"))
+        assertFalse(constantTimeCompare("abc123", "abc124"))
+        assertFalse(constantTimeCompare("short", "much-longer-value"))
     }
 
     @Test
