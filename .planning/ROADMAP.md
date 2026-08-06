@@ -63,14 +63,15 @@ Everything else in this milestone is real but was found by reading: an agent loo
 5. The server advertises the real project version, not `0.6.0`; `isValidHost` accepts `[::1]:<port>` when the server is bound to `::1`; an external-mode request cannot authenticate with a blank token.
 6. `/__mcp/shutdown`'s existing in-handler token check still returns 401 without a token and 200 with one — the fix must not regress the one path that was already correct.
 
-**Plans**: 5 plans in 3 waves
+**Plans**: 6 plans in 4 waves
 
 Plans:
 - [ ] 20-01-PLAN.md — Gate decision core (pure `evaluate` + IPv6/blank-token predicates) and the blocked-request reporter (wave 1)
 - [ ] 20-02-PLAN.md — `BuildFlags.VERSION` Gradle seam and the shared real-Netty/OkHttp test support (wave 1)
 - [ ] 20-03-PLAN.md — `McpAccessControlPlugin` + `KtorMcpServerManager` rewiring: the SEC-04 fix (wave 2)
-- [ ] 20-04-PLAN.md — Local and external pipeline regression tests plus the SC4 red-before-green gate (wave 3)
+- [ ] 20-04-PLAN.md — Local and external pipeline regression tests (wave 3)
 - [ ] 20-05-PLAN.md — `McpSupervisor` probe mode-mirror and the `docs/mcp-hardening.md` correction (wave 3)
+- [ ] 20-06-PLAN.md — SC4 red-before-green acceptance gate (wave 4, runs alone — it transiently rolls back `KtorMcpServerManager.kt`, which would corrupt any concurrent plan's test run)
 
 **Implementation note** (resolved by `20-RESEARCH.md`, verified by decompilation + execution): use
 `createApplicationPlugin("McpAccessControl", ::Config) { onCall { … } }`, installed **after** `install(CORS)` and

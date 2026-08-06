@@ -875,34 +875,38 @@ the existing Ktor 3.1.3 family. `[VERIFIED: Maven Central POM returns HTTP 200]`
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Does the SC4 gate run in the fast PR gate?**
+All six were resolved before planning. Retained for the reasoning, not as open work.
+
+1. **Does the SC4 gate run in the fast PR gate?** — RESOLVED: the naming constraint is recorded in
+   `20-VALIDATION.md` §"Wave 0 Requirements" and enforced by acceptance criteria in `20-02` and `20-04`;
+   no new class matches the `*IntegrationTest` exclusion pattern.
    - Known: `-PexcludeHeavyTests=true` excludes `*IntegrationTest`; `nightlyRegressionTest` includes it.
    - Unclear: which invocation CI actually uses for PRs.
    - Recommendation: name the new classes so they do **not** match `*IntegrationTest`, and state this in the plan.
 
-2. **Unauthenticated CORS preflight in external mode.**
+2. **Unauthenticated CORS preflight in external mode.** — RESOLVED: documented, behaviour unchanged in Phase 20 (`20-05` Task 2 item 5).
    - Known: with `allowedOrigins` empty the code calls `anyHost()`, so every preflight succeeds pre-auth; with a
      list, a preflight reveals which origins are allow-listed.
    - Unclear: whether the maintainer considers this acceptable given D-02's anti-fingerprinting intent.
    - Recommendation: document in `docs/mcp-hardening.md`; do not change behaviour in Phase 20.
 
-3. **Audit payload: plaintext or hashed header values?**
+3. **Audit payload: plaintext or hashed header values?** — RESOLVED: D-10 in `20-CONTEXT.md` §"Post-research decisions (2026-08-06)" — hashed by default, plaintext only under verbose.
    - Known: CLAUDE.md says "hashes only unless verbose is on"; D-06 says reuse the tool-blocked shape, which
      hashes args (`argsSha256`) but names the tool in plaintext.
    - Recommendation: hash by default, plaintext under verbose. Confirm with the maintainer.
 
-4. **New event type `mcp_transport_blocked` vs literal reuse of `mcp_tool_blocked`.**
+4. **New event type `mcp_transport_blocked` vs literal reuse of `mcp_tool_blocked`.** — RESOLVED: new type, same shape (`20-01` Task 2).
    - Known: the constant is file-private in `McpTool.kt` and the key sets differ.
    - Recommendation: new type, same shape. If D-06 must be read literally, the constant needs promoting first —
      size the task accordingly.
 
-5. **`isValidOrigin` / `isValidReferer` IPv6 — in or out of SEC-05?**
+5. **`isValidOrigin` / `isValidReferer` IPv6 — in or out of SEC-05?** — RESOLVED: in scope, one shared helper. D-11 in `20-CONTEXT.md`.
    - Known: both have the identical bracket bug (verified). SEC-05's text names only `isValidHost`.
    - Recommendation: fix all three behind one shared helper; it is a two-line delta and prevents a repeat finding.
 
-6. **Does `docs/mcp-hardening.md` need updating?**
+6. **Does `docs/mcp-hardening.md` need updating?** — RESOLVED: yes, corrected in this phase rather than deferred to DOC-03. D-12 in `20-CONTEXT.md`; implemented in `20-05` Task 2.
    - Known: §"External Access" item 4 promises *"Validate `Authorization: Bearer <token>` is sent on every
      request"* and §"Verification" item 2 repeats it. After D-01 that is deliberately false for `/__mcp/health`.
    - Recommendation: yes — amend both, and add the SSE-header note. Cheap, and it is the user-facing contract
