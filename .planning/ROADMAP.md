@@ -66,8 +66,9 @@ Everything else in this milestone is real but was found by reading: an agent loo
 **Plans**: 6 plans in 4 waves
 
 Plans:
-- [ ] 20-01-PLAN.md — Gate decision core (pure `evaluate` + IPv6/blank-token predicates) and the blocked-request reporter (wave 1)
-- [ ] 20-02-PLAN.md — `BuildFlags.VERSION` Gradle seam and the shared real-Netty/OkHttp test support (wave 1)
+
+- [x] 20-01-PLAN.md — Gate decision core (pure `evaluate` + IPv6/blank-token predicates) and the blocked-request reporter (wave 1)
+- [x] 20-02-PLAN.md — `BuildFlags.VERSION` Gradle seam and the shared real-Netty/OkHttp test support (wave 1)
 - [ ] 20-03-PLAN.md — `McpAccessControlPlugin` + `KtorMcpServerManager` rewiring: the SEC-04 fix (wave 2)
 - [ ] 20-04-PLAN.md — Local and external pipeline regression tests (wave 3)
 - [ ] 20-05-PLAN.md — `McpSupervisor` probe mode-mirror and the `docs/mcp-hardening.md` correction (wave 3)
@@ -200,7 +201,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 20. MCP Access-Control Correctness | 0/? | Not started | — |
+| 20. MCP Access-Control Correctness | 2/6 | In Progress|  |
 | 21. Redaction Completeness | 0/? | Not started | — |
 | 22. Agent Tool-Call Trust Boundary | 0/? | Not started | — |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
