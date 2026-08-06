@@ -212,10 +212,10 @@ external mode is on and the token is blank, which fails closed *and* is diagnosa
 - **Found during:** Task 2
 - **Issue:** The plan prescribed `Regex("[\\p{Cntrl}]")`, but the same plan's `<behavior>` block
   requires "ESC 0x1B and other **C0/C1** control characters" to be removed. Java's `\p{Cntrl}` covers
-  only `\x00-\x1F` and `\x7F` unless `UNICODE_CHARACTER_CLASS` is set, so C1 (`-`) would
+  only `\x00-\x1F` and `\x7F` unless `UNICODE_CHARACTER_CLASS` is set, so C1 (`\u0080-\u009F`) would
   have survived into both sinks.
 - **Fix:** `Regex("[\\p{Cntrl}\\u0080-\\u009F]")`, with the reason in a comment. The test drives ESC
-  (``), BEL (``) and NEL (``) through `report` and asserts no `Char.isISOControl()`
+  (`\u001B`), BEL (`\u0007`) and NEL (`\u0085`) through `report` and asserts no `Char.isISOControl()`
   survives.
 - **Files modified:** `src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpBlockedRequestReporter.kt`
 - **Commit:** `9f451da`
