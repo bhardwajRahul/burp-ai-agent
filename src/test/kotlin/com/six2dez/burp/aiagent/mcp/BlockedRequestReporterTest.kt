@@ -241,8 +241,7 @@ class BlockedRequestReporterTest {
     // Helpers
     // ---------------------------------------------------------------------------------------
 
-    private fun reporter(verboseAudit: Boolean = false): McpBlockedRequestReporter =
-        McpBlockedRequestReporter(logToOutput = { line -> lines += line }, verboseAudit = verboseAudit)
+    private fun reporter(verboseAudit: Boolean = false): McpBlockedRequestReporter = McpBlockedRequestReporter(logToOutput = { line -> lines += line }, verboseAudit = verboseAudit)
 
     private fun denyOrigin(origin: String = FOREIGN_ORIGIN): GateDecision.Deny =
         GateDecision.Deny(

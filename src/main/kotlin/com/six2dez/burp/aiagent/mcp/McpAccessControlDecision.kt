@@ -9,8 +9,8 @@ import java.security.MessageDigest
 //
 // Everything in this file is `internal` rather than `private` so McpAccessControlDecisionTest can
 // reach it without reflection — the same test-seam convention used by redact/Redaction.kt:215-228.
-// Nothing here imports io.ktor.server.*: `io.ktor.http` is engine-free, which is what keeps the
-// decision provable without binding a port.
+// No server-side Ktor package is imported here — only `io.ktor.http`, which is engine-free. That is
+// what keeps the decision provable without binding a port.
 
 /** Liveness route probed by [McpSupervisor] to identify a foreign holder of the MCP port (D-01/D-02). */
 internal const val HEALTH_PATH = "/__mcp/health"
