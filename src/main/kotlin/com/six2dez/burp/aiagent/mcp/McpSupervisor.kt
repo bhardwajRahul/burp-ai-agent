@@ -261,8 +261,28 @@ class McpSupervisor(
                 conn.connectTimeout = 800
                 conn.readTimeout = 800
                 conn.connect()
-                conn.responseCode in 200..299 &&
-                    conn.getHeaderField("X-Burp-AI-Agent") == "mcp"
+                val alive = conn.responseCode in 200..299
+                // SEC-04 / D-02 / D-05: the identity assertion below is mode-aware because the server
+                // side is. Three facts, all load-bearing:
+                // (1) KtorMcpServerManager appends `X-Burp-AI-Agent: mcp` to /__mcp/health ONLY when
+                //     external access is disabled. Requiring it unconditionally would make
+                //     attemptTakeover return NO_COMPATIBLE_SERVER on every external-mode bind
+                //     conflict, and handleBindFailure would then schedule NO retry at all — the MCP
+                //     server would stay down silently.
+                // (2) The header was always trivially spoofable by whichever process holds the port,
+                //     which is exactly Finding 7. Degrading external takeover to a liveness check
+                //     therefore takes away no guarantee that previously held.
+                // (3) Establishing REAL listener identity is Phase 25 / SEC-07 per D-05. Nothing in
+                //     this probe may present the bearer token to an unverified port holder, so it
+                //     sends no credential header of any kind — do not add one here.
+                if (alive && settings.externalEnabled) {
+                    api.logging().logToOutput(
+                        "MCP probe on ${settings.host}:${settings.port} could not establish server identity: " +
+                            "the identifying header is emitted in local mode only. " +
+                            "Proceeding with takeover on liveness alone.",
+                    )
+                }
+                alive && (settings.externalEnabled || conn.getHeaderField("X-Burp-AI-Agent") == "mcp")
             } finally {
                 conn.disconnect()
             }
