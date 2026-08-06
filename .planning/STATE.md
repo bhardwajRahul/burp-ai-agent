@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
 status: milestone_planning
-stopped_at: "Phase 20 context gathered — 20-CONTEXT.md written (4 route/takeover decisions, 4 observability decisions; local-mode auth + gate mechanism left to Claude discretion with recommendations). Next: /gsd-plan-phase 20."
-last_updated: 2026-08-05
+stopped_at: "Phase 20 planned and verified — 6 plans in 4 waves. Plan-checker: 1 blocker + 8 warnings on pass 1, all resolved; pass 2 returned 0 blockers. Next: /gsd-execute-phase 20."
+last_updated: 2026-08-06
 last_activity: 2026-08-05
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 0
+  total_plans: 6
   completed_plans: 0
   percent: 0
 ---
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 20 (MCP Access-Control Correctness) — context gathered
-Plan: none yet
-Status: CONTEXT.md written. Next: `/gsd-plan-phase 20`
-Resume file: .planning/phases/20-mcp-access-control-correctness/20-CONTEXT.md
-Last activity: 2026-08-05 - Phase 20 discuss complete (exemptions/takeover + blocked-request observability)
+Phase: 20 (MCP Access-Control Correctness) — planned, verified, not started
+Plan: 0/6 executed
+Status: 6 plans in 4 waves, plan-checker passed with 0 blockers. Next: `/gsd-execute-phase 20`
+Resume file: .planning/phases/20-mcp-access-control-correctness/20-01-PLAN.md
+Last activity: 2026-08-06 - Phase 20 planning complete (research + patterns + plans + 2 checker passes)
 
 ## Milestone Origin
 
