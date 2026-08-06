@@ -8,6 +8,19 @@ import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
 import java.lang.reflect.Method
 
+/**
+ * Predicate-level access-control assertions for the MCP transport, including the SC5b (bracketed IPv6)
+ * and SC5c (blank bearer token) gate assertions.
+ *
+ * Naming note: `KtorMcpServerManagerSecurityTest` is deliberately OUTSIDE the `*IntegrationTest` /
+ * `*ConcurrencyTest` / `*BackpressureTest` / `*RestartPolicyTest` / `*SupervisionTest` exclusion globs
+ * in the `tasks.test` block of `build.gradle.kts` (lines 151-165; cited as 145-157 in 20-03-PLAN.md),
+ * so these assertions run in the fast PR gate under `-PexcludeHeavyTests=true` rather than only in
+ * `nightlyRegressionTest`. Do not rename this class into one of those suffixes.
+ *
+ * The decision-core predicates are `internal`, so they are called directly here; only the manager's
+ * surviving `private` members need the reflection helpers at the bottom of the file.
+ */
 class KtorMcpServerManagerSecurityTest {
     private val manager = KtorMcpServerManager(mock<MontoyaApi>())
 
@@ -17,6 +30,9 @@ class KtorMcpServerManagerSecurityTest {
         assertFalse(invokeBoolean("isAuthorized", "", "token-123"))
         assertFalse(invokeBoolean("isAuthorized", "Bearer wrong", "token-123"))
         assertFalse(invokeBoolean("isAuthorized", "bearer token-123", "token-123"))
+        // SEC-05 5c / F19: SC4 gate assertion #9. This returned TRUE against the pre-fix code, where
+        // "Bearer " was compared against the string built from a blank configured token.
+        assertFalse(invokeBoolean("isAuthorized", "Bearer ", ""))
     }
 
     /**
@@ -49,6 +65,75 @@ class KtorMcpServerManagerSecurityTest {
         assertTrue(rendered.contains("scheme=https"))
         assertTrue(rendered.contains("hostAndPort=example.com:8443"))
         assertTrue(rendered.contains("scheme=http"))
+    }
+
+    /**
+     * SC5b. `isLoopbackAuthority` is the real name of the shared D-11 authority predicate; the plan's
+     * `isValidHostAuthority` alias was deliberately never created (see 20-01-SUMMARY deviation 2).
+     */
+    @Test
+    fun isLoopbackAuthority_acceptsBracketedIpv6Loopback() {
+        // SC4 gate assertion #8: false against the pre-fix split(":") implementation, which took "["
+        // as the hostname for a bracketed IPv6 authority.
+        assertTrue(isLoopbackAuthority("[::1]:9876", 9876))
+        assertTrue(isLoopbackAuthority("[0:0:0:0:0:0:0:1]:9876", 9876))
+        assertTrue(isLoopbackAuthority("localhost:9876", 9876))
+        assertTrue(isLoopbackAuthority("127.0.0.1", 9876))
+        assertFalse(isLoopbackAuthority("evil.example:9876", 9876))
+        assertFalse(isLoopbackAuthority("localhost:1234", 9876))
+        assertFalse(isLoopbackAuthority("[::1", 9876))
+        assertFalse(isLoopbackAuthority("", 9876))
+    }
+
+    /**
+     * SC5b for full URL values. `isLoopbackUrlAuthority` backs BOTH the `Origin` and the `Referer`
+     * check (D-11), which is why the plan's separate `isValidOriginValue` / `isValidRefererValue`
+     * aliases do not exist.
+     */
+    @Test
+    fun isLoopbackUrlAuthority_acceptsBracketedIpv6Loopback() {
+        assertTrue(isLoopbackUrlAuthority("http://[::1]:9876"))
+        assertTrue(isLoopbackUrlAuthority("http://localhost:9876"))
+        assertTrue(isLoopbackUrlAuthority("http://127.0.0.1"))
+        assertFalse(isLoopbackUrlAuthority("http://evil.example"))
+        assertFalse(isLoopbackUrlAuthority("not-a-uri"))
+        assertFalse(isLoopbackUrlAuthority(""))
+    }
+
+    /**
+     * D-11 drift guard, asserted one level up from the predicate. Since `Origin` and `Referer` now share
+     * a single helper, comparing two predicates would be vacuous; instead the same authority is supplied
+     * once as `Origin` and once as `Referer` and the two [GateDecision]s must agree on allow-vs-deny.
+     */
+    @Test
+    fun evaluate_treatsOriginAndRefererIdentically() {
+        val settings = McpTestServerSupport.localSettings(port = 9876)
+        listOf(
+            "http://[::1]:9876",
+            "http://localhost:9876",
+            "http://127.0.0.1",
+            "http://evil.example",
+            "not-a-uri",
+            "",
+        ).forEach { authority ->
+            val asOrigin = evaluate(RequestFacts(path = "/sse", origin = authority), settings)
+            val asReferer = evaluate(RequestFacts(path = "/sse", referer = authority), settings)
+            assertEquals(
+                asOrigin is GateDecision.Allow,
+                asReferer is GateDecision.Allow,
+                "Origin and Referer handling drifted for '$authority'",
+            )
+        }
+    }
+
+    /** SC5c: a blank configured token can never authenticate, whatever the client sends. */
+    @Test
+    fun isAuthorizedBearer_rejectsBlankConfiguredToken() {
+        assertFalse(isAuthorizedBearer("Bearer ", ""))
+        assertFalse(isAuthorizedBearer("", ""))
+        assertFalse(isAuthorizedBearer("Bearer", ""))
+        assertTrue(isAuthorizedBearer("Bearer tok", "tok"))
+        assertFalse(isAuthorizedBearer("bearer tok", "tok"))
     }
 
     private fun invokeBoolean(

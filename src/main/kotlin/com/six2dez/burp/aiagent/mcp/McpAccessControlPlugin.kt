@@ -1,3 +1,9 @@
+// The file's primary export is the `McpAccessControl` plugin val, not the config class that happens
+// to be its only top-level CLASS declaration — detekt's MatchingDeclarationName only looks at
+// classes. Suppressed at file level rather than added to detekt-baseline.xml, which QUAL-07 forbids
+// from growing.
+@file:Suppress("MatchingDeclarationName")
+
 package com.six2dez.burp.aiagent.mcp
 
 import com.six2dez.burp.aiagent.config.McpSettings
