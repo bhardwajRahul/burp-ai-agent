@@ -56,16 +56,22 @@ Everything else in this milestone is real but was found by reading: an agent loo
 **Requirements**: SEC-04, SEC-05
 **Success Criteria** (what must be TRUE):
 
-1. With `externalEnabled = true`, a request to `POST /message` with no `Authorization` header returns 401. Same for a GET SSE connect on the root path. (Today both reach the MCP SDK handler.)
-2. With `externalEnabled = false`, a request carrying `Origin: http://evil.example` returns 403 on `/__mcp/health`, on `/message`, and on the SSE root. A request with a browser `User-Agent` and no `Origin` returns 403. A request with a foreign `Host` returns 403.
-3. `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and `Content-Security-Policy: default-src 'none'` are present on responses from routes that Ktor resolves — not only on 404s.
-4. The regression tests added for SC1–SC3 **fail** when run against the pre-fix `KtorMcpServerManager` and pass after. This is the acceptance gate for the phase: a test that passes both before and after has not tested the bypass.
+1. With `externalEnabled = true`, a request to `POST /message` with no `Authorization` header returns 401. Same for `GET /sse`. (Today both reach the MCP SDK handler and return 400 / 200 respectively.)
+2. With `externalEnabled = false`, a request with a foreign `Host`, a foreign `Referer`, or a browser `User-Agent` and no `Origin` returns 403 — on `/__mcp/health`, on `/message`, and on `/sse`. A foreign `Origin` also returns 403, but see the SC4 note: Ktor's CORS plugin already produces that today.
+3. `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin` and `Content-Security-Policy: default-src 'none'` are present on responses from routes that Ktor resolves — not only on 404s — and deterministically over both HTTP/1.1 and HTTP/2.
+4. The regression tests added for SC1–SC3 **fail** when run against the pre-fix `KtorMcpServerManager` and pass after. This is the acceptance gate for the phase: a test that passes both before and after has not tested the bypass. The nine assertions that actually go red pre-fix are enumerated in `20-RESEARCH.md` §"Pre-Fix Behaviour Baseline" — build the gate from those. Notably **not** valid gates (they pass today): foreign `Origin` → 403, `GET /nope` → 401 in external mode, and the `/__mcp/shutdown` 401/200 pair.
 5. The server advertises the real project version, not `0.6.0`; `isValidHost` accepts `[::1]:<port>` when the server is bound to `::1`; an external-mode request cannot authenticate with a blank token.
 6. `/__mcp/shutdown`'s existing in-handler token check still returns 401 without a token and 200 with one — the fix must not regress the one path that was already correct.
 
 **Plans**: TBD (set at `/gsd-plan-phase`)
 
-**Implementation note**: the likely shape is an `ApplicationPlugin` with an `onCall` hook, or `intercept(ApplicationCallPipeline.Plugins)`, or simply registering the `intercept` before the first `routing{}` call. The research step should confirm which of these composes correctly with the MCP SDK's `mcp{}` (it calls `install(SSE)` then `routing{}` on the same `RoutingRoot`) and with the CORS plugin.
+**Implementation note** (resolved by `20-RESEARCH.md`, verified by decompilation + execution): use
+`createApplicationPlugin("McpAccessControl", ::Config) { onCall { … } }`, installed **after** `install(CORS)` and
+before `routing{}`. `onCall` attaches to `ApplicationCallPipeline.ApplicationPhase.Plugins`, which is fixed at
+pipeline construction — so it is order-independent by design. Responding from it does short-circuit the route
+handler (`RoutingNode.buildPipeline` wraps every `handle{}` in `if (call.isHandled) return`). Two load-bearing
+details: the first statement must be `if (call.response.isCommitted) return@onCall` (a second same-phase
+interceptor still runs after the first responds), and `finish()` is not callable from `onCall` and is not needed.
 
 ---
 

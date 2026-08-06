@@ -84,6 +84,23 @@ Origin/auth do not apply. The takeover token-disclosure fix (Finding 7) belongs 
   `availabilityLogged` `AtomicBoolean` in `backends/cli/CliBackend.kt:28`. Prevents a request loop
   from flooding the Output tab and burying everything else.
 
+### Post-research decisions (2026-08-06)
+
+Added after `20-RESEARCH.md` surfaced them as open questions requiring maintainer input. Locked.
+
+- **D-10:** Audit payload header values (`Origin`, `Host`, `Referer`, `User-Agent`) are **hashed by default,
+  plaintext only under verbose**. This honours the CLAUDE.md constraint *"hashes only unless verbose is on"*. The
+  Output-tab line still carries the sanitized, truncated value per D-07 so immediate diagnosis does not require
+  turning audit on — the split is: transient local log gets the value, persistent auditable record gets the hash.
+- **D-11:** `isValidOrigin` and `isValidReferer` are fixed **alongside** `isValidHost`. Research verified all three
+  share the identical IPv6 bracket defect (`URI.toURL().host` returns `[::1]` *with* brackets, so the equality
+  check fails). SEC-05's text names only `isValidHost`; this widens it deliberately. Use one shared helper for all
+  three rather than three parallel fixes.
+- **D-12:** `docs/mcp-hardening.md` is corrected **in this phase**, not deferred to Phase 26 / DOC-03. §"External
+  Access" item 4 and §"Verification" item 2 both promise that every request is bearer-validated, which D-01 makes
+  deliberately false for `/__mcp/health`. Leaving the user-facing runbook wrong for six phases is worse than the
+  small overlap with DOC-03. The security *advisory* (SEC-04 / PRIV-05 impact notice) remains Phase 26.
+
 ### Claude's Discretion
 
 Two gray areas were deliberately left to the implementer. Both carry a recommendation to be confirmed
