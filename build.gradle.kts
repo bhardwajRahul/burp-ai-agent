@@ -73,6 +73,9 @@ abstract class GenerateBuildFlagsTask : DefaultTask() {
     @get:Input
     abstract val storeBuildFlag: Property<Boolean>
 
+    @get:Input
+    abstract val version: Property<String>
+
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
 
@@ -90,6 +93,7 @@ package com.six2dez.burp.aiagent
 
 object BuildFlags {
     const val STORE_BUILD = ${storeBuildFlag.get()}
+    const val VERSION = "${version.get()}"
 }
             """.trimIndent() + "\n",
         )
@@ -98,8 +102,13 @@ object BuildFlags {
 
 val generateBuildFlags by tasks.registering(GenerateBuildFlagsTask::class) {
     group = "build"
-    description = "Generates BuildFlags.kt with a compile-time store-build flag"
+    description = "Generates BuildFlags.kt with a compile-time store-build flag and the project version"
     storeBuildFlag.set(storeBuild)
+    // SEC-05 / P11: capture the project version at CONFIGURATION time. gradle.properties sets
+    // org.gradle.configuration-cache=true, so reading any Project API (including project.version)
+    // from inside @TaskAction generate() would fail the build. The Property carries the captured
+    // value into execution instead.
+    version.set(project.version.toString())
     outputDir.set(layout.buildDirectory.dir("generated/buildflags"))
 }
 
