@@ -167,8 +167,11 @@ by phase research — the planner should treat these as open, not settled:
 - `mcp/tools/McpTool.kt:135-158` (`runTool`) — the established "blocked" telemetry shape:
   `emitToolTelemetry(MCP_TOOL_EVENT_BLOCKED, base + mapOf("reason" to …))`. D-06 mirrors this at the
   transport layer.
-- `mcp/tools/McpToolExecutorImpl.kt` `sanitizeErrorMessage` — existing precedent for scrubbing values
-  before they surface (path/package redaction, length cap). Same discipline applies to D-07.
+- `mcp/tools/McpTool.kt:229-242` `sanitizeErrorMessage` — existing precedent for scrubbing values before they
+  surface (path/package redaction, whitespace collapse, length cap). Same discipline applies to D-07.
+  *(Corrected 2026-08-06: this was misattributed to `McpToolExecutorImpl.kt` when this CONTEXT was written —
+  that file has zero references to it. Verified by grep.)*
+- `audit/Hashing.kt` `Hashing.sha256Hex(value: String)` — the hashing helper for D-10.
 - `scanner/PassiveAiScannerAnalysis.kt` `maybeLogBackoff` and `backends/cli/CliBackend.kt:28`
   `availabilityLogged` — two existing rate-limited-logging patterns for D-09. Reuse, do not invent.
 - `KtorMcpServerManager.isAuthorized` / `constantTimeEquals` — correct as written
