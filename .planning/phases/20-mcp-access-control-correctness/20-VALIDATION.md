@@ -50,10 +50,10 @@ no new dependency. Never call `.body.string()` on a `text/event-stream` 200; it 
 | SC2 | SEC-04 | T-20-02 | local: foreign `Host` → 403, foreign `Referer` → 403, browser UA without `Origin` → 403, on `/__mcp/health`, `/message`, `/sse` | integration (cleartext, Netty, OkHttp) | `--tests '*McpAccessControlPipelineTest'` | ❌ W0 | ⬜ pending |
 | SC3 | SEC-04 | T-20-03 | all four security headers on a matched-route 200 and on the SSE 200, deterministic over HTTP/1.1 and HTTP/2 | integration | same as SC2 | ❌ W0 | ⬜ pending |
 | SC4 | SEC-04 | T-20-16, T-20-20, T-20-21, T-20-22 | the SC1–SC3 assertions fail against pre-fix `KtorMcpServerManager` | process gate | `20-06` Task 1 — `cp` aside + `git show <baseline>:<path>` rollback, restore by `cp`. **No `git stash`.** | ❌ W0 | ⬜ pending |
-| SC5a | SEC-05 | T-20-17 | server advertises the real build version, not `0.6.0` | unit | `--tests '*BuildFlags*'` | ❌ W0 | ⬜ pending |
-| SC5b | SEC-05 (D-11) | T-20-13 | `isValidHost("[::1]:9876", 9876)` → true; `isValidOrigin`/`isValidReferer` accept `http://[::1]:9876` | unit (reflection, existing style) | `--tests '*KtorMcpServerManagerSecurityTest'` | ✅ extend | ⬜ pending |
+| SC5a | SEC-05 | T-20-13 | server advertises the real build version, not `0.6.0` | unit | `--tests '*BuildFlags*'` | ❌ W0 | ⬜ pending |
+| SC5b | SEC-05 (D-11) | T-20-02 | `isValidHost("[::1]:9876", 9876)` → true; `isValidOrigin`/`isValidReferer` accept `http://[::1]:9876` | unit (reflection, existing style) | `--tests '*KtorMcpServerManagerSecurityTest'` | ✅ extend | ⬜ pending |
 | SC5c | SEC-05 | T-20-04 | blank token cannot authenticate: `isAuthorized("Bearer ", "")` → false, and external request with blank token → 401 | unit + integration | as above + external suite | ✅ extend / ❌ W0 | ⬜ pending |
-| SC6 | SEC-04 | T-20-15 | `/__mcp/shutdown` → 401 without token, 200 with token (must not regress) | integration | `--tests '*McpServerIntegrationTest'` | ✅ exists | ⬜ pending |
+| SC6 | SEC-04 | T-20-04 | `/__mcp/shutdown` → 401 without token, 200 with token (must not regress) | integration | `--tests '*McpServerIntegrationTest'` | ✅ exists | ⬜ pending |
 | D-02 | SEC-04 | T-20-05 | external `/__mcp/health` carries no `X-Burp-AI-Agent`; local does | integration | external + local suites | ❌ W0 | ⬜ pending |
 | D-02 | SEC-04 | T-20-05 | `McpSupervisor` local-mode probe still succeeds after the header change | integration / targeted unit | new test against real `probeExistingServer` | ❌ W0 | ⬜ pending |
 | D-06..D-09 | SEC-04 | T-20-06, T-20-07, T-20-11, T-20-12 | blocked-request Output line + audit event fire once then aggregate; header values sanitized (D-07) and hashed by default (D-10) | unit (pure) | `--tests '*BlockedRequestReporterTest'` | ❌ W0 | ⬜ pending |
