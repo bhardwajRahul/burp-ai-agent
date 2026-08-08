@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: — Security Correctness & Agent Trust
 status: executing
-stopped_at: Completed 19-03-PLAN.md
+stopped_at: "Phase 20: 6/6 plans executed and merged; verification gaps_found (5/6). SEC-05 satisfied, SEC-04 OPEN — foreign-Host 403 does not fire over HTTP/2 (fail-open). Plus a store-build test regression. Next: /gsd-plan-phase 20 --gaps"
 last_updated: "2026-08-08T13:11:10.299Z"
 last_activity: 2026-08-06 -- Phase 20 execution started
 progress:
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 20 (mcp-access-control-correctness) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 20
-Resume file: .planning/phases/20-mcp-access-control-correctness/20-01-PLAN.md
-Last activity: 2026-08-06 -- Phase 20 execution started
+Phase: 20 (mcp-access-control-correctness) — EXECUTED, VERIFICATION GAPS FOUND
+Plan: 6 of 6 executed and merged
+Status: Verification `gaps_found` (5/6 must-haves). SEC-05 satisfied; SEC-04 still open — the foreign-`Host` 403 does not fire over HTTP/2 because `NettyHttp2ApplicationRequest` never synthesizes `Host` from `:authority`, and the decision core skips the rebinding branch instead of denying. Second item: `./gradlew test -PstoreBuild=true` now fails (BApp Store artifact path).
+Resume file: .planning/phases/20-mcp-access-control-correctness/20-VERIFICATION.md
+Last activity: 2026-08-08 -- Phase 20 executed; code review (1 blocker/13 warning) + verification (gaps_found)
 
 ## Milestone Origin
 
