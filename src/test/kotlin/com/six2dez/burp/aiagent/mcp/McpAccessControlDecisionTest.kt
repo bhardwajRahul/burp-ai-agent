@@ -309,6 +309,24 @@ class McpAccessControlDecisionTest {
         assertFalse(isLoopbackAuthority("localhost:abc", MCP_PORT))
     }
 
+    @Test
+    fun isLoopbackAuthority_rejectsAPortThatIsNumericButOutOfRange() {
+        // WR-01. The two inputs below disagreed before gap-closure plan 20-07: "localhost:65536"
+        // returned FALSE (it parses to an Int that simply differs from the expected port) while
+        // "localhost:99999999999" returned TRUE (it overflows an Int, the parser reported "no port
+        // was present", and the port comparison was silently skipped). That inconsistency is the
+        // defect: a port outside the RFC 3986 range now makes the whole authority malformed.
+        assertFalse(isLoopbackAuthority("localhost:99999999999", MCP_PORT))
+        assertFalse(isLoopbackAuthority("localhost:65536", MCP_PORT))
+        // A null expectedPort must not rescue an unusable port either.
+        assertFalse(isLoopbackAuthority("localhost:65536", null))
+        assertFalse(isLoopbackAuthority("localhost:99999999999", null))
+        assertFalse(isLoopbackAuthority("localhost:0", null))
+        // Contrast: an authority carrying NO port still yields a null port and still passes.
+        assertTrue(isLoopbackAuthority("127.0.0.1", null))
+        assertTrue(isLoopbackAuthority("localhost:$MCP_PORT", MCP_PORT))
+    }
+
     // ---------------------------------------------------------------------------------------
     // isLoopbackUrlAuthority — Origin / Referer values
     // ---------------------------------------------------------------------------------------
