@@ -63,7 +63,7 @@ Everything else in this milestone is real but was found by reading: an agent loo
 5. The server advertises the real project version, not `0.6.0`; `isValidHost` accepts `[::1]:<port>` when the server is bound to `::1`; an external-mode request cannot authenticate with a blank token.
 6. `/__mcp/shutdown`'s existing in-handler token check still returns 401 without a token and 200 with one — the fix must not regress the one path that was already correct.
 
-**Plans**: 6 plans in 4 waves
+**Plans**: 10 plans — 6 original in 4 waves, plus 4 gap-closure plans (20-07…20-10) in 1 parallel wave
 
 Plans:
 
@@ -73,6 +73,15 @@ Plans:
 - [x] 20-04-PLAN.md — Local and external pipeline regression tests (wave 3)
 - [x] 20-05-PLAN.md — `McpSupervisor` probe mode-mirror and the `docs/mcp-hardening.md` correction (wave 3)
 - [x] 20-06-PLAN.md — SC4 red-before-green acceptance gate (wave 4, runs alone — it transiently rolls back `KtorMcpServerManager.kt`, which would corrupt any concurrent plan's test run)
+
+Gap closure (`20-VERIFICATION.md` status `gaps_found`, score 5/6 — SEC-05 satisfied, SEC-04's foreign-`Host`
+limb open over HTTP/2; plus `20-REVIEW.md` CR-01/WR-01/WR-02/WR-08). All four are file-disjoint and run as
+one parallel wave:
+
+- [ ] 20-07-PLAN.md — decision core: deny when the authority is absent, reject an out-of-range port (gap 1 decision half, WR-01)
+- [ ] 20-08-PLAN.md — plugin: resolve the request authority over HTTP/2, with a red-before-green local-mode TLS gate (gap 1 transport half)
+- [ ] 20-09-PLAN.md — reporter: bound the audit sink for pre-auth denials, recorded as ADR-13 (CR-01)
+- [ ] 20-10-PLAN.md — `-PstoreBuild=true` build path, hardening-runbook accuracy, SC3 HTTP/2 contract (gap 2, WR-02, SC3 coverage warning)
 
 **Implementation note** (resolved by `20-RESEARCH.md`, verified by decompilation + execution): use
 `createApplicationPlugin("McpAccessControl", ::Config) { onCall { … } }`, installed **after** `install(CORS)` and
