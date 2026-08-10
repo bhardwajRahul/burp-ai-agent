@@ -238,10 +238,128 @@ class BlockedRequestReporterTest {
     }
 
     // ---------------------------------------------------------------------------------------
+    // ADR-13 — the audit sink coalesces the two pre-authentication reasons only
+    //
+    // `unauthorized` and `blank_token` are the only reasons an unauthenticated remote peer can
+    // trigger (in external mode every route but /__mcp/health answers 401), so they are the
+    // flood-capable ones. The four local-mode reasons need local code execution and keep D-06's
+    // per-occurrence emission.
+    // ---------------------------------------------------------------------------------------
+
+    @Test
+    fun report_coalescesRepeatedUnauthorizedAuditEventsInsideOneWindow() {
+        val reporter = reporter()
+
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T0)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+
+        assertEquals(1, captured.size)
+        // `suppressed` counts occurrences collapsed away SINCE the previous emission, so the first
+        // event of a burst always carries 0.
+        assertEquals(0L, payloadAt(0)["suppressed"])
+    }
+
+    @Test
+    fun report_carriesTheSuppressedCountOnTheFirstAuditEventAfterTheWindowElapses() {
+        val reporter = reporter()
+
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T0)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_AFTER_WINDOW)
+
+        assertEquals(2, captured.size)
+        assertEquals(3L, payloadAt(1)["suppressed"])
+    }
+
+    @Test
+    fun report_coalescesBlankTokenInAWindowIndependentOfUnauthorized() {
+        val reporter = reporter()
+
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T0)
+        reporter.report(denyBlankToken(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyBlankToken(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+
+        // One event per reason, and neither reason's counter is consumed by the other.
+        assertEquals(2, captured.size)
+        assertEquals("unauthorized", payloadAt(0)["reason"])
+        assertEquals(0L, payloadAt(0)["suppressed"])
+        assertEquals("blank_token", payloadAt(1)["reason"])
+        assertEquals(0L, payloadAt(1)["suppressed"])
+    }
+
+    @Test
+    fun report_keepsPerOccurrenceAuditEventsForLocalModeReasonsWithNoSuppressedKey() {
+        val reporter = reporter()
+
+        reporter.report(denyHost(), externalMode = false, nowMs = T0)
+        reporter.report(denyHost(), externalMode = false, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyHost(), externalMode = false, nowMs = T_INSIDE_WINDOW)
+
+        assertEquals(3, captured.size)
+        assertFalse(payloadAt(0).containsKey("suppressed"), "local-mode payload gained a suppressed key")
+        assertFalse(payloadAt(1).containsKey("suppressed"), "local-mode payload gained a suppressed key")
+        assertFalse(payloadAt(2).containsKey("suppressed"), "local-mode payload gained a suppressed key")
+    }
+
+    @Test
+    fun report_coalescedPayloadAppendsSuppressedAfterTheExistingKeys() {
+        reporter().report(denyUnauthorized(), externalMode = true, nowMs = T0)
+
+        assertEquals(
+            listOf("reason", "mode", "method", "path", "origin", "host", "referer", "userAgent", "suppressed"),
+            payloadAt(0).keys.toList(),
+        )
+    }
+
+    @Test
+    fun report_auditCoalescingLeavesTheOutputTabWindowUntouched() {
+        val reporter = reporter()
+
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T0)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_INSIDE_WINDOW)
+        reporter.report(denyUnauthorized(), externalMode = true, nowMs = T_AFTER_WINDOW)
+
+        // The two sinks hold distinct ReasonWindow instances, so neither getAndSet(0L) steals the
+        // other's suppression count: both report 3 from the same sequence of calls.
+        assertEquals(2, lines.size)
+        assertEquals("[McpAccessControl] 3 further blocks for unauthorized in the last 60s", lines[1])
+        assertEquals(2, captured.size)
+        assertEquals(3L, payloadAt(1)["suppressed"])
+    }
+
+    // ---------------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------------
 
     private fun reporter(verboseAudit: Boolean = false): McpBlockedRequestReporter = McpBlockedRequestReporter(logToOutput = { line -> lines += line }, verboseAudit = verboseAudit)
+
+    private fun denyUnauthorized(): GateDecision.Deny =
+        GateDecision.Deny(
+            HttpStatusCode.Unauthorized,
+            BlockReason.UNAUTHORIZED,
+            RequestFacts(method = "POST", path = "/message"),
+        )
+
+    private fun denyBlankToken(): GateDecision.Deny =
+        GateDecision.Deny(
+            HttpStatusCode.Unauthorized,
+            BlockReason.BLANK_TOKEN,
+            RequestFacts(method = "POST", path = "/message"),
+        )
+
+    private fun denyHost(): GateDecision.Deny =
+        GateDecision.Deny(
+            HttpStatusCode.Forbidden,
+            BlockReason.HOST_MISMATCH,
+            RequestFacts(path = "/message", host = "evil.example"),
+        )
 
     private fun denyOrigin(origin: String = FOREIGN_ORIGIN): GateDecision.Deny =
         GateDecision.Deny(
