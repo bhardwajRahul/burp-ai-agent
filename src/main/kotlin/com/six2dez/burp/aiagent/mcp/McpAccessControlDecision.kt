@@ -25,6 +25,13 @@ private val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1", "0:0:0:0:0:0
 private val BARE_IPV6_LOOPBACKS = setOf("::1", "0:0:0:0:0:0:0:1")
 
 /**
+ * Highest port number an authority may carry (RFC 3986 / TCP). Declared as a constant rather than
+ * written inline because MagicNumber is active on this source set and QUAL-07 forbids growing
+ * detekt-baseline.xml; MagicNumber exempts constant declarations by default.
+ */
+private const val MAX_TCP_PORT = 65_535
+
+/**
  * `[<ipv6-literal>]` with an optional `:<port>`. Anchored with `matchEntire`, so a missing `]` or any
  * trailing junk fails to match and the authority is rejected — the fail-closed shape without needing
  * an exception handler or an extra early exit.
@@ -155,13 +162,24 @@ private fun evaluateLocal(
     }
 
 /**
- * The ONE place an HTTP authority is parsed. Yields `host to port`, with a null port when the input
- * carried none, or null when the input is malformed.
+ * The ONE place an HTTP authority is parsed. There are exactly three outcomes, and keeping them
+ * distinct is the whole point of this function:
+ *
+ *  1. the input carried NO port — yields `host to null`, and the caller's port comparison is skipped;
+ *  2. the input carried a port that is a usable port number (`1..MAX_TCP_PORT`) — yields `host to port`;
+ *  3. the input carried a port that is numeric but NOT a usable port number, or matched neither
+ *     authority pattern — the whole authority is malformed and this yields null, so the caller denies.
+ *
+ * Outcome 3 is WR-01. Case 1 and case 3 used to be conflated: the port group was mapped straight
+ * through `toIntOrNull`, so `localhost:99999999999` overflowed an `Int`, was reported as "no port was
+ * present", and had its port assertion silently disabled — while `localhost:65536` was rejected. An
+ * authority whose port is outside the RFC 3986 range is now rejected outright, consistently.
  *
  * This function holds the whole file's budget of two early exits: detekt.yml overrides only
  * LongMethod, LongParameterList, MaxLineLength and FunctionNaming, so ReturnCount runs at its default
  * max of 2. Everything else in this file is expression-bodied on purpose, because QUAL-07 forbids
- * growing detekt-baseline.xml to work around a rule this code can simply satisfy.
+ * growing detekt-baseline.xml to work around a rule this code can simply satisfy. The three outcomes
+ * above are therefore a conditional expression inside the `let`, not three early exits.
  */
 private fun parseAuthority(value: String): Pair<String, Int?>? {
     val trimmed = value.trim().lowercase()
@@ -169,9 +187,16 @@ private fun parseAuthority(value: String): Pair<String, Int?>? {
     // pattern cannot admit it without also admitting the ambiguous `::1:9876`.
     if (trimmed in BARE_IPV6_LOOPBACKS) return trimmed to null
     val match = BRACKETED_AUTHORITY_REGEX.matchEntire(trimmed) ?: PLAIN_AUTHORITY_REGEX.matchEntire(trimmed)
-    // Group 2 is empty when no port was present, and `toIntOrNull` maps that to a null port without
-    // an exception handler. An input matching neither pattern is malformed and yields null.
-    return match?.let { it.groupValues[1] to it.groupValues[2].toIntOrNull() }
+    // An input matching neither pattern is malformed and yields null via the safe call.
+    return match?.let { result ->
+        val rawPort = result.groupValues[2]
+        val parsedPort = rawPort.toIntOrNull()
+        when {
+            rawPort.isEmpty() -> result.groupValues[1] to null
+            parsedPort != null && parsedPort in 1..MAX_TCP_PORT -> result.groupValues[1] to parsedPort
+            else -> null
+        }
+    }
 }
 
 /**
