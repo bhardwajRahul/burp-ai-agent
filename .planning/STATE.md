@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: — Security Correctness & Agent Trust
 status: executing
-stopped_at: Completed 19-03-PLAN.md
-last_updated: "2026-08-10T09:41:11.599Z"
-last_activity: 2026-08-10 -- Phase 20 execution started
+stopped_at: "Phase 20 COMPLETE (2026-08-10) — 10 plans, re-verified 6/6, SEC-04 + SEC-05 satisfied. 2 human-UAT items open in 20-HUMAN-UAT.md (local SSE over h1 AND h2; external mode + bearer over TLS). Next: /gsd-discuss-phase 21 (Redaction Completeness, PRIV-05/PRIV-06)."
+last_updated: "2026-08-10T11:16:49.956Z"
+last_activity: 2026-08-10
 progress:
   total_phases: 7
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 10
-  completed_plans: 6
-  percent: 0
+  completed_plans: 10
+  percent: 14
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 20 (mcp-access-control-correctness) — EXECUTING
-Plan: 1 of 10
-Status: Executing Phase 20
-Resume file: .planning/phases/20-mcp-access-control-correctness/20-VERIFICATION.md
-Last activity: 2026-08-10 -- Phase 20 execution started
+Phase: 21 (redaction-completeness) — not started
+Plan: Not started
+Status: Phase 20 complete and closed. 2 human-UAT items remain open in `20-HUMAN-UAT.md` — they do not block Phase 21 (disjoint files: `redact/` + `scanner/` vs `mcp/`).
+Resume file: .planning/phases/20-mcp-access-control-correctness/20-HUMAN-UAT.md
+Last activity: 2026-08-10 -- Phase 20 closed (10 plans, re-verified 6/6, SEC-04 + SEC-05 satisfied)
 
 ## Milestone Origin
 
@@ -75,7 +75,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 
 **Velocity:**
 
-- Total plans completed: 32
+- Total plans completed: 42
 - Average duration: —
 - Total execution time: 0 hours
 
@@ -93,6 +93,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | 18 | 4 | - | - |
 | 19 | 5 | - | - |
 | 16 | 6 | - | - |
+| 20 | 10 | - | - |
 
 **Recent Trend:**
 

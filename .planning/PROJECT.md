@@ -15,6 +15,14 @@ Backends: CLI agents (claude, gemini, codex, opencode, copilot, ollama), HTTP (A
 
 **Measured, 2026-08-05:** ~38.9k lines Kotlin main, 94 test files; coverage 34% line / 23% branch; detekt baseline 1096 entries; `test detekt ktlintCheck` green.
 
+**Phase 20 complete (2026-08-10) — SEC-04 + SEC-05 validated.** The MCP access-control checks now run in
+Ktor's pre-routing `Plugins` phase on every request, in local and external mode, over both HTTP/1.1 and
+HTTP/2. Foreign-authority denial was measured at 403 on `/__mcp/health`, `/message` and `/sse` over h2
+(previously 200 — the live bypass). A blocked request now emits a bounded audit event (ADR-13). 100 test
+classes, 0 failures; detekt baseline unchanged from milestone start. Two human-UAT items remain open in
+`20-HUMAN-UAT.md` (real MCP client over local SSE in both h1 and h2 configurations; external mode with
+bearer over TLS).
+
 ## Current Milestone: v0.10.0 — Security Correctness & Agent Trust
 
 **Status:** ▶ PLANNING — started 2026-08-05. Derived from a deep code review of v0.9.2 (17 findings).
@@ -130,4 +138,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-10 — Milestone v0.9.0 (Hardening, Quality & New Capabilities) started; v0.7.0 (2026-05-15) and v0.8.0 (2026-06-02) shipped and tagged*
+*Last updated: 2026-08-10 — Milestone v0.10.0 (Security Correctness & Agent Trust) in progress: Phase 20 (MCP Access-Control Correctness) complete, SEC-04 + SEC-05 validated. v0.7.0 (2026-05-15), v0.8.0 (2026-06-02) and v0.9.0 (2026-06-26, point releases 0.9.1 / 0.9.2) shipped and tagged*
