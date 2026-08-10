@@ -70,6 +70,7 @@ Origin/auth do not apply. The takeover token-disclosure fix (Finding 7) belongs 
   `referer_mismatch`, `browser_no_origin`, `unauthorized`). Both destinations are required because
   audit logging is **disabled by default** in this project — an audit-only event would be invisible
   to most users.
+- **D-06 AMENDED by ADR-13 (see repo-root `DECISIONS.md`):** per-occurrence audit emission is retained for the four local-mode reasons, but coalesced into one event per 60s per-reason window carrying a `suppressed` count for `unauthorized` and `blank_token`, which an unauthenticated external peer can trigger at will.
 - **D-07:** Reflected header values (`Origin`, `Host`, `Referer`, `User-Agent`) are **sanitized and
   truncated** before reaching either destination: strip CR/LF and control characters (prevents log-line
   injection and ANSI escapes in Burp's Output tab), then cap at a fixed length. The current code
