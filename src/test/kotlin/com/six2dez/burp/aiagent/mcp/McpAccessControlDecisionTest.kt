@@ -234,10 +234,33 @@ class McpAccessControlDecisionTest {
     }
 
     @Test
-    fun evaluate_localAllGatedHeadersAbsentIsAllowed() {
-        val facts = RequestFacts(path = "/message")
+    fun evaluate_localMatchingLoopbackAuthorityAloneIsAllowed() {
+        // The minimum a real MCP client sends: a matching loopback authority and nothing else the
+        // gate inspects. This is the ALLOW half of the fail-closed authority branch.
+        val facts = RequestFacts(path = "/message", host = "127.0.0.1:$MCP_PORT")
 
         assertEquals(GateDecision.Allow, evaluate(facts, localSettings()))
+    }
+
+    @Test
+    fun evaluate_localAbsentAuthorityIsForbiddenOnEveryPath() {
+        // FAIL-OPEN CLOSED by gap-closure plan 20-07 — do NOT "restore" the old permissiveness.
+        // This request used to be ALLOWED: the host branch was guarded by a non-null check, so a
+        // request carrying neither an HTTP/1 `Host` header nor an HTTP/2 `:authority` skipped the
+        // DNS-rebinding limb entirely. The maintainer's locked answer is that an absent authority
+        // DENIES; every conforming HTTP/1.1 and HTTP/2 client sends one. D-03 gates every path, so
+        // the liveness probe is denied on the same terms.
+        val messageFacts = RequestFacts(path = "/message")
+        val healthFacts = RequestFacts(path = HEALTH_PATH)
+
+        assertEquals(
+            GateDecision.Deny(HttpStatusCode.Forbidden, BlockReason.HOST_MISMATCH, messageFacts),
+            evaluate(messageFacts, localSettings()),
+        )
+        assertEquals(
+            GateDecision.Deny(HttpStatusCode.Forbidden, BlockReason.HOST_MISMATCH, healthFacts),
+            evaluate(healthFacts, localSettings()),
+        )
     }
 
     @Test
