@@ -108,6 +108,11 @@ class KtorMcpServerManagerSecurityTest {
     @Test
     fun evaluate_treatsOriginAndRefererIdentically() {
         val settings = McpTestServerSupport.localSettings(port = 9876)
+        // The matching loopback `Host` is load-bearing. Since gap-closure plan 20-07 the authority
+        // branch denies an absent authority, and it sits BEFORE the Referer branch: without a Host
+        // every iteration would deny, the comparison below would read `false == false`, and this
+        // guard would stay green while asserting nothing about Referer handling at all.
+        var bothAllowedCount = 0
         listOf(
             "http://[::1]:9876",
             "http://localhost:9876",
@@ -116,14 +121,24 @@ class KtorMcpServerManagerSecurityTest {
             "not-a-uri",
             "",
         ).forEach { authority ->
-            val asOrigin = evaluate(RequestFacts(path = "/sse", origin = authority), settings)
-            val asReferer = evaluate(RequestFacts(path = "/sse", referer = authority), settings)
+            val asOrigin = evaluate(RequestFacts(path = "/sse", host = "127.0.0.1:9876", origin = authority), settings)
+            val asReferer = evaluate(RequestFacts(path = "/sse", host = "127.0.0.1:9876", referer = authority), settings)
+            if (asOrigin is GateDecision.Allow && asReferer is GateDecision.Allow) bothAllowedCount++
             assertEquals(
                 asOrigin is GateDecision.Allow,
                 asReferer is GateDecision.Allow,
                 "Origin and Referer handling drifted for '$authority'",
             )
         }
+        // PERMANENT non-vacuity contract, not a one-time observation. A pure allow-vs-deny comparison
+        // is satisfied just as well by two denials, so at least one authority must reach the Referer
+        // predicate and be ALLOWED on both sides for this guard to mean anything.
+        assertTrue(
+            bothAllowedCount > 0,
+            "D-11 drift guard has gone VACUOUS: no authority was allowed as both Origin and Referer, " +
+                "so the loop only proved that two denials agree. A branch inserted ahead of the Referer " +
+                "check is denying every iteration before the Referer predicate is ever consulted.",
+        )
     }
 
     /** SC5c: a blank configured token can never authenticate, whatever the client sends. */

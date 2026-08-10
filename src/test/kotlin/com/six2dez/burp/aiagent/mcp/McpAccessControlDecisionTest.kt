@@ -133,6 +133,8 @@ class McpAccessControlDecisionTest {
 
     @Test
     fun evaluate_localForeignOriginIsForbidden() {
+        // The absent authority is DELIBERATE: the Origin branch precedes the fail-closed authority
+        // branch, so this test staying green is the proof that branch precedence survived 20-07.
         val facts = RequestFacts(path = "/message", origin = "http://evil.example")
 
         assertEquals(
@@ -143,6 +145,8 @@ class McpAccessControlDecisionTest {
 
     @Test
     fun evaluate_localBrowserUserAgentWithoutOriginIsForbidden() {
+        // The absent authority is DELIBERATE: the browser-UA branch precedes the fail-closed
+        // authority branch, so BROWSER_NO_ORIGIN — not HOST_MISMATCH — must still be the reason.
         val facts = RequestFacts(path = "/message", origin = null, userAgent = CHROME_USER_AGENT)
 
         assertEquals(
@@ -164,6 +168,7 @@ class McpAccessControlDecisionTest {
             RequestFacts(
                 path = "/message",
                 origin = "http://localhost:$MCP_PORT",
+                host = "127.0.0.1:$MCP_PORT",
                 userAgent = CHROME_USER_AGENT,
             )
 
@@ -218,7 +223,15 @@ class McpAccessControlDecisionTest {
 
     @Test
     fun evaluate_localForeignRefererIsForbidden() {
-        val facts = RequestFacts(path = "/message", referer = "http://evil.example/x")
+        // The matching loopback authority is REQUIRED, not decoration: the fail-closed authority
+        // branch precedes the Referer branch, so without it this test would measure HOST_MISMATCH
+        // and the Referer coverage would silently disappear.
+        val facts =
+            RequestFacts(
+                path = "/message",
+                host = "127.0.0.1:$MCP_PORT",
+                referer = "http://evil.example/x",
+            )
 
         assertEquals(
             GateDecision.Deny(HttpStatusCode.Forbidden, BlockReason.REFERER_MISMATCH, facts),
@@ -228,22 +241,57 @@ class McpAccessControlDecisionTest {
 
     @Test
     fun evaluate_localLoopbackRefererIsAllowed() {
-        val facts = RequestFacts(path = "/message", referer = "http://127.0.0.1:$MCP_PORT/x")
+        val facts =
+            RequestFacts(
+                path = "/message",
+                host = "127.0.0.1:$MCP_PORT",
+                referer = "http://127.0.0.1:$MCP_PORT/x",
+            )
 
         assertEquals(GateDecision.Allow, evaluate(facts, localSettings()))
     }
 
     @Test
-    fun evaluate_localAllGatedHeadersAbsentIsAllowed() {
-        val facts = RequestFacts(path = "/message")
+    fun evaluate_localMatchingLoopbackAuthorityAloneIsAllowed() {
+        // The minimum a real MCP client sends: a matching loopback authority and nothing else the
+        // gate inspects. This is the ALLOW half of the fail-closed authority branch.
+        val facts = RequestFacts(path = "/message", host = "127.0.0.1:$MCP_PORT")
 
         assertEquals(GateDecision.Allow, evaluate(facts, localSettings()))
+    }
+
+    @Test
+    fun evaluate_localAbsentAuthorityIsForbiddenOnEveryPath() {
+        // FAIL-OPEN CLOSED by gap-closure plan 20-07 — do NOT "restore" the old permissiveness.
+        // This request used to be ALLOWED: the host branch was guarded by a non-null check, so a
+        // request carrying neither an HTTP/1 `Host` header nor an HTTP/2 `:authority` skipped the
+        // DNS-rebinding limb entirely. The maintainer's locked answer is that an absent authority
+        // DENIES; every conforming HTTP/1.1 and HTTP/2 client sends one. D-03 gates every path, so
+        // the liveness probe is denied on the same terms.
+        val messageFacts = RequestFacts(path = "/message")
+        val healthFacts = RequestFacts(path = HEALTH_PATH)
+
+        assertEquals(
+            GateDecision.Deny(HttpStatusCode.Forbidden, BlockReason.HOST_MISMATCH, messageFacts),
+            evaluate(messageFacts, localSettings()),
+        )
+        assertEquals(
+            GateDecision.Deny(HttpStatusCode.Forbidden, BlockReason.HOST_MISMATCH, healthFacts),
+            evaluate(healthFacts, localSettings()),
+        )
     }
 
     @Test
     fun evaluate_localNeverInspectsAuthorization() {
         // Requiring a bearer token in local mode is a deferred idea, deliberately NOT added here.
-        val facts = RequestFacts(path = "/message", authorization = "Bearer nonsense")
+        // The matching loopback authority keeps this test measuring what its name says instead of
+        // tripping the fail-closed authority branch.
+        val facts =
+            RequestFacts(
+                path = "/message",
+                host = "127.0.0.1:$MCP_PORT",
+                authorization = "Bearer nonsense",
+            )
 
         assertEquals(GateDecision.Allow, evaluate(facts, localSettings()))
     }
@@ -307,6 +355,24 @@ class McpAccessControlDecisionTest {
         assertFalse(isLoopbackAuthority("   ", null))
         assertFalse(isLoopbackAuthority("[::1", null))
         assertFalse(isLoopbackAuthority("localhost:abc", MCP_PORT))
+    }
+
+    @Test
+    fun isLoopbackAuthority_rejectsAPortThatIsNumericButOutOfRange() {
+        // WR-01. The two inputs below disagreed before gap-closure plan 20-07: "localhost:65536"
+        // returned FALSE (it parses to an Int that simply differs from the expected port) while
+        // "localhost:99999999999" returned TRUE (it overflows an Int, the parser reported "no port
+        // was present", and the port comparison was silently skipped). That inconsistency is the
+        // defect: a port outside the RFC 3986 range now makes the whole authority malformed.
+        assertFalse(isLoopbackAuthority("localhost:99999999999", MCP_PORT))
+        assertFalse(isLoopbackAuthority("localhost:65536", MCP_PORT))
+        // A null expectedPort must not rescue an unusable port either.
+        assertFalse(isLoopbackAuthority("localhost:65536", null))
+        assertFalse(isLoopbackAuthority("localhost:99999999999", null))
+        assertFalse(isLoopbackAuthority("localhost:0", null))
+        // Contrast: an authority carrying NO port still yields a null port and still passes.
+        assertTrue(isLoopbackAuthority("127.0.0.1", null))
+        assertTrue(isLoopbackAuthority("localhost:$MCP_PORT", MCP_PORT))
     }
 
     // ---------------------------------------------------------------------------------------
