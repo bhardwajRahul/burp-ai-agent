@@ -218,3 +218,21 @@ cleanup.
 - If the foreign-`Origin` denial should actually be recorded, that is a code change in the access-control
   gate (ordering relative to Ktor's CORS plugin), not a doc change, and the runbook text above will need
   updating in the same commit.
+
+## Self-Check: PASSED
+
+Every claim above was re-verified against disk after the SUMMARY was written:
+
+- All four `files_modified` plus this SUMMARY exist; `git diff --name-only b9ee87a..HEAD` lists exactly
+  those five paths and nothing else.
+- `McpTestServerSupport.kt` exists and is absent from the diff — sibling 20-08's file was not edited.
+- `storeBuild.expected` present in `build.gradle.kts` (1) and `McpBuildFlagsVersionTest.kt` (3) — the
+  key link is wired at both ends.
+- `Protocol.HTTP_2` present once in `McpAccessControlExternalPipelineTest.kt`.
+- `assertFalse` no longer appears in `McpBuildFlagsVersionTest.kt` (0 occurrences) — the fixed-value
+  assertion is gone, and its import with it.
+- All five commit hashes (`9e2d786`, `67264d0`, `dc028eb`, `1d13ee7`, `49816a8`) resolve in `git log`.
+- `git status --porcelain` clean; `git diff --stat detekt-baseline.xml` empty.
+
+STATE.md and ROADMAP.md were deliberately NOT touched — the orchestrator owns those writes after all
+worktree agents in this wave complete.
