@@ -1,73 +1,136 @@
 ---
 phase: 20-mcp-access-control-correctness
-verified: 2026-08-08T13:07:44Z
-status: gaps_found
-score: 5/6 must-haves verified
+verified: 2026-08-10T10:15:00Z
+status: human_needed
+score: 6/6 must-haves verified
 overrides_applied: 0
-gaps:
-  - truth: "SC2 — With externalEnabled = false, a foreign Host returns 403 on /__mcp/health, /message AND /sse"
-    status: partial
-    reason: >-
-      Holds over HTTP/1.1 (measured 403 on all three paths). Does NOT hold over HTTP/2. Local mode
-      with the independent "Enable TLS" checkbox on negotiates h2 via ALPN, and over h2 a foreign
-      authority (evil.example:<port>) returns 200 on /__mcp/health and 200 on /sse — measured by a
-      transient verifier probe. Root cause: McpAccessControlPlugin.requestFacts reads
-      call.request.headers["Host"], but Ktor 3.1.3's NettyHttp2ApplicationRequest builds engineHeaders
-      by iterating Http2Headers with no Host synthesis from :authority, so facts.host == null on every
-      HTTP/2 request. evaluateLocal's guard is `facts.host != null && !isLoopbackAuthority(...)`, so a
-      null host skips the DNS-rebinding branch entirely — fail-open. The same fail-open applies to a
-      Host-less HTTP/1.1 request. The audit payload's `host` field is likewise always null over h2.
-    artifacts:
-      - path: "src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpAccessControlPlugin.kt"
-        issue: "Line 119 reads only the HTTP/1 `Host` header; never falls back to the HTTP/2 `:authority` pseudo-header"
-      - path: "src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpAccessControlDecision.kt"
-        issue: "evaluateLocal line 150 skips the Host check when facts.host == null (fail-open in a file whose KDoc claims fail-closed)"
-      - path: "src/test/kotlin/com/six2dez/burp/aiagent/mcp/McpAccessControlPipelineTest.kt"
-        issue: "SC2 is only exercised over cleartext HTTP/1.1; no test drives the local-mode gate over TLS/h2"
-      - path: "src/test/kotlin/com/six2dez/burp/aiagent/mcp/McpAccessControlDecisionTest.kt"
-        issue: "No test covers facts.host == null, so the fail-open branch is uncovered by design intent as well as by assertion"
-    missing:
-      - "Resolve the request authority from `:authority` when `Host` is absent (Ktor exposes it as headers[\":authority\"] on the h2 path), or deny when neither is present"
-      - "A local-mode pipeline test that binds a TLS connector, asserts response.protocol == h2, and asserts a foreign authority is 403 on /__mcp/health, /message and /sse"
-      - "A decision-core unit test pinning the chosen behaviour for facts.host == null"
-  - truth: "The phase does not regress an existing build path"
-    status: failed
-    reason: >-
-      Independently reproduced: `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test
-      -PstoreBuild=true` FAILS with `McpBuildFlagsVersionTest > storeBuild_flagStillGenerated()
-      FAILED`. The new test hard-asserts `assertFalse(BuildFlags.STORE_BUILD)`, which is true only
-      when the flag is not passed. `-PstoreBuild=true` is the BApp Store artifact build path, so the
-      phase made that path un-testable. Not a ROADMAP success criterion, but a regression this phase
-      introduced into a path that matters (BApp Store submission #231).
-    artifacts:
-      - path: "src/test/kotlin/com/six2dez/burp/aiagent/mcp/McpBuildFlagsVersionTest.kt"
-        issue: "Lines 36-43 assert STORE_BUILD is false unconditionally instead of asserting the flag tracks the -PstoreBuild property"
-    missing:
-      - "Assert the seam, not the value: e.g. assume/skip under -PstoreBuild=true, or assert BuildFlags.STORE_BUILD equals the System property the build passes through"
+re_verification:
+  previous_status: gaps_found
+  previous_score: 5/6
+  previous_verified: 2026-08-08T13:07:44Z
+  tree_verified: cf3fa53e52362d4f54ede262b328e1f07024a3dd
+  gaps_closed:
+    - "SC2 — foreign Host/authority returns 403 on /__mcp/health, /message AND /sse over HTTP/2 (was 200/400/200). Re-measured by this verifier with its own transient probe: 403/403/403 at protocol=h2."
+    - "`./gradlew test -PstoreBuild=true` runs the suite to a clean exit again. The store-build test now asserts the generated-flag-vs-Gradle-property seam, and this verifier observed the seam take BOTH values (STORE_BUILD=true under the flag, false without) with the class green in each direction."
+  gaps_remaining: []
+  regressions: []
+  requirement_verdict_change:
+    SEC-04: "was SUBSTANTIALLY SATISFIED — one limb BLOCKED; now SATISFIED — tick it"
+    SEC-05: "was SATISFIED; still SATISFIED (WR-01, its residual parser defect, is additionally closed)"
 human_verification:
-  - test: "Connect a real MCP client (Claude Desktop / Codex CLI) over local SSE with the gate active, list tools, call one read-only tool"
-    expected: "Client connects, tool list returns, read-only tool executes — the gate does not deny a legitimate non-browser client"
-    why_human: "Requires a live third-party MCP client and a running Burp instance; no automated seam exists"
-  - test: "Connect a real MCP client in external mode with the bearer token configured"
-    expected: "Client connects over TLS and authenticates; no 401 for a correctly configured client"
-    why_human: "Same — live third-party client plus TLS trust configuration"
-  - test: "Read docs/mcp-hardening.md §External Access items 4-6 and §Verification item 2"
-    expected: "Neither still claims every request is bearer-validated; the /__mcp/health exemption and the local-only X-Burp-AI-Agent header are stated"
-    why_human: "Doc accuracy is a judgement call. NOTE: items 4-6 are accurate; §Verification item 2 is NOT — see warning WR-02 below"
+  - test: "Connect a real MCP client (Claude Desktop / Codex CLI) over LOCAL SSE with the gate active — once with TLS off (HTTP/1.1) and once with the 'Enable TLS' checkbox ON (HTTP/2). List tools and call one read-only tool in each configuration."
+    expected: "Client connects and the tool call succeeds in BOTH configurations. The TLS/h2 run is the new one and the one that matters: the gate now DENIES any local-mode request whose resolved authority is not the bound loopback socket, and over h2 a PORTLESS `:authority` acquires the scheme default port (443) and is therefore denied where HTTP/1.1 would allow it (documented residual 3). A client that sends a portless `:authority` over h2 would be locked out."
+    why_human: "Requires a live third-party MCP client and a running Burp instance. No automated seam exists, and the h2 authority-shape a given client emits cannot be predicted from this repo."
+  - test: "Connect a real MCP client in EXTERNAL mode with the bearer token configured over TLS."
+    expected: "Client connects over TLS and authenticates; no 401 for a correctly configured client."
+    why_human: "Same — live third-party client plus TLS trust configuration."
 ---
 
 # Phase 20: MCP Access-Control Correctness — Verification Report
 
 **Phase Goal:** Every MCP request passes through the extension's access-control checks before any handler runs, in both local and external mode — and there are tests that would have caught the current bypass.
-**Verified:** 2026-08-08T13:07:44Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-08-10T10:15:00Z
+**Status:** human_needed (6/6 must-haves verified; two genuinely unautomatable manual checks remain)
+**Re-verification:** **Yes — second pass, after the 20-07…20-10 gap-closure wave.** Tree `cf3fa53`.
 
-**Verification method note.** All findings below rest on code read in the merged tree, JUnit XML from a
-full `./gradlew test` run executed by this verifier (not the executor's), Ktor 3.1.3 bytecode inspected
-with `javap`, and two transient probe test classes that this verifier wrote, ran, and deleted (tree
-confirmed clean afterwards, `detekt-baseline.xml` byte-identical). No SUMMARY.md claim is credited
-without independent evidence.
+---
+
+## What changed since the first pass (2026-08-08, `gaps_found`, 5/6)
+
+The first pass verified SC1, SC3, SC4, SC5, SC6 and filed two gaps: SC2's foreign-`Host` limb did not
+fire over HTTP/2 (BLOCKER), and this phase had broken `./gradlew test -PstoreBuild=true` (the BApp Store
+artifact build path). Four gap-closure plans then executed: 20-07 (fail-closed decision core + WR-01),
+20-08 (HTTP/2 authority fallback + a TLS/h2 pipeline test), 20-09 (CR-01 audit-flood bound + ADR-13),
+20-10 (store-build seam + WR-02 doc fix + the SC3 protocol assertion).
+
+**Both gaps are closed, and closed on evidence this verifier produced itself.** Nothing carried forward.
+SEC-04 is now satisfied in full.
+
+**Verification method note.** All findings rest on: source read in the merged tree; JUnit XML from Gradle
+runs executed by this verifier (never console scraping); the generated `BuildFlags.kt` read from
+`build/generated/`; and **one transient probe test class this verifier wrote, ran, and deleted**
+(`VerifierGap1AuthorityProbe`). After deletion, `git status --porcelain`, `git diff --stat HEAD` and
+`git diff --stat detekt-baseline.xml` were all empty. No SUMMARY.md claim is credited without independent
+evidence, and the executors' own test runs are treated as claims, not proof — per the phase's own
+"coverage-by-accident is not evidence" standard.
+
+---
+
+## Gap 1 — re-measured empirically, not inferred from green tests
+
+A transient probe (`VerifierGap1AuthorityProbe`) drove two real Netty servers built through
+`KtorMcpServerManager`: one in **local mode with TLS** (`externalEnabled = false`, `tlsEnabled = true` —
+confirmed by reading `McpTestServerSupport.localTlsSettings`) and one local cleartext. The forged
+authority is carried in the URL with an OkHttp `Dns` override to 127.0.0.1, because OkHttp drops an
+explicit `Host` header on h2. Raw output, verbatim:
+
+```
+PROBE-AUTH authority=foreign  path=/__mcp/health protocol=h2 code=403
+PROBE-AUTH authority=loopback path=/__mcp/health protocol=h2 code=200
+PROBE-AUTH authority=foreign  path=/message      protocol=h2 code=403
+PROBE-AUTH authority=loopback path=/message      protocol=h2 code=400
+PROBE-AUTH authority=foreign  path=/sse          protocol=h2 code=403
+PROBE-AUTH authority=loopback path=/sse          protocol=h2 code=200
+PROBE-H1 noHost       -> HTTP/1.1 403 Forbidden
+PROBE-H1 foreignHost  -> HTTP/1.1 403 Forbidden
+PROBE-H1 loopbackHost -> HTTP/1.1 200 OK
+```
+
+`protocol=h2` on every row, so the transport is genuinely HTTP/2 and the measurement is in scope. The
+first pass measured `h2 … code=200` on `/__mcp/health` and `/sse` for the identical vector. **Two
+independent verifier measurements straddle the fix: 200 → 403.** That is stronger evidence than any
+rollback of the new test would be.
+
+Three non-obvious things this probe settles, all of which the orchestrator flagged as "verify, don't
+trust":
+
+1. **The HTTP/2-only gate on the fallback is present AND load-bearing.** `McpAccessControlPlugin.kt:208`
+   reads `if (call.request.local.version != HTTP_2_VERSION) null else …`. Row `PROBE-H1 noHost -> 403`
+   proves the gate works: 20-08's measured bytecode fact 5 says an HTTP/1.1 request with no `Host`
+   coalesces to `serverHost = localhost` + the bound port, which **is** loopback and **does** match
+   `settings.port` — so an ungated fallback would have returned **200** here. It returned 403.
+2. **20-07 and 20-08 compose, and neither is redundant.** 20-07 alone (absent authority → deny) would
+   have produced the foreign-authority 403 by itself — but it would also have denied *every* h2 request,
+   because `facts.host` would still be null for legitimate clients. The `authority=loopback … code=200`
+   and `code=400` rows are the proof that 20-08's fallback is live and resolves the *real*
+   client-supplied authority: without it those rows would be 403. So the foreign-403 proves the limb
+   fires and the loopback-200 proves the fallback is wired. Both halves were needed.
+3. **`facts.host` is no longer hollow over h2.** The same pair of rows shows the value varies with the
+   client authority (deny for `evil.example`, allow for `127.0.0.1`), so the audit payload's `host` field
+   now carries real data on the h2 path. The first pass's ⚠️ HOLLOW data-flow row is resolved.
+
+Code confirms the mechanism: `McpAccessControlDecision.kt:166` is now the unconditional
+`!isLoopbackAuthority(facts.host.orEmpty(), settings.port) -> Deny(403, HOST_MISMATCH)`, sitting after
+the `Origin` and browser-UA branches and before the `Referer` branch — the precedence the first pass
+recorded is unchanged.
+
+## Gap 2 — the seam, checked in both directions and for tautology
+
+`build.gradle.kts:70` resolves `val storeBuild` once; line 106 feeds it into the code generator
+(`STORE_BUILD = ${storeBuildFlag.get()}` at :95) and line 159 feeds the *same resolved Boolean* into the
+test JVM as `systemProperty("storeBuild.expected", …)`. `McpBuildFlagsVersionTest:50-56` reads the system
+property and asserts the **generated constant** equals it.
+
+| Invocation (run by this verifier) | Generated `STORE_BUILD` (read from `build/generated/…/BuildFlags.kt`) | Class result | Exit |
+|---|---|---|---|
+| `./gradlew test --tests '*McpBuildFlagsVersionTest*' -PstoreBuild=true` | `true` | `tests="2" failures="0" errors="0"` | 0 |
+| `./gradlew test --tests '*McpBuildFlagsVersionTest*'` (no flag) | `false` | `tests="2" failures="0" errors="0"` | 0 |
+
+**Not a tautology, and not defanged — two independent arguments.**
+
+- *It is a real seam, not a self-comparison.* The two sides reach the test JVM by different mechanisms:
+  one through Kotlin code generation, compilation and classloading; the other through a JVM system
+  property. Break either and the assertion fails. Delete line 159 and the test fails under the flag
+  (expected `false`, generated `true`). Break the codegen wiring and it fails the same way. A **stale**
+  generated file — codegen not re-running on a flag flip — also fails, which is precisely the class of
+  regression worth guarding.
+- *It genuinely fired in the positive direction.* The `-PstoreBuild=true` run has generated
+  `STORE_BUILD = true` **and** passes. `assertEquals(expected, true)` passing forces `expected == true`,
+  so that run compared `true == true` — it was not a vacuous `false == false`. Combined with the no-flag
+  run, both sides of the seam were observed taking both values in lockstep. The old defanged shape
+  (`assertFalse(BuildFlags.STORE_BUILD)`) is gone: `assertFalse` no longer appears in the file.
+
+The BApp Store artifact path is testable again, which matters for live submission #231.
 
 ---
 
@@ -77,207 +140,201 @@ without independent evidence.
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| SC1 | `externalEnabled = true`: `POST /message` and `GET /sse` with no `Authorization` return 401 | ✓ VERIFIED | `evaluateExternal` (McpAccessControlDecision.kt:113-128) denies 401 before routing. `McpAccessControlExternalPipelineTest` 8 tests / 0 failures on a re-run full suite; `message_withoutAuthorization_returns401` and `sse_withoutAuthorization_returns401` assert exactly this against a real TLS Netty server. Verifier probe confirmed the connector negotiates `h2`, so SC1 is proven over HTTP/2. |
-| SC2 | `externalEnabled = false`: foreign `Host`, foreign `Referer`, or browser UA with no `Origin` returns 403 on `/__mcp/health`, `/message` and `/sse` | ✗ **FAILED (partial)** | HTTP/1.1: all three vectors × three paths = 9 assertions green (`McpAccessControlPipelineTest`, 9/0). **HTTP/2: broken.** Verifier probe, local mode + TLS: `PROBE-AUTH h2 path=/__mcp/health protocol=h2 code=200` and `PROBE-AUTH h2 path=/sse protocol=h2 code=200` for authority `evil.example:<port>`, versus `h1 … code=403` for the identical request. Cause: `facts.host == null` over h2 (see gap 1). |
-| SC3 | Four security headers present on routes Ktor RESOLVES — not only 404s — deterministically over HTTP/1.1 and HTTP/2 | ✓ VERIFIED (see warning) | Appended in the plugin's `Allow` branch in the pre-routing `Plugins` phase (McpAccessControlPlugin.kt:102, 129-135). HTTP/1.1: `health_matchedRouteCarriesAllFourSecurityHeaders` (matched 200) and `sse_authorizedConnectCarriesSecurityHeaders` (`text/event-stream` 200) green. HTTP/2: verifier probe `PROBE-EXT protocol=h2 … xfo=DENY xcto=nosniff rp=same-origin csp=default-src 'none'`; also covered incidentally by `message_withValidBearer_reachesHandlerAndCarriesSecurityHeaders`, which runs on the TLS connector. |
-| SC4 | The SC1–SC3 regression tests FAIL against the pre-fix manager and pass after; the three pass-both assertions are not credited | ✓ VERIFIED | Rollback baseline `b1c32704e5c4…` independently confirmed pre-fix by `git show`: `Implementation("burp-ai-agent", "0.6.0")` at :97, `routing {` at :154, `intercept(ApplicationCallPipeline.Call)` at :176 — i.e. the Call-phase interceptor registered AFTER routing. Transcript records exit 1, `24 tests completed, 12 failed`, all 12 `org.opentest4j.AssertionFailedError`, `grep -c 'e: file'` = 0 (assertion evidence, not compile-failure evidence); restored run exit 0, 24/0. The 12 recorded failure line numbers exclude `foreignOrigin_isRejected` (:167) and both `shutdownWithoutToken_stillReturns401` sites (:246, :198), so the three pass-both assertions are correctly not credited. Assertion #8 disclosure judged **acceptable** — see note below. |
-| SC5 | Real project version advertised; loopback check accepts `[::1]:<port>`; blank token cannot authenticate | ✓ VERIFIED (see warning) | 5a: `BuildFlags.VERSION = "0.9.2"` generated from `build.gradle.kts:15`, consumed at `KtorMcpServerManager.kt:110`; hardcoded `0.6.0` gone from the tree. 5b: `isLoopbackAuthority("[::1]:9876", 9876)` and the expanded form assert true (`KtorMcpServerManagerSecurityTest` 7/0, `McpAccessControlDecisionTest` 38/0). 5c: `isAuthorizedBearer` guards `token.isNotBlank()` BEFORE building the expected string; unit + integration (`blankConfiguredToken_rejectsEveryAuthenticatedPath`) green. |
-| SC6 | `/__mcp/shutdown` still returns 401 without a token and 200 with one | ✓ VERIFIED | `McpServerIntegrationTest.startsServerAndServesHealthAndShutdownEndpoints` asserts health 200 (:74), shutdown-no-token 401 (:82), shutdown-with-token 200 (:90) — 1 test / 0 failures on the re-run. The in-handler check survives at `KtorMcpServerManager.kt:207-212` and now delegates to `isAuthorizedBearer`, inheriting the 5c guard. |
+| SC1 | `externalEnabled = true`: `POST /message` and `GET /sse` with no `Authorization` return 401 | ✓ VERIFIED (no regression) | `evaluateExternal` denies before routing. `McpAccessControlExternalPipelineTest` re-run by this verifier: `tests="8" failures="0" errors="0"`. `git diff b9ee87a..HEAD` on that file removes **only four KDoc lines** (a stale `build.gradle.kts` line citation) — zero assertions removed, so the first pass's SC1 evidence is intact. |
+| SC2 | `externalEnabled = false`: foreign `Host`, foreign `Referer`, or browser UA with no `Origin` returns 403 on `/__mcp/health`, `/message` and `/sse` | ✓ **VERIFIED — gap closed** | **HTTP/2 (the half that failed): verifier probe measured 403/403/403 at `protocol=h2`, previously 200/400/200.** HTTP/1.1: `McpAccessControlPipelineTest` 9/0 and **byte-identical** across the gap wave (`git diff b9ee87a..HEAD` on it produces no output at all), plus my own raw-socket rows (foreign `Host` → 403, loopback → 200). The `Referer` and browser-UA limbs over h2 are now pinned by `McpLocalTlsAuthorityPipelineTest` (7/0) rather than being covered by accident. |
+| SC3 | Four security headers on routes Ktor RESOLVES — not only 404s — deterministically over HTTP/1.1 and HTTP/2 | ✓ VERIFIED (warning cleared) | Unchanged mechanism (plugin `Allow` branch, pre-routing `Plugins` phase). The first pass's coverage-by-accident warning is closed: `McpAccessControlExternalPipelineTest:159-169` now asserts `assertEquals(Protocol.HTTP_2, response.protocol)` **before** the 400 and the four header assertions (all four still asserted, :28-31). 20-10's liveness claim sanity-checks out: my own probe independently observed `protocol=h2` on a TLS connector, so `assertEquals(Protocol.HTTP_1_1, …)` must fail — the flip 20-10 reports is arithmetically forced, not a claim I have to take on trust. |
+| SC4 | The SC1–SC3 regression tests FAIL against the pre-fix `KtorMcpServerManager` and pass after | ✓ VERIFIED (no regression; discipline preserved) | The rollback evidence set is untouched: `McpAccessControlPipelineTest` has **zero** diff lines across the whole gap wave, and `McpAccessControlExternalPipelineTest` lost only KDoc. So the 12 recorded assertion failures remain the same 12 assertions. The four gap plans preserve the same discipline — `git log` shows a `test(…)` commit strictly before its `fix(…)` commit for every one: `6feaca7`→`246787b`, `5cd2981`→`aff89b9`, `651172b`→`bb51c02`, `e7de6d6`→`25fa69d`, `9e2d786`→`67264d0`. For the h2 test specifically I did better than re-running its RED: I measured the product at 200 (first pass) and at 403 (this pass) with my own probes on both sides of the fix. Assertion-#8 disclosure still judged acceptable, on the same reasoning as the first pass. |
+| SC5 | Real project version advertised; loopback check accepts `[::1]:<port>`; blank token cannot authenticate | ✓ VERIFIED (no regression, plus WR-01 closed) | Generated `VERSION = "0.9.2"` observed in `build/generated/…/BuildFlags.kt`, matching `build.gradle.kts:15`, consumed at `KtorMcpServerManager.kt:110`. 20-07 rewrote `parseAuthority`, so I re-checked the IPv6 acceptances survive: `McpAccessControlDecisionTest` still asserts `isLoopbackAuthority("[::1]:$MCP_PORT", MCP_PORT)`, `("[::1]", null)`, `("[0:0:0:0:0:0:0:1]:$MCP_PORT", …)`, `("::1", null)` true and `("::1:$MCP_PORT")`, `("[::1")` false — 40/0. Blank-token guard untouched; `KtorMcpServerManagerSecurityTest` 7/0. **WR-01 is additionally fixed:** `MAX_TCP_PORT = 65_535` at :32, `parseAuthority` :203-207 now rejects an out-of-range port as a malformed authority, pinned by `isLoopbackAuthority_rejectsAPortThatIsNumericButOutOfRange` — including the non-vacuity contrast that a genuinely portless authority still passes. |
+| SC6 | `/__mcp/shutdown` still 401 without a token and 200 with one | ✓ VERIFIED (no regression) | `McpServerIntegrationTest` re-run by this verifier: `tests="1" failures="0" errors="0"`. No gap plan touched `KtorMcpServerManager.kt` (absent from `git diff --name-only b9ee87a..HEAD`). |
 
-**Score:** 5/6 truths verified
-
-**SC4 assertion-#8 disclosure — judged acceptable, not a gap.** Gate assertion #8
-(`isLoopbackAuthority("[::1]:9876", 9876)` → true) cannot be turned red by rolling back
-`KtorMcpServerManager.kt` alone, because it exercises a *new pure function* in
-`McpAccessControlDecision.kt`, which the rollback deliberately leaves in place. SC4's own contract is
-scoped to "the SC1–SC3 regression tests"; #8 is an SC5b unit assertion and therefore outside that
-scope. It is covered independently by `KtorMcpServerManagerSecurityTest` and
-`McpAccessControlDecisionTest`, both re-run green by this verifier. The disclosure is explicit rather
-than papered over. **Caveat:** this verifier did not re-execute the rollback experiment (≈13 min plus a
-transient `src/` mutation). What was independently verified is the *legitimacy of the baseline* and the
-*internal consistency of the recorded failure set* — not a second execution of it.
+**Score:** 6/6 truths verified. **Both prior gaps closed. No regressions found.**
 
 ### Deferred Items
 
-None. Phase 25 (SEC-07) covers the takeover token leak and `SsrfGuard` notations; Phase 26 covers
-coverage, the detekt baseline, and `SECURITY.md` / `README.md` / `SPEC.md` / `DECISIONS.md` / GitBook —
-none of these cover the HTTP/2 authority gap, the `parseAuthority` overflow, the `-PstoreBuild=true`
-regression, or `docs/mcp-hardening.md` accuracy. Nothing here is deferrable on roadmap evidence.
+None. Nothing was deferred and nothing needed to be.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `src/main/kotlin/.../mcp/McpAccessControlDecision.kt` | Pure `evaluate` + predicates, no I/O | ✓ VERIFIED | 223 lines. `internal fun evaluate` present; imports only `io.ktor.http` (engine-free) — the purity claim holds by inspection of the import list. Wired: called from the plugin. |
-| `src/main/kotlin/.../mcp/McpAccessControlPlugin.kt` | `createApplicationPlugin("McpAccessControl"…)` in the `Plugins` phase | ⚠️ VERIFIED with defect | Plugin exists, `onCall` present, `isCommitted` guard present, `onBlocked` invoked in the `Deny` branch before `respond`. Defect: `requestFacts` reads only the HTTP/1 `Host` header (gap 1). |
-| `src/main/kotlin/.../mcp/McpBlockedRequestReporter.kt` | D-06/D-07/D-09/D-10 observability | ✓ VERIFIED | `mcp_transport_blocked` constant, `AuditLogger.emitGlobal`, `Hashing.sha256Hex`, control-char strip + 200-char truncation, per-reason CAS window. 16/0 unit tests. |
-| `src/main/kotlin/.../mcp/KtorMcpServerManager.kt` | Gate install, reporter wiring, mode-aware health, `BuildFlags.VERSION` | ✓ VERIFIED | `install(CORS)`:154 → `install(McpAccessControl)`:187 → `routing {`:196 → `mcp {`:233 confirmed by reading. The pre-fix `intercept(ApplicationCallPipeline.Call)` block is deleted and replaced with a do-not-restore comment (:224-231). `onBlocked` builds a real `reporter.report(...)` call (:191-193), not a no-op. |
-| `src/main/kotlin/.../mcp/McpSupervisor.kt` | Mode-aware probe; never presents the token | ✓ VERIFIED | `probeExistingServer` (:254-285) requires the identity header only when `!externalEnabled`; degrades to a liveness check in external mode. Token appears only in `requestRemoteShutdownWithToken` (:301) — D-05 boundary intact. |
-| `docs/mcp-hardening.md` | D-01/D-02/D-12 corrections | ⚠️ VERIFIED with defect | Items 4-6 are accurate and specific (health exemption, local-only header, `EventSource` unsupported). §Verification item 2 contains a false claim — see WR-02. |
-| `build.gradle.kts` + generated `BuildFlags.kt` | `VERSION` seam | ✓ VERIFIED | `build/generated/buildflags/.../BuildFlags.kt` contains `const val VERSION = "0.9.2"`, matching `build.gradle.kts:15`. |
-| Five new/extended test classes | SC1–SC3, SC5, D-02, D-06 coverage | ✓ VERIFIED | All present, all outside the `-PexcludeHeavyTests=true` exclusion globs (`*PipelineTest`, `*DecisionTest`, `*ProbeTest`, `*VersionTest`, `*ReporterTest` — none match `*IntegrationTest`/`*ConcurrencyTest`/`*BackpressureTest`/`*RestartPolicyTest`/`*SupervisionTest`). |
+| `.../mcp/McpAccessControlPlugin.kt` | Pre-routing gate; transport-aware authority resolution | ✓ **VERIFIED (first-pass defect fixed)** | 228 lines (was 133). `requestFacts:190` = `headers["Host"] ?: http2Authority(call)`. `http2Authority:207-216` gated on `local.version != "HTTP/2"`, reads `local` (never `origin` — no `X-Forwarded-Host` exposure), and wraps the port read in `catch (_: RuntimeException) -> UNRESOLVABLE_AUTHORITY`. Gate proven live by measurement (see gap 1, point 1). |
+| `.../mcp/McpAccessControlDecision.kt` | Pure decision core, fail-closed | ✓ **VERIFIED (fail-open closed)** | 256 lines (was 223). Authority branch now unconditional at :166. `MAX_TCP_PORT` top-level const at :32; three-outcome `parseAuthority` at :193-209. Still engine-free. |
+| `.../mcp/McpBlockedRequestReporter.kt` | D-06/D-07/D-09/D-10 observability, bounded | ✓ **VERIFIED (CR-01 closed)** | `floodCapable` predicate at :106; `auditWindows` map at :87 held **separately** from D-09's `windows`, so neither sink can steal the other's `getAndSet(0L)` count; `consumeAuditWindow:129-142`. 22/0 unit tests. |
+| `.../mcp/KtorMcpServerManager.kt` | Gate install order, reporter wiring, `BuildFlags.VERSION` | ✓ VERIFIED (untouched by the gap wave) | Not in the gap-wave diff. `reporter.report(deny, …, System.currentTimeMillis())` at :192 — real wall clock, so the ADR-13 window is a real 60s in production, not a test-only construct. |
+| `build.gradle.kts` | `VERSION` seam **and** the new `storeBuild.expected` seam | ✓ **VERIFIED (gap 2 fix)** | +6 lines. `systemProperty("storeBuild.expected", storeBuild.toString())` at :159, reusing the already-resolved `val storeBuild` (:70) rather than calling `findProperty` from inside a task action — configuration-cache-safe. |
+| `src/test/.../McpLocalTlsAuthorityPipelineTest.kt` | The missing local-mode TLS/h2 gate test | ✓ **VERIFIED — new, 286 lines** | 7 tests, 0 failures. Asserts `Protocol.HTTP_2` **before** the status on every row, so an ALPN downgrade reports as a protocol failure instead of silently re-testing HTTP/1.1. Three separate `@Test` methods rather than a loop, with an in-file comment explaining that a loop would emit one `<failure>` and defeat the red-count gate. Named to avoid all five `excludeHeavyTests` globs — I confirmed the glob list in `tasks.test` (`*IntegrationTest`, `*ConcurrencyTest`, `*BackpressureTest`, `*RestartPolicyTest`, `*SupervisionTest`) and this class matches none, so it runs in the fast PR gate. |
+| `src/test/.../McpBuildFlagsVersionTest.kt` | Assert the seam, not a value | ✓ **VERIFIED (gap 2 fix)** | `assertFalse` gone; asserts generated constant == system property. Both directions exercised (table above). |
+| `DECISIONS.md` | ADR-13 recording the D-06 amendment | ✓ VERIFIED | ADR-13 at :140-151, in the file's `**Context.** / **Decision.** / **Consequences.**` shape, additions only. `20-CONTEXT.md:73` carries an `AMENDED by ADR-13` pointer while D-06's original bullet (:67) stays readable. |
+| `docs/mcp-hardening.md` | D-01/D-02/D-12 corrections | ✓ **VERIFIED (WR-02 closed)** | Verification item 2 now splits the recording claim: bullet :39 scopes the guarantee to the external 401s and the three gate-visible local vectors; bullet :40 states that a foreign `Origin` is **not recorded**, names Ktor's CORS plugin committing before the gate, and tells the operator how to distinguish expected silence from a broken audit trail. §External Access items 4-6 and Verification items 1/3/4 unchanged. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|-----|-----|--------|---------|
-| `KtorMcpServerManager` | `McpAccessControl` | `install(McpAccessControl)` after CORS, before routing | ✓ WIRED | Line 187; order confirmed structurally AND behaviourally (foreign `Origin` still gets CORS's own 403, gate does not double-respond). |
-| `McpAccessControlPlugin` | `evaluate(facts, settings)` | single `when` over `GateDecision` in `onCall` | ✓ WIRED | Line 80. |
-| `McpAccessControlPlugin` | `McpBlockedRequestReporter.report` | `pluginConfig.onBlocked` in the `Deny` branch | ✓ WIRED | `onBlocked(decision)` at :84 **before** `call.respond` — and proven end-to-end, not just structurally: `foreignHost_emitsExactlyOneTransportBlockedAuditEvent` observes exactly one real `mcp_transport_blocked` event with `reason=host_mismatch`. A no-op lambda would fail that test. |
-| `KtorMcpServerManager` | `McpBlockedRequestReporter` | `onBlocked = { deny -> reporter.report(...) }` | ✓ WIRED | Lines 125, 191-193; one reporter per `start()`, not per request (rate-limit windows are instance state). |
-| `KtorMcpServerManager` | `BuildFlags.VERSION` | `Implementation("burp-ai-agent", BuildFlags.VERSION)` | ✓ WIRED | Line 110. |
-| `McpAccessControlPlugin.requestFacts` | HTTP/2 request authority | — | ✗ **NOT WIRED** | No `:authority` read. `facts.host` is null on every h2 request; the DNS-rebinding branch has no input. This is gap 1. |
+| `McpAccessControlPlugin.requestFacts` | HTTP/2 request authority | `?: http2Authority(call)` on `local`, gated to `version == "HTTP/2"` | ✓ **WIRED — was NOT WIRED** | Behavioural proof, not structural: foreign h2 authority → 403 **and** loopback h2 authority → 200. The second row is what rules out "denies everything over h2". |
+| `evaluateLocal` | authority limb | unconditional `!isLoopbackAuthority(facts.host.orEmpty(), port)` | ✓ WIRED | Fires on absent authority too — `PROBE-H1 noHost -> 403`. |
+| `KtorMcpServerManager` | `McpAccessControl` | `install` after CORS, before `routing` | ✓ WIRED (unchanged) | Not touched by the gap wave. |
+| `McpBlockedRequestReporter` | audit sink | `consumeAuditWindow` before `emitTransportTelemetry` for the two pre-auth reasons | ✓ WIRED | Bounded at one record per reason per 60 s; per-occurrence retained for the four local reasons. |
+| `build.gradle.kts:159` | `McpBuildFlagsVersionTest:50` | `storeBuild.expected` system property | ✓ WIRED | Present at both ends; observed carrying `true` and `false`. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|--------------------|--------|
-| `McpAccessControlPlugin` | `facts.origin` | `headers["Origin"]` | Yes (HTTP/1.1 + HTTP/2) | ✓ FLOWING |
-| `McpAccessControlPlugin` | `facts.referer` | `headers["Referer"]` | Yes — probe: foreign `Referer` → 403 over `h2` | ✓ FLOWING |
-| `McpAccessControlPlugin` | `facts.userAgent` | `headers["User-Agent"]` | Yes | ✓ FLOWING |
-| `McpAccessControlPlugin` | `facts.authorization` | `headers["Authorization"]` | Yes (SC1 green over `h2`) | ✓ FLOWING |
-| `McpAccessControlPlugin` | `facts.host` | `headers["Host"]` | **HTTP/1.1 yes; HTTP/2 always null** | ✗ **DISCONNECTED over h2** |
-| `McpBlockedRequestReporter` | audit `host` field | `deny.facts.host` | Inherits the above — always null over h2 | ⚠️ HOLLOW over h2 |
-| `KtorMcpServerManager` | `Implementation` version | `BuildFlags.VERSION` (generated) | Yes — `"0.9.2"` | ✓ FLOWING |
+| `McpAccessControlPlugin` | `facts.host` | `headers["Host"]` **or** the h2 connection point | HTTP/1.1 yes; **HTTP/2 yes now** — value provably varies with the client authority | ✓ **FLOWING (was DISCONNECTED over h2)** |
+| `McpBlockedRequestReporter` | audit `host` field | `deny.facts.host` | Inherits the above | ✓ **FLOWING (was HOLLOW over h2)** |
+| `McpBuildFlagsVersionTest` | `expected` | `System.getProperty("storeBuild.expected")` ← `build.gradle.kts:159` | Yes — observed `true` and `false` | ✓ FLOWING |
+| `KtorMcpServerManager` | `Implementation` version | generated `BuildFlags.VERSION` | Yes — `"0.9.2"` | ✓ FLOWING |
+| `McpAccessControlPlugin` | `facts.origin` / `referer` / `userAgent` / `authorization` | ordinary headers (survive the h2 pseudo-header filter) | Yes | ✓ FLOWING |
 
 ### Behavioural Spot-Checks
 
 | Behaviour | Command | Result | Status |
 |-----------|---------|--------|--------|
-| Full suite green on the merged tree | `JAVA_HOME=…21 ./gradlew test` | `BUILD SUCCESSFUL in 12m 46s`; zero `<failure` elements across all `build/test-results/test/*.xml` | ✓ PASS |
-| Phase test inventory | JUnit XML count triples | Pipeline 9/0/0, ExternalPipeline 8/0/0, SecurityTest 7/0/0, ServerIntegration 1/0/0, BuildFlagsVersion 2/0/0, SupervisorProbe 4/0/0, Decision 38/0/0, Reporter 16/0/0 | ✓ PASS |
-| TLS connector protocol | transient probe, `response.protocol` | `h2` — HTTP/2 is genuinely negotiated, so h2 behaviour is in scope, not hypothetical | ✓ PASS |
-| Four headers over HTTP/2 | transient probe on external TLS | `xfo=DENY xcto=nosniff rp=same-origin csp=default-src 'none'` | ✓ PASS |
-| Foreign authority denied in local mode | transient probe, h2 vs h1, `/__mcp/health` and `/sse` | h1 → **403 / 403**; h2 → **200 / 200** | ✗ **FAIL** |
-| Store-build artifact path | `./gradlew test -PstoreBuild=true` | `McpBuildFlagsVersionTest > storeBuild_flagStillGenerated() FAILED` | ✗ **FAIL** |
-| Rollback baseline is genuinely pre-fix | `git show b1c3270:…/KtorMcpServerManager.kt` | `"0.6.0"`:97, `routing {`:154, `intercept(ApplicationCallPipeline.Call)`:176 | ✓ PASS |
+| Foreign authority denied in local mode over h2 | transient probe, 3 paths | `403 / 403 / 403` at `protocol=h2` | ✓ **PASS (was FAIL)** |
+| Legitimate h2 client not broken | transient probe, loopback authority | `200 / 400 / 200` at `protocol=h2` | ✓ PASS |
+| `Host`-less HTTP/1.1 still denied (fallback correctly h2-only) | transient probe, raw socket, no `Host` | `HTTP/1.1 403 Forbidden` | ✓ PASS |
+| Foreign / loopback `Host` over HTTP/1.1 | transient probe, raw socket | `403` / `200` | ✓ PASS |
+| Store-build path, flag on | `./gradlew test --tests '*McpBuildFlagsVersionTest*' -PstoreBuild=true` | exit 0; generated `STORE_BUILD = true`; 2/0 | ✓ **PASS (was FAIL)** |
+| Store-build path, flag off | same without the flag | exit 0; generated `STORE_BUILD = false`; 2/0 | ✓ PASS |
+| Phase security suites on the merged tree | one Gradle run, 9 classes, XML read | Pipeline 9/0, ExternalPipeline 8/0, **LocalTlsAuthority 7/0**, Decision 40/0, Security 7/0, Reporter 22/0, ServerIntegration 1/0, SupervisorProbe 4/0, BuildFlagsVersion 2/0 — all `failures="0" errors="0"` | ✓ PASS |
+| Debt-marker gate on every gap-wave file | `grep -nE "TBD\|FIXME\|XXX\|TODO\|HACK\|PLACEHOLDER"` over `git diff --name-only b9ee87a..HEAD` | no matches | ✓ PASS |
 | QUAL-07 baseline unchanged | `git diff --stat detekt-baseline.xml` | empty | ✓ PASS |
-| Working tree clean after probes | `git status --porcelain` | empty | ✓ PASS |
+| Tree clean after the probe | `git status --porcelain` + `git diff --stat HEAD` | both empty | ✓ PASS |
 
 ### Probe Execution
 
 | Probe | Command | Result | Status |
 |-------|---------|--------|--------|
-| — | `find scripts -path '*/tests/probe-*.sh'` | no matches; no PLAN/SUMMARY declares a `probe-*.sh` | N/A — SKIPPED (this repo has no shell-probe convention; SC4's process gate plays that role and is verified above) |
+| — | `find scripts -path '*/tests/probe-*.sh'` | no matches; no PLAN/SUMMARY declares a `probe-*.sh` | N/A — SKIPPED (no shell-probe convention in this repo; SC4's red-before-green gate plays that role, and this verifier's own transient JVM probe supplies the empirical layer) |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|-------------|-------------|--------|----------|
-| **SEC-04** | 20-01…20-06 (all declare it) | Every MCP request subject to access control before any handler; external 401 on `/message` + SSE; local 403 on foreign `Origin` / foreign `Host` / browser UA without `Origin`; four security headers on matched routes; regression tests that fail pre-fix | ⚠️ **SUBSTANTIALLY SATISFIED — one limb BLOCKED** | The structural bypass is genuinely closed: checks moved to the pre-routing `Plugins` phase, the dead Call-phase interceptor deleted, denial provably short-circuits the handler, and the whole thing is nailed down by the SC4 red-before-green gate. Satisfied limbs: external 401s, foreign `Origin` 403, foreign `Referer` 403, browser-UA-without-`Origin` 403, headers on matched routes, pre-fix-failing tests. **Not satisfied:** "a foreign `Host` is rejected with 403" over HTTP/2 (gap 1). |
-| **SEC-05** | 20-01, 20-02, 20-03, 20-04, 20-06 | Real build version instead of `0.6.0`; `isValidHost` handles bracketed IPv6 consistently with `isLoopbackHost` accepting `::1`; blank bearer token cannot authenticate an external request | ✓ **SATISFIED** | All three findings (11, 12, 19) closed and asserted: `BuildFlags.VERSION = "0.9.2"` wired into `Implementation`; the three predicates unified behind one `isLoopbackAuthority` that accepts `[::1]:<port>`, `[0:0:0:0:0:0:0:1]:<port>` and bare `::1`; `isAuthorizedBearer` fails closed on a blank configured token at unit and integration level. See warning WR-01 for a residual defect in the shared parser that does not break SEC-05's stated text. |
+| **SEC-04** | 20-01…20-10 (20-08, 20-09 declare it alone) | Every MCP request subject to access control before any handler; external 401 on `/message` + SSE; local 403 on foreign `Origin` / foreign `Host` / browser UA without `Origin`; four security headers on matched routes; regression tests that fail pre-fix | ✓ **SATISFIED — tick it** | Every limb now holds on every reachable transport. The structural bypass was already closed in the first wave (checks moved to the pre-routing `Plugins` phase, dead `Call`-phase interceptor deleted, denial short-circuits the handler, reporter wired end-to-end). The one open limb — foreign `Host` → 403 — now fires over HTTP/2 as well as HTTP/1.1, **measured** at 403 on `/__mcp/health`, `/message` and `/sse`, with a legitimate loopback h2 client still served. The regression tests fail pre-fix (unchanged 12-assertion rollback set, plus 20-08's 3-failure h2 RED, plus my own 200→403 measurement across the fix). |
+| **SEC-05** | 20-01…20-04, 20-06, 20-07, 20-10 | Real build version instead of `0.6.0`; bracketed-IPv6 authorities handled consistently with `::1` accepted; blank bearer token cannot authenticate | ✓ **SATISFIED** | Unchanged from the first pass and now stronger: `BuildFlags.VERSION = "0.9.2"` wired into `Implementation`; one shared `isLoopbackAuthority` accepting `[::1]:<port>`, `[0:0:0:0:0:0:0:1]:<port>` and bare `::1`; blank-token guard fails closed at unit and integration level. The first pass's WR-01 caveat against "handles authorities consistently" (an `Int`-overflowing port silently disabling the port comparison) is now **fixed and pinned**, so the requirement's text holds without reservation. |
 
-**Orphaned requirements:** none. `.planning/REQUIREMENTS.md:45-46` maps only SEC-04 and SEC-05 to Phase 20; both are claimed by the plans and both are assessed above.
+**Explicit traceability verdict.** No single plan marks either ID, so this is the phase-level call:
+**tick BOTH SEC-04 and SEC-05.** SEC-04's foreign-`Host` limb — the one thing that blocked it on
+2026-08-08 — is closed and independently re-measured. SEC-05 was already satisfied and its residual
+parser defect is closed too.
 
-**Explicit answer to the traceability question.** No single plan delivered either ID, and none marked
-them — correctly so. Taken as a whole, **SEC-05 is genuinely satisfied.** **SEC-04 is not yet fully
-satisfied:** its own text names a foreign `Host` as one of three local-mode 403 vectors, and that
-vector does not fire over HTTP/2 in a user-reachable configuration. Do not tick SEC-04 in
-REQUIREMENTS.md until gap 1 is closed.
+**Orphaned requirements:** none. `.planning/REQUIREMENTS.md:45-46` maps only SEC-04 and SEC-05 to Phase
+20; both are claimed by the plans and both are assessed above.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| — | — | `TBD` / `FIXME` / `XXX` / `TODO` / `HACK` / `PLACEHOLDER` in any file this phase touched | — | **None found.** Debt-marker gate passes. |
-| `McpAccessControlDecision.kt` | 150 | Guard-and-skip on null attacker-controlled input (`facts.host != null && !isLoopback…`) | 🛑 Blocker | Fail-open in a file whose KDoc claims "the fail-closed shape". This is the mechanism of gap 1. |
-| `McpAccessControlDecision.kt` | 174 | `groupValues[2].toIntOrNull()` conflating "absent" with "unparseable" | ⚠️ Warning | WR-01, below. |
-| `McpBlockedRequestReporter.kt` | 53 | Accepted-residual rationale asserts a fact that is false in the relevant mode | ⚠️ Warning | CR-01, below. |
-| `McpBuildFlagsVersionTest.kt` | 39-43 | Test asserts a build-flag *value* rather than the *seam* | ⚠️ Warning | Gap 2 — breaks `-PstoreBuild=true`. |
+| — | — | `TBD` / `FIXME` / `XXX` / `TODO` / `HACK` / `PLACEHOLDER` across all 12 gap-wave files | — | **None found.** Debt-marker gate passes. |
+| `McpAccessControlDecision.kt` | 150 → 166 | Guard-and-skip on null attacker-controlled input | ✓ **RESOLVED** | Was the first pass's 🛑 blocker. Branch is unconditional and carries a do-NOT-restore comment naming the maintainer decision. |
+| `McpAccessControlDecision.kt` | 174 → 203-207 | `toIntOrNull` conflating "absent" with "unparseable" | ✓ **RESOLVED** | WR-01 closed; three outcomes kept distinct. |
+| `McpBlockedRequestReporter.kt` | 53 | Accepted-residual rationale false in the mode that matters | ✓ **RESOLVED** | CR-01 closed; `loopback-only` string gone, ADR-13 named. |
+| `McpBuildFlagsVersionTest.kt` | 39-43 | Test asserting a build-flag *value* rather than the *seam* | ✓ **RESOLVED** | Gap 2 closed; `assertFalse` removed. |
+| `McpAccessControlPlugin.kt` | 213 | `catch (_: RuntimeException)` on a path that could not be exercised at runtime | ℹ️ **Info — assessed, not a gap** | See below. |
 
-### Warnings — code-review findings independently assessed
+### Residual risks — assessed, and why none is a gap
 
-**WR-01 — CONFIRMED by reading the source. Warning, not a gap.**
-`parseAuthority` (McpAccessControlDecision.kt:166-175) maps a port that overflows `Int` to `null`, and
-`isLoopbackAuthority` (:190) skips the port comparison when `port == null`. Therefore
-`isLoopbackAuthority("localhost:99999999999", 9876)` returns **true** while `"localhost:65536"` is
-correctly denied. A fail-open in the one function the file's own KDoc calls "the fail-closed shape".
-Why this is a warning and not an SC5 failure: SC5's stated criterion is *acceptance* of `[::1]:<port>`,
-which works; and the bypass value must still be a loopback *hostname*, so it yields an attacker no
-rebinding capability. It nevertheless contradicts SEC-05's "handles authorities consistently" and
-should be fixed alongside gap 1 (both live in the same parser).
+**The `Integer.parseInt` guard rests on disassembly alone — acceptable.** 20-08 was honest that it could
+not exercise the throwing port getter, because OkHttp's URL parser rejects a malformed port before a
+request is built. I assessed the guard on its failure modes rather than its coverage, and it is safe
+either way: if `Http2LocalConnectionPoint.getServerPort()` never throws, the `catch` is unreachable and
+harmless; if it does throw on a raw h2 client's malformed `:authority`, the `catch` converts what would
+be a 500 on a Netty event-loop thread into a **denial** — because the sentinel resolves to
+`<unresolved-authority>`, and I verified independently that `parseAuthority`'s host character classes
+(`[0-9a-z.\-]+` and `\[[0-9a-f:.]+\]`) admit neither `<` nor `>`, so `matchEntire` fails, the parse
+returns null, and the gate denies. There is no configuration in which the guard weakens the gate, and no
+availability risk for normal clients (20-08's measured rows (a)/(b) show the getter returning the bound
+port cleanly). The disclosure is honest and the residual is benign — **Info, not a gap.**
 
-**WR-02 — CONFIRMED by reading the source. Warning.**
-`docs/mcp-hardening.md` §Verification item 2 lists a foreign `Origin` among the local-mode 403 cases
-and then states "the reason is recorded in Burp's Output tab and, when audit logging is enabled, in the
-audit log". For a foreign `Origin` that is false: CORS is installed first in the same `Plugins` phase,
-responds 403, and the gate's `if (!call.response.isCommitted)` guard then skips `evaluate` entirely, so
-`onBlocked` never fires — no audit event, no Output line. A docs-vs-code contradiction introduced by
-this phase. Fix the sentence (or route the CORS denial through the reporter).
+**Known accepted residuals, documented in the `requestFacts` KDoc, not re-litigated here:** (1) an absent
+`:authority` over h2 is unclosable because `Http2LocalConnectionPoint` coalesces it into the local socket
+and makes it byte-identical to a legitimate authority; (2) 20-07's absent-authority DENY is therefore
+scoped to HTTP/1.1; (3) a portless `:authority` acquires the scheme default port, so h2 denies
+`:authority: localhost` where h1 allows `Host: localhost`. All three are fail-closed or unclosable, all
+three are stated in the source. **Residual 3 is the one with a user-visible cost**, so it is now folded
+into human-verification item 1 rather than left as a bare note: it is the only path by which this
+hardening could lock out a legitimate MCP client, and only a live client can settle it.
 
-**WR-04 — CONFIRMED, and escalated to gap 1.** See the truths table and the gaps frontmatter. Two
-independent lines of evidence: `javap` on `ktor-server-netty-jvm-3.1.3` shows
-`NettyHttp2ApplicationRequest.engineHeaders` is a `HeadersBuilder` populated by iterating
-`Http2Headers` entries with no `Host` synthesis, and `NettyChannelInitializer` advertises `h2` +
-`http/1.1` over ALPN on SSL connectors; and a live probe measured `protocol=h2` with a foreign
-authority reaching `200` on `/sse`. Local mode + TLS is user-reachable — `SettingsPanel.kt:208` exposes
-an independent "Enable TLS" checkbox, and `AgentSettings.kt:1285` only *forces* TLS on when external is
-on, it never forces it off when external is off. **Mitigating context that keeps this out of
-"critical":** a browser DNS-rebinding attempt over h2 is still caught by the
-`BROWSER_NO_ORIGIN` branch (a same-origin `fetch` sends no `Origin`, and `User-Agent` *is* forwarded
-over h2 — probe-confirmed via the foreign-`Referer` 403), and the default local configuration is
-cleartext HTTP/1.1 where the check works. The `Host` limb is therefore defence-in-depth here — but it
-is a limb SEC-04 and SC2 both name explicitly, and it fails open silently.
+**CR-01, verified bounded rather than accepted on narrative.** With audit logging and external access on,
+every 401 previously drove one synchronous `audit.jsonl` append from an unauthenticated peer. Now
+`report()` routes `UNAUTHORIZED` and `BLANK_TOKEN` through `consumeAuditWindow`, which emits only when
+the 60 s window has elapsed and the CAS wins, and otherwise increments a counter and returns null. The
+ceiling is therefore **two audit records per minute** (one per reason) regardless of request rate, with
+`suppressed` preserving burst visibility. `nowMs` comes from `System.currentTimeMillis()` at the real
+call site (`KtorMcpServerManager.kt:192`), so this is a real 60 s in production. `AuditLogger.kt` is
+**not** in the gap-wave diff — the too-broad change was genuinely avoided. The one locked decision
+touched is D-06, and that amendment is authorised by ADR-13 with the original bullet left readable; no
+other locked decision moved.
 
-**CR-01 — assessed as separate follow-up work, not a phase-goal failure.**
-The unauthenticated 401 path in external mode does now reach `AuditLogger.emitGlobal`, and D-09's
-per-reason window covers only the Output line, so with audit logging enabled a remote unauthenticated
-peer can drive one synchronous `~/.burp-ai-agent/audit.jsonl` append per request on a Netty event-loop
-thread. Pre-phase, blocked requests emitted nothing, so the primitive is new. It does not compromise
-the phase goal — it is a consequence of D-06, which is a locked decision — and it is disclosed in
-`McpBlockedRequestReporter.kt:46-54` as accepted residual T-20-12. **However, the stated acceptance
-rationale is wrong in the mode that matters:** ":53 says "Accepted because the source is
-loopback-only", which is untrue precisely in external mode, the only mode with an unauthenticated 401
-path. Recommend: correct that KDoc rationale now (it is load-bearing for a future reader's risk
-assessment), and file the bounded/async audit sink as follow-up work rather than blocking this phase.
+**ADR-13 × the runbook, one small imprecision (Info).** `docs/mcp-hardening.md:39` still promises that
+the external-mode 401 reason "is recorded … in the audit log". That remains true for the checklist as
+written, because the first occurrence in a window always emits (`prev == 0L` → window elapsed →
+`suppressed = 0`). An operator who repeats the 401 test twice inside 60 s will see only one record. Not
+worth a gap; worth a sentence if that section is edited again.
 
-**SC3 coverage warning.** No test asserts `response.protocol`, so the HTTP/2 half of SC3 is
-coverage-by-accident: it holds today only because the TLS connector happens to negotiate `h2` and
-OkHttp happens not to be protocol-pinned. If either changes, SC3's h2 claim silently loses its evidence
-with no test going red. Consider adding `assertEquals(Protocol.HTTP_2, response.protocol)` to the
-external pipeline test — one line, and it converts an accident into a contract.
+**Process note, not a defect.** `20-07-SUMMARY.md` is missing its `Self-Check` section (template
+omission). The orchestrator independently verified its substantive claims and I did not re-derive them; I
+did independently confirm the two behavioural outcomes that matter (unconditional authority branch,
+out-of-range port rejected). 20-08, 20-09 and 20-10 all carry `Self-Check: PASSED`.
 
 ### Human Verification Required
 
-Two items are genuinely unautomatable and are carried in the frontmatter: a real MCP client (Claude
-Desktop / Codex CLI) connecting over local SSE, and the same in external mode with a token. Both come
-from `20-VALIDATION.md` §Manual-Only Verifications and neither is closeable by grep. The third
-frontmatter item (doc accuracy) is partly resolved: items 4-6 of §External Access are accurate; the
-judgement call left for a human is whether to accept the §Verification item 2 inaccuracy (WR-02) or fix
-it now.
+Two items, both genuinely unautomatable, both from `20-VALIDATION.md` §Manual-Only. The first pass's
+third item (doc accuracy) is now **closed** — I verified the WR-02 correction in
+`docs/mcp-hardening.md:38-40` myself, so no judgement call is left there.
 
-These do not change the status — gaps take precedence over `human_needed`.
+**1. A real MCP client over local SSE — now in BOTH transport configurations.**
+**Test:** Enable MCP locally with TLS **off**, connect Claude Desktop or Codex CLI, list tools, call one
+read-only tool. Then repeat with the "Enable TLS" checkbox **on** (this negotiates HTTP/2).
+**Expected:** Both configurations connect and serve the tool call.
+**Why human:** Requires a live third-party client and a running Burp. The h2 run is the new risk surface:
+the gate now denies any local-mode request whose resolved authority is not the bound loopback socket, and
+over h2 a **portless** `:authority` resolves to the scheme default port (443) and is denied where
+HTTP/1.1 would allow it. Which authority shape a given client emits cannot be determined from this repo.
+This is the only plausible way the phase could have broken a legitimate user, and it is worth ten minutes.
+
+**2. A real MCP client in external mode with a bearer token over TLS.**
+**Expected:** Connects and authenticates; no 401 for a correctly configured client.
+**Why human:** Same — live third-party client plus TLS trust configuration.
+
+Status is `human_needed` rather than `passed` solely because these two remain; all 6 automated must-haves
+are verified and there are no gaps.
 
 ### Gaps Summary
 
-The phase's central claim is true and well-proven: the access-control checks really did move from a
-dead `Call`-phase interceptor registered after `routing{}` into a `Plugins`-phase
-`createApplicationPlugin`, denial provably short-circuits the handler, the reporter is genuinely wired
-(observed via a real emitted audit event, not a non-null lambda), and the SC4 red-before-green
-experiment is legitimate — the rollback baseline was independently confirmed to contain the pre-fix
-code, and the recorded failure set correctly excludes the three assertions that pass both before and
-after. SC1, SC3, SC4, SC5 and SC6 are verified. SEC-05 is genuinely satisfied.
+**No gaps. Both prior gaps are closed, and closed on evidence produced by this verifier rather than
+inherited from the executors' test runs.**
 
-Two gaps remain.
+Gap 1 was the phase's own signature defect turned back on itself — a check that existed but did not run
+on a reachable path. It is now closed on both sides, and the two fixes genuinely compose rather than
+overlapping: 20-07 makes an absent authority deny (so the limb can no longer be skipped), and 20-08
+supplies the real client authority over HTTP/2 (so legitimate h2 clients are still served). My probe
+proves both halves are load-bearing — the foreign-authority 403 shows the limb fires, and the
+loopback-authority 200 shows the fallback resolves a real value instead of denying everything. The
+HTTP/2-only gate on that fallback is not merely present in the source; it is proven necessary by
+measurement, because a `Host`-less HTTP/1.1 request would have flipped from denied to **allowed** without
+it, and it measured 403.
 
-**Gap 1 is the same class of defect the phase exists to eliminate: a check that exists but does not
-run on a reachable path.** The gate reads `Host` as an HTTP/1 header. Ktor 3.1.3 does not synthesise
-`Host` from HTTP/2's `:authority`, and `evaluateLocal` skips the DNS-rebinding branch when `host` is
-null instead of denying. In local mode with TLS enabled — an independent, user-facing checkbox — the
-connector negotiates `h2` and a foreign authority walks to `200` on `/sse`. This was measured, not
-inferred. The fix is small (read `:authority` when `Host` is absent, and decide explicitly what a
-missing authority means) and the missing test is small (one local-mode TLS pipeline test that asserts
-`protocol == h2`). Until then SC2 is half-met and SEC-04's foreign-`Host` limb is open.
+Gap 2 is closed with a real seam rather than a weakened assertion. The generated flag and the Gradle
+property reach the test JVM by different mechanisms, the assertion was observed comparing `true == true`
+under the flag and `false == false` without it, and the old `assertFalse` is gone. The BApp Store
+artifact path can validate itself again.
 
-**Gap 2 is a self-inflicted build regression**, unrelated to security but real and reproduced by this
-verifier: `./gradlew test -PstoreBuild=true` now fails, because a new test asserts
-`BuildFlags.STORE_BUILD == false` unconditionally instead of asserting that the flag tracks the Gradle
-property. That is the BApp Store artifact build path, which matters given the live submission. One-line
-fix.
+Along the way three code-review findings the first pass had left open are closed and independently
+confirmed: WR-01 (out-of-range port fail-open in the shared parser), WR-02 (runbook promising an audit
+record the code provably never writes for a foreign `Origin`), and CR-01 (unbounded unauthenticated audit
+append, now ceilinged at two records per minute with the false `loopback-only` rationale replaced by
+ADR-13). The SC3 coverage-by-accident warning is closed too — the HTTP/2 half is now an asserted contract.
 
-Neither gap is deferrable — nothing in Phases 21-26 covers them.
+Nothing regressed: the SC1–SC3 pipeline tests that constitute SC4's rollback evidence are byte-identical
+(or comment-only) across the gap wave, all nine phase security suites are green on the merged tree, no
+debt marker was introduced in any of the twelve changed files, and `detekt-baseline.xml` is untouched.
+
+**SEC-04 and SEC-05 should both be ticked.**
 
 ---
 
-_Verified: 2026-08-08T13:07:44Z_
+_Verified: 2026-08-10T10:15:00Z (re-verification after gap closure; first pass 2026-08-08T13:07:44Z, 5/6 gaps_found)_
 _Verifier: Claude (gsd-verifier)_
