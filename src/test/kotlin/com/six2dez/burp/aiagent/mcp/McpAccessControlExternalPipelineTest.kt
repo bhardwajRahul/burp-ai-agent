@@ -2,6 +2,7 @@ package com.six2dez.burp.aiagent.mcp
 
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
@@ -50,10 +51,15 @@ private val EXPECTED_SECURITY_HEADERS =
  *
  * Naming note: `McpAccessControlExternalPipelineTest` is deliberately NOT matched by the
  * `*IntegrationTest` / `*ConcurrencyTest` / `*BackpressureTest` / `*RestartPolicyTest` /
- * `*SupervisionTest` exclusion globs that the `tasks.test` filter block in `build.gradle.kts` (cited
- * as :145-157, actually :154-166) applies under `-PexcludeHeavyTests=true`. A security gate wearing
- * one of those suffixes would be silently skipped in every fast PR gate and would prove nothing. Do
- * not rename this class into one of those patterns.
+ * `*SupervisionTest` exclusion globs that the `excludeHeavyTests` filter block inside `tasks.test` in
+ * `build.gradle.kts` applies under `-PexcludeHeavyTests=true`. Anchored on that symbol rather than a
+ * line range: the earlier `:145-157` / `:154-166` citations both went stale as the file moved. A
+ * security gate wearing one of those suffixes would be silently skipped in every fast PR gate and
+ * would prove nothing. Do not rename this class into one of those patterns.
+ *
+ * Transport note: `message_withValidBearer_reachesHandlerAndCarriesSecurityHeaders` asserts
+ * `response.protocol` is HTTP/2, so SC3's HTTP/2 half is a contract rather than coverage that merely
+ * happened to hold — an ALPN change now fails this class instead of silently erasing the evidence.
  *
  * Client note: OkHttp, and NEVER the JDK's built-in URL-connection client (the one
  * `McpServerIntegrationTest` uses through its `httpRequest` helper). That client applies a
@@ -150,6 +156,17 @@ class McpAccessControlExternalPipelineTest {
     fun message_withValidBearer_reachesHandlerAndCarriesSecurityHeaders() {
         withExternalServer { baseUrl, client ->
             client.newCall(post(baseUrl, MESSAGE, "Authorization" to VALID_BEARER)).execute().use { response ->
+                // Asserted BEFORE the status and header assertions on purpose, so an ALPN regression is
+                // reported as a protocol regression instead of surfacing as a confusing header failure.
+                assertEquals(
+                    Protocol.HTTP_2,
+                    response.protocol,
+                    "SC3 claims the four security headers are present deterministically over both HTTP/1.1 " +
+                        "and HTTP/2, yet before this line nothing in the suite asserted the transport: the " +
+                        "HTTP/2 half of SC3 held only because this TLS connector happened to negotiate h2 and " +
+                        "OkHttp happened not to be protocol-pinned. A change to either would have removed " +
+                        "SC3's evidence with no test going red",
+                )
                 assertEquals(
                     400,
                     response.code,
