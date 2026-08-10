@@ -1,7 +1,7 @@
 package com.six2dez.burp.aiagent.mcp
 
 import com.six2dez.burp.aiagent.BuildFlags
-import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -14,7 +14,9 @@ import org.junit.jupiter.api.Test
  *
  * Naming note: the class name contains `BuildFlags` on purpose — the phase gate runs it via
  * `--tests '*BuildFlags*'`. It deliberately does NOT end in `IntegrationTest` (or any other suffix
- * listed at `build.gradle.kts:145-157`), because `-PexcludeHeavyTests=true` would silently skip it.
+ * listed in the `excludeHeavyTests` filter block inside `tasks.test` in `build.gradle.kts`), because
+ * `-PexcludeHeavyTests=true` would silently skip it. Anchored on the symbol rather than a line
+ * range: the previous `build.gradle.kts:145-157` citation went stale and cost real time twice.
  */
 class McpBuildFlagsVersionTest {
     @Test
@@ -35,10 +37,22 @@ class McpBuildFlagsVersionTest {
 
     @Test
     fun storeBuild_flagStillGenerated() {
-        // Proves the added version Property did not disturb the pre-existing store-build flag.
-        assertFalse(
+        // Proves the added version Property did not disturb the pre-existing store-build flag, by
+        // asserting the SEAM rather than a fixed value: the generated constant must agree with the
+        // -PstoreBuild value the build actually resolved. `build.gradle.kts`'s `tasks.test` block
+        // carries that resolved Boolean in as `storeBuild.expected`, because the generated
+        // `BuildFlags.STORE_BUILD` offers no other seam a test can compare against. Asserting a
+        // literal `false` made `./gradlew test -PstoreBuild=true` fail — and that is the BApp Store
+        // artifact build path, so the store artifact could not be validated before submission.
+        //
+        // An absent property (running this class outside Gradle, e.g. from an IDE) maps to false,
+        // which matches the no-flag build. That default is deliberate, not an oversight.
+        val expected = System.getProperty("storeBuild.expected")?.toBooleanStrictOrNull() == true
+        assertEquals(
+            expected,
             BuildFlags.STORE_BUILD,
-            "STORE_BUILD must default to false when -PstoreBuild is not passed",
+            "generated BuildFlags.STORE_BUILD must track the -PstoreBuild Gradle property " +
+                "(storeBuild.expected=$expected): flipping one without the other is the regression guarded here",
         )
     }
 }
