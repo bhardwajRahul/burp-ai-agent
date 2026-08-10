@@ -39,7 +39,7 @@ Everything else in this milestone is real but was found by reading: an agent loo
 
 ## Phases
 
-- [ ] **Phase 20: MCP Access-Control Correctness** — Move the auth/Origin/header interceptor ahead of routing so it runs on every request; regression tests that fail against today's code (6/6 plans executed 2026-08-08; verification `gaps_found` 5/6 — SEC-04 open: foreign-`Host` 403 does not fire over HTTP/2)
+- [x] **Phase 20: MCP Access-Control Correctness** — Move the auth/Origin/header interceptor ahead of routing so it runs on every request; regression tests that fail against today's code (6/6 plans executed 2026-08-08; verification `gaps_found` 5/6 — SEC-04 open: foreign-`Host` 403 does not fire over HTTP/2) (completed 2026-08-10)
 - [ ] **Phase 21: Redaction Completeness** — Close the cookie-section leak, match real-world sensitive key names, stop redaction failing open on large bodies
 - [ ] **Phase 22: Agent Tool-Call Trust Boundary** — User decision gate for model-emitted tool calls, plus the ADR that records the threat model
 - [ ] **Phase 23: EDT Confinement & UI Responsiveness** — Tool execution, backend HTTP and MCP stop() off the Swing EDT
@@ -78,10 +78,10 @@ Gap closure (`20-VERIFICATION.md` status `gaps_found`, score 5/6 — SEC-05 sati
 limb open over HTTP/2; plus `20-REVIEW.md` CR-01/WR-01/WR-02/WR-08). All four are file-disjoint and run as
 one parallel wave:
 
-- [ ] 20-07-PLAN.md — decision core: deny when the authority is absent, reject an out-of-range port (gap 1 decision half, WR-01)
-- [ ] 20-08-PLAN.md — plugin: resolve the request authority over HTTP/2, with a red-before-green local-mode TLS gate (gap 1 transport half)
-- [ ] 20-09-PLAN.md — reporter: bound the audit sink for pre-auth denials, recorded as ADR-13 (CR-01)
-- [ ] 20-10-PLAN.md — `-PstoreBuild=true` build path, hardening-runbook accuracy, SC3 HTTP/2 contract (gap 2, WR-02, SC3 coverage warning)
+- [x] 20-07-PLAN.md — decision core: deny when the authority is absent, reject an out-of-range port (gap 1 decision half, WR-01)
+- [x] 20-08-PLAN.md — plugin: resolve the request authority over HTTP/2, with a red-before-green local-mode TLS gate (gap 1 transport half)
+- [x] 20-09-PLAN.md — reporter: bound the audit sink for pre-auth denials, recorded as ADR-13 (CR-01)
+- [x] 20-10-PLAN.md — `-PstoreBuild=true` build path, hardening-runbook accuracy, SC3 HTTP/2 contract (gap 2, WR-02, SC3 coverage warning)
 
 **Implementation note** (resolved by `20-RESEARCH.md`, verified by decompilation + execution): use
 `createApplicationPlugin("McpAccessControl", ::Config) { onCall { … } }`, installed **after** `install(CORS)` and
@@ -210,7 +210,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 20. MCP Access-Control Correctness | 6/6 | Complete   | 2026-08-08 |
+| 20. MCP Access-Control Correctness | 10/10 | Complete   | 2026-08-10 |
 | 21. Redaction Completeness | 0/? | Not started | — |
 | 22. Agent Tool-Call Trust Boundary | 0/? | Not started | — |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
