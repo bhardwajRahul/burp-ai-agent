@@ -151,6 +151,12 @@ tasks.build {
 tasks.test {
     useJUnitPlatform()
     jvmArgs("-ea") // Enable JVM assertions so EDT assert() fires in CI (REL-01 SC1 gate)
+    // The generated BuildFlags.STORE_BUILD offers no other seam a test can compare against, so
+    // McpBuildFlagsVersionTest used to assert a literal false — which made `-PstoreBuild=true`, the
+    // BApp Store artifact build path, fail its own test suite. Passing the already-resolved
+    // `storeBuild` Boolean (configuration-cache-safe, exactly as tasks.shadowJar consumes it) lets
+    // the test assert that the generated constant tracks the Gradle property under either build.
+    systemProperty("storeBuild.expected", storeBuild.toString())
     val excludeHeavyTests =
         (project.findProperty("excludeHeavyTests") as? String)
             ?.trim()
