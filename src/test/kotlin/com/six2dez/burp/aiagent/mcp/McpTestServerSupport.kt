@@ -28,9 +28,12 @@ import javax.net.ssl.X509TrustManager
  *
  * Naming note — two non-negotiables for anyone editing this file:
  *  1. Test classes built on this helper MUST NOT be named `*IntegrationTest`, `*ConcurrencyTest`,
- *     `*BackpressureTest`, `*RestartPolicyTest` or `*SupervisionTest`. `build.gradle.kts:145-157`
- *     excludes exactly those globs under `-PexcludeHeavyTests=true`, so an SC4 security gate wearing
- *     one of those suffixes would be silently skipped in a fast PR gate and prove nothing.
+ *     `*BackpressureTest`, `*RestartPolicyTest` or `*SupervisionTest`. The `excludeHeavyTests` filter
+ *     block inside `tasks.test` in `build.gradle.kts` excludes exactly those globs under
+ *     `-PexcludeHeavyTests=true`, so an SC4 security gate wearing one of those suffixes would be
+ *     silently skipped in a fast PR gate and prove nothing. Anchor on that symbol and not on a line
+ *     number: the previous citation here (`build.gradle.kts:145-157`) had already drifted off the real
+ *     block, and two plans in phase 20 lost time to it.
  *  2. The HTTP client here is OkHttp and MUST NEVER be `HttpURLConnection`. The JDK's
  *     restricted-header list silently drops `Origin` and always overwrites `Host` (unless
  *     `-Dsun.net.http.allowRestrictedHeaders=true`), which makes the SC2 foreign-Origin assertion
@@ -98,6 +101,41 @@ internal object McpTestServerSupport {
             // A test must NEVER point this at ~/.burp-ai-agent/certs — that is the user's real
             // keystore, and McpTls.resolve auto-generates into whatever path it is handed, silently
             // overwriting it. Always a caller-supplied temp directory.
+            tlsKeystorePath = keystoreDir.resolve("mcp-test.p12").toString(),
+            tlsKeystorePassword = "test-pass",
+        )
+
+    /**
+     * LOCAL-mode settings with TLS auto-generation — the configuration whose gate behaviour over
+     * HTTP/2 plan 20-08 closes. The caller supplies the keystore directory, as for
+     * [externalTlsSettings].
+     *
+     * `externalEnabled = false` is the entire point of this helper and the one field that differs from
+     * [externalTlsSettings]: the `Host`/authority, `Referer` and browser-User-Agent limbs of the gate
+     * live in `evaluateLocal` and therefore run ONLY in local mode. `KtorMcpServerManager.start`
+     * permits this combination — it rejects only `externalEnabled && !tlsEnabled`, and separately
+     * requires a loopback host when external access is off, which `127.0.0.1` satisfies.
+     *
+     * TLS is what makes the transport HTTP/2: `tlsEnabled` selects the `sslConnector` branch, and
+     * Netty's channel initializer advertises `h2` ahead of `http/1.1` over ALPN on SSL connectors. A
+     * cleartext local server is HTTP/1.1 only, so the h2 authority path is unreachable without this.
+     */
+    fun localTlsSettings(
+        port: Int,
+        keystoreDir: Path,
+        token: String = "test-token",
+    ): McpSettings =
+        TestSettings.baselineSettings().mcpSettings.copy(
+            enabled = true,
+            host = "127.0.0.1",
+            port = port,
+            externalEnabled = false,
+            stdioEnabled = false,
+            token = token,
+            allowedOrigins = emptyList(),
+            tlsEnabled = true,
+            tlsAutoGenerate = true,
+            // Same non-negotiable as externalTlsSettings: never the user's real keystore path.
             tlsKeystorePath = keystoreDir.resolve("mcp-test.p12").toString(),
             tlsKeystorePassword = "test-pass",
         )
