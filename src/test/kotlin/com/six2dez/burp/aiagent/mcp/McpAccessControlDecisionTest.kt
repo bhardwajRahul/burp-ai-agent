@@ -133,6 +133,8 @@ class McpAccessControlDecisionTest {
 
     @Test
     fun evaluate_localForeignOriginIsForbidden() {
+        // The absent authority is DELIBERATE: the Origin branch precedes the fail-closed authority
+        // branch, so this test staying green is the proof that branch precedence survived 20-07.
         val facts = RequestFacts(path = "/message", origin = "http://evil.example")
 
         assertEquals(
@@ -143,6 +145,8 @@ class McpAccessControlDecisionTest {
 
     @Test
     fun evaluate_localBrowserUserAgentWithoutOriginIsForbidden() {
+        // The absent authority is DELIBERATE: the browser-UA branch precedes the fail-closed
+        // authority branch, so BROWSER_NO_ORIGIN — not HOST_MISMATCH — must still be the reason.
         val facts = RequestFacts(path = "/message", origin = null, userAgent = CHROME_USER_AGENT)
 
         assertEquals(
@@ -164,6 +168,7 @@ class McpAccessControlDecisionTest {
             RequestFacts(
                 path = "/message",
                 origin = "http://localhost:$MCP_PORT",
+                host = "127.0.0.1:$MCP_PORT",
                 userAgent = CHROME_USER_AGENT,
             )
 
@@ -218,7 +223,15 @@ class McpAccessControlDecisionTest {
 
     @Test
     fun evaluate_localForeignRefererIsForbidden() {
-        val facts = RequestFacts(path = "/message", referer = "http://evil.example/x")
+        // The matching loopback authority is REQUIRED, not decoration: the fail-closed authority
+        // branch precedes the Referer branch, so without it this test would measure HOST_MISMATCH
+        // and the Referer coverage would silently disappear.
+        val facts =
+            RequestFacts(
+                path = "/message",
+                host = "127.0.0.1:$MCP_PORT",
+                referer = "http://evil.example/x",
+            )
 
         assertEquals(
             GateDecision.Deny(HttpStatusCode.Forbidden, BlockReason.REFERER_MISMATCH, facts),
@@ -228,7 +241,12 @@ class McpAccessControlDecisionTest {
 
     @Test
     fun evaluate_localLoopbackRefererIsAllowed() {
-        val facts = RequestFacts(path = "/message", referer = "http://127.0.0.1:$MCP_PORT/x")
+        val facts =
+            RequestFacts(
+                path = "/message",
+                host = "127.0.0.1:$MCP_PORT",
+                referer = "http://127.0.0.1:$MCP_PORT/x",
+            )
 
         assertEquals(GateDecision.Allow, evaluate(facts, localSettings()))
     }
@@ -266,7 +284,14 @@ class McpAccessControlDecisionTest {
     @Test
     fun evaluate_localNeverInspectsAuthorization() {
         // Requiring a bearer token in local mode is a deferred idea, deliberately NOT added here.
-        val facts = RequestFacts(path = "/message", authorization = "Bearer nonsense")
+        // The matching loopback authority keeps this test measuring what its name says instead of
+        // tripping the fail-closed authority branch.
+        val facts =
+            RequestFacts(
+                path = "/message",
+                host = "127.0.0.1:$MCP_PORT",
+                authorization = "Bearer nonsense",
+            )
 
         assertEquals(GateDecision.Allow, evaluate(facts, localSettings()))
     }

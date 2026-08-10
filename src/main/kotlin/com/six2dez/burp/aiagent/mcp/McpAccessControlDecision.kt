@@ -154,7 +154,16 @@ private fun evaluateLocal(
         // a valid loopback Origin had to clear CORS before the gate ever saw it.
         facts.origin == null && isBrowserUserAgent(facts.userAgent) ->
             GateDecision.Deny(HttpStatusCode.Forbidden, BlockReason.BROWSER_NO_ORIGIN, facts)
-        facts.host != null && !isLoopbackAuthority(facts.host, settings.port) ->
+        // FAIL-CLOSED, deliberate — do NOT reintroduce a presence check in front of this branch.
+        // Until gap-closure plan 20-07 this limb was skipped whenever the request carried no
+        // authority at all, so the requests the DNS-rebinding check exists to stop were the exact
+        // ones that bypassed it. The maintainer's locked answer is that a request bearing neither an
+        // HTTP/1 `Host` header nor an HTTP/2 `:authority` is DENIED; every conforming client sends
+        // one, so no real MCP client loses access, and this is the "fail-closed shape" the rest of
+        // this file already claims. An absent authority needs no separate predicate: both authority
+        // patterns require at least one host character, so an empty value is already malformed
+        // (pinned by isLoopbackAuthority_failsClosedOnMalformedInput).
+        !isLoopbackAuthority(facts.host.orEmpty(), settings.port) ->
             GateDecision.Deny(HttpStatusCode.Forbidden, BlockReason.HOST_MISMATCH, facts)
         facts.referer != null && !isLoopbackUrlAuthority(facts.referer) ->
             GateDecision.Deny(HttpStatusCode.Forbidden, BlockReason.REFERER_MISMATCH, facts)
