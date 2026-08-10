@@ -27,10 +27,13 @@ private val controlCharRegex = Regex("[\\p{Cntrl}\\u0080-\\u009F]")
 private val whitespaceRegex = Regex("\\s+")
 
 /**
- * Turns a [GateDecision.Deny] into observability. Two sinks, per D-06: an audit event on EVERY
- * occurrence, and a Burp Output-tab line that is rate-limited per reason with an aggregate count
- * (D-09). The access-control decision itself stays pure — this class is invoked by the caller from
- * the `Deny` branch, never from inside `evaluate`.
+ * Turns a [GateDecision.Deny] into observability. Two sinks: an audit event, and a Burp Output-tab
+ * line that is rate-limited per reason with an aggregate count (D-09). Per D-06 as amended by
+ * **ADR-13**, the audit event fires on EVERY occurrence for the four local-mode reasons, and is
+ * coalesced into one event per per-reason window carrying a `suppressed` count for the two
+ * pre-authentication reasons (`UNAUTHORIZED`, `BLANK_TOKEN`). The access-control decision itself
+ * stays pure — this class is invoked by the caller from the `Deny` branch, never from inside
+ * `evaluate`.
  *
  * **Output sink is a lambda, not a `MontoyaApi`.** The caller passes
  * `{ line -> api.logging().logToOutput(line) }`; tests capture into a list. That keeps this class
@@ -43,15 +46,25 @@ private val whitespaceRegex = Regex("\\s+")
  * done here. `method` and `path` are sanitized but not hashed: they are not reflected header values,
  * and a hashed request path would make a blocked route undiagnosable.
  *
- * **T-20-12, accepted residual risk, stated for the audit-ENABLED case.** `App.kt:69` registers the
+ * **T-20-12, residual risk, stated for the audit-ENABLED case.** `App.kt:69` registers the
  * `AuditLogger` global emitter unconditionally at startup — the `enabled` short-circuit lives one
- * level deeper, in `AuditLogger.logEvent`. So when the user has turned audit logging ON, D-06's
- * "an audit event on every block" means one synchronous `logFile.appendText` per blocked request on a
- * Netty event-loop thread, and a loopback request loop can drive one file append per request. D-09's
- * per-reason window deliberately covers only the Output line, because collapsing N blocks into one
- * event carrying a `suppressed` count would contradict D-06's locked "on every occurrence". Accepted
- * because the source is loopback-only and async hand-off has no in-repo precedent; it is not
- * defended by "audit is disabled by default" alone.
+ * level deeper, in `AuditLogger.logEvent`. So when the user has turned audit logging ON, an audit
+ * event means one synchronous `logFile.appendText` per emission, on a Netty event-loop thread.
+ *
+ * In EXTERNAL mode every route except `/__mcp/health` answers `401` to an unauthenticated peer, and
+ * each of those is an `UNAUTHORIZED` or `BLANK_TOKEN` denial, so per-occurrence emission for those
+ * two reasons was a REMOTE UNAUTHENTICATED append primitive against `~/.burp-ai-agent/audit.jsonl`
+ * (CWE-400 resource exhaustion / CWE-779 excessive logging — the flood also buries genuine records
+ * under attacker-chosen noise). **ADR-13** resolves that by coalescing those two reasons to one
+ * event per window with a `suppressed` count; see [consumeAuditWindow]. The four local-mode reasons
+ * stay per-occurrence because triggering them requires local code execution, and they are the
+ * diagnosable ones.
+ *
+ * What remains accepted: no size cap or rotation was added to the shared `AuditLogger`, so a local
+ * process able to loop local-mode denials can still grow the file. That is a deliberate scope
+ * boundary — `AuditLogger` is shared infrastructure every phase depends on — not an oversight, and
+ * it is recorded as the residual in ADR-13. Async hand-off to a writer thread still has no in-repo
+ * precedent, so the volume ceiling is the mitigation actually applied.
  */
 internal class McpBlockedRequestReporter(
     private val logToOutput: (String) -> Unit,
@@ -62,11 +75,20 @@ internal class McpBlockedRequestReporter(
         val suppressedCount: AtomicLong = AtomicLong(0L),
     )
 
+    /** D-09's Output-tab windows. Owned exclusively by [maybeLogBlocked]. */
     private val windows: MutableMap<BlockReason, ReasonWindow> = ConcurrentHashMap()
 
     /**
-     * The only entry point. Emits the audit event first (always), then attempts the rate-limited
-     * Output line.
+     * ADR-13's audit-sink windows. A SEPARATE map holding distinct [ReasonWindow] instances from
+     * [windows]: both sinks consume their suppression counter with `getAndSet(0L)`, so sharing an
+     * instance would let whichever sink ran first steal the other's count and report a wrong number.
+     * The window LENGTH is shared ([BLOCK_LOG_WINDOW_MS]) so the two sinks cannot drift apart.
+     */
+    private val auditWindows: MutableMap<BlockReason, ReasonWindow> = ConcurrentHashMap()
+
+    /**
+     * The only entry point. Decides the audit emission first, then attempts the rate-limited Output
+     * line.
      *
      * [nowMs] is injected by the caller rather than read from the system clock inside this class — the
      * same convention as `PassiveAiScannerAnalysis.maybeLogBackoff(nowMs, untilMs)` — so the D-09
@@ -77,8 +99,46 @@ internal class McpBlockedRequestReporter(
         externalMode: Boolean,
         nowMs: Long,
     ) {
-        emitTransportTelemetry(MCP_TRANSPORT_EVENT_BLOCKED, buildPayload(deny, externalMode))
+        // ADR-13: `UNAUTHORIZED` and `BLANK_TOKEN` are the only reasons an unauthenticated remote
+        // peer can trigger, so they are the flood-capable ones and their audit event is coalesced.
+        // A boolean predicate over the existing reasons rather than an exhaustive `when`, so adding
+        // a `BlockReason` cannot silently opt it into coalescing.
+        val floodCapable = deny.reason == BlockReason.UNAUTHORIZED || deny.reason == BlockReason.BLANK_TOKEN
+        if (!floodCapable) {
+            emitTransportTelemetry(MCP_TRANSPORT_EVENT_BLOCKED, buildPayload(deny, externalMode))
+        } else {
+            // `Map.plus` keeps insertion order, so `suppressed` lands after the eight D-06 keys and
+            // never appears on a non-coalesced payload.
+            consumeAuditWindow(deny.reason, nowMs)?.let { suppressed ->
+                emitTransportTelemetry(MCP_TRANSPORT_EVENT_BLOCKED, buildPayload(deny, externalMode) + ("suppressed" to suppressed))
+            }
+        }
         maybeLogBlocked(deny, nowMs)
+    }
+
+    /**
+     * ADR-13 limiter for the audit sink, using the same lock-free read-then-CAS idiom as
+     * [maybeLogBlocked] over [auditWindows].
+     *
+     * Returns the number of occurrences suppressed SINCE THE PREVIOUS EMISSION when the window has
+     * elapsed — the same meaning [aggregateLine] gives it, so the first event of a burst always
+     * carries `0L` and the emitted occurrence is not counted in its own total. Returns `null` while
+     * the window is still open, meaning "count this one and emit nothing". A `Long`, not an `Int`,
+     * because the payload's value type is `Any?` and an `Int` would not compare equal to a `Long`.
+     */
+    private fun consumeAuditWindow(
+        reason: BlockReason,
+        nowMs: Long,
+    ): Long? {
+        val window = auditWindows.computeIfAbsent(reason) { ReasonWindow() }
+        val prev = window.lastLoggedAtMs.get()
+        val windowElapsed = prev == 0L || nowMs - prev >= BLOCK_LOG_WINDOW_MS
+        return if (!windowElapsed || !window.lastLoggedAtMs.compareAndSet(prev, nowMs)) {
+            window.suppressedCount.incrementAndGet()
+            null
+        } else {
+            window.suppressedCount.getAndSet(0L)
+        }
     }
 
     /**
