@@ -163,6 +163,10 @@ None — no external service configuration required.
 - **Untouched by design, still open from 20-REVIEW:** IN-08 (the `nowMs == 0` sentinel), IN-09 (the Output aggregate undercounting by one and dropping the current block's detail), WR-05 (the unquoted delimiter-based Output line), IN-01..IN-04. All are in or near this file; all were left alone to keep the diff to this gap. IN-09 is worth noting for whoever picks it up — the aggregate-line arithmetic and the new `suppressed` count now share the same off-by-one convention, so a fix should address both sinks together.
 - Sibling gap-closure plans 20-07, 20-08 and 20-10 touch disjoint files; no merge conflict is expected with this plan's four.
 
+## Self-Check: PASSED
+
+All four modified files exist on disk at the recorded paths, and all four commits (`1cb9265`, `e7de6d6`, `25fa69d`, `d8c09e9`) are present in `git log`. `git status --short` is clean. STATE.md and ROADMAP.md were deliberately NOT written — the orchestrator owns those after all worktree agents merge.
+
 ---
 *Phase: 20-mcp-access-control-correctness*
 *Completed: 2026-08-10*
