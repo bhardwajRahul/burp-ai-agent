@@ -232,23 +232,45 @@ internal fun SettingsPanel.refreshPrivacyNotice() {
     val auditOff = !auditEnabled.isSelected
     val activeOn = activeAiEnabled.isSelected
 
+    // D-07: OFF disables the built-in rules only — custom patterns are the user's "never send this,
+    // ever" list and apply in every mode (D-05). Read the live JTextArea, not the constructor-time
+    // settings snapshot: SettingsPanelSettingsIO rewrites customPatternsArea.text on save, and this
+    // composer already reads live component state (privacyMode/auditEnabled/activeAiEnabled). The
+    // cheap non-blank-line test deliberately does NOT call validateAndCollectCustomPatterns(), whose
+    // 50 ms per-pattern ReDoS probe must never run on the EDT during a notice refresh.
+    // Initialisation-safe: SettingsPanel's `init { initUiWiring() }` is the last member of the class,
+    // so customPatternsArea is assigned before any construction-time path can reach this function.
+    val customPatternsConfigured = customPatternsArea.text.split('\n').any { it.isNotBlank() }
+    // D-07: one shared clause for every OFF arm below. All four are reworded as a single unit —
+    // rewording one and leaving the others would let the panel contradict itself.
+    val offClause =
+        if (customPatternsConfigured) {
+            "Built-in redaction is disabled; only your custom patterns are applied to MCP and prompts."
+        } else {
+            "Built-in redaction is disabled; raw traffic may reach MCP and prompts."
+        }
+
     val (level, htmlMessage) =
         when {
             selectedPrivacy == PrivacyMode.OFF && auditOff && activeOn ->
                 SubtleNotice.Level.RISK to
                     "<b>Privacy OFF + Audit logging OFF + Active Scanner ON.</b> " +
-                    "Raw traffic may reach MCP and prompts, with no audit trail and live payloads going to targets."
+                    offClause +
+                    " There is no audit trail, and live payloads go to targets."
             selectedPrivacy == PrivacyMode.OFF && auditOff ->
                 SubtleNotice.Level.RISK to
-                    "<b>Privacy OFF + Audit logging OFF.</b> Raw traffic may reach MCP and prompts; " +
-                    "without audit logs, traceability and data-protection guarantees are reduced."
+                    "<b>Privacy OFF + Audit logging OFF.</b> " +
+                    offClause +
+                    " Without audit logs, traceability and data-protection guarantees are reduced."
             selectedPrivacy == PrivacyMode.OFF && activeOn ->
                 SubtleNotice.Level.RISK to
-                    "<b>Privacy OFF + Active Scanner ON.</b> Raw traffic may reach MCP and prompts " +
-                    "while the active scanner sends payloads to real targets."
+                    "<b>Privacy OFF + Active Scanner ON.</b> " +
+                    offClause +
+                    " The active scanner sends payloads to real targets."
             selectedPrivacy == PrivacyMode.OFF ->
                 SubtleNotice.Level.WARN to
-                    "<b>Privacy mode is OFF.</b> Raw traffic may reach MCP and prompts."
+                    "<b>Privacy mode is OFF.</b> " +
+                    offClause
             selectedPrivacy == PrivacyMode.STRICT && activeOn ->
                 SubtleNotice.Level.INFO to
                     "STRICT anonymizes hosts in AI prompts but does not prevent the active scanner " +
