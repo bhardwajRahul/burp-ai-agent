@@ -85,22 +85,92 @@ object Redaction {
 
     // Sensitive parameter/key name vocabulary — shared by urlTokenParamRegex, formBodyParamRegex,
     // and jsonSecretKeyRegex so query-string and body coverage stay consistent (PRIV-02).
-    private const val SENSITIVE_KEYS =
+    // (PRIV-05) SC3 / D-11: the vocabulary is byte-identical to the v0.6.0 value and is
+    // deliberately NOT widened. The 31-key SC3 must-redact corpus is satisfied by the boundary
+    // rule below plus the vendor list, without adding a single word; every extra word multiplies
+    // the false-positive surface across all THREE consumer regexes at once (Pitfall 10). Add a
+    // word only with measured evidence in query-string, form-body and JSON contexts.
+    private const val SENSITIVE_WORDS =
         "access_token|api_key|apikey|auth|token|key|secret|password|pwd|session|sid|code"
 
+    // (PRIV-05) SC3 / D-11: vendor and framework session-cookie names that NO morphological rule
+    // can catch, because the sensitive word is concatenated without a separator (JSESSIONID,
+    // PHPSESSID, csrftoken) or is absent from the name entirely (remember_me). Whole-key match;
+    // case-insensitive via each consumer's leading (?i). Dots are escaped.
+    private const val KNOWN_SESSION_KEYS =
+        "jsessionid|phpsessid|asp\\.net_sessionid|\\.aspxauth|aspxauth|csrftoken|" +
+            "remember_me|remember_token|laravel_session|ci_session|_session_id|sessionid|sessid|" +
+            "cfid|cftoken|xsrf-token|_csrf"
+
+    // (PRIV-05) SC3 / D-11: the character class a key name may be built from. '[' and ']' cover
+    // PHP array parameters of the a[b] form; '.' covers connect.sid and ASP.NET_SessionId.
+    private const val KEY_CHARS = "[A-Za-z0-9_.\\-\\[\\]]"
+
+    // (PRIV-05) SC3 / D-13: the token-boundary constructs placed immediately before and after the
+    // matched word. First alternative = the separator rule ('_', '-', '.', '[', ']' and the string
+    // boundaries delimit a whole token). Second alternative = the camelCase rule, so authToken,
+    // accessToken and userSessionId match.
+    // NON-OBVIOUS BLOCKER: the camelCase half CANNOT be written inline under the consumers' (?i) —
+    // case-insensitivity makes [A-Z] match lowercase too, so every position would qualify and the
+    // boundary would degrade to a substring match. Java's inline flag-off group (?-i:...) is what
+    // makes it work; verified on JDK 21.
+    // REVERT POINT (one deletion each): removing the (?-i:...) alternative from WORD_BEFORE and
+    // WORD_AFTER reverts D-13 entirely. That loses nothing SC3 requires and removes the three
+    // accepted over-redactions recorded below (codeName, keyName, tokenCount).
+    private const val WORD_BEFORE = "(?:(?<![A-Za-z0-9])|(?-i:(?<=[a-z0-9])(?=[A-Z])))"
+    private const val WORD_AFTER = "(?:(?![A-Za-z0-9])|(?-i:(?<=[a-z0-9])(?=[A-Z])))"
+
+    // (PRIV-05) SC3 / D-11: the shared sensitive-KEY expression consumed by urlTokenParamRegex,
+    // formBodyParamRegex and jsonSecretKeyRegex. It replaces the old exact-word alternation, which
+    // demanded the key be EXACTLY one of the twelve words — that is why auth_token missed (auth was
+    // followed by '_', not '='), and why only a cookie literally named "session" was ever caught.
+    //
+    // (a) A key is sensitive when it IS a known vendor name, or when it CONTAINS one of the words
+    //     as a whole token, treating '_', '-', '.', '[', ']', the string boundaries and
+    //     lower-to-upper case transitions as delimiters. So auth_token, api-key, X-Session-Id and
+    //     connect.sid match, while keyboard_layout, codename, sidebar and keychain do not.
+    // (b) Prefix and suffix are BOUNDED at 64 characters: an unbounded '*' measured 2.3x slower on
+    //     adversarial input (21 ms vs 9 ms on 1 MB) and reintroduces exactly the unbounded-
+    //     quantifier adjacency this file already warns about above formBodyParamRegex.
+    // (c) EVERY internal group is non-capturing, so the group numbering of all three consumers is
+    //     unchanged and their existing replacement expressions still reproduce the key exactly
+    //     (Pitfall 7).
+    //
+    // D-12: there is deliberately NO benign-key denylist. The recommendation proposed one;
+    // measurement found nothing to guard against — all 21 must-not-redact keys pass on the
+    // boundary rule alone. Do not add one: every entry in such a list is a place where a real
+    // credential could be accidentally allowlisted.
+    //
+    // Two deliberate residuals:
+    //   - PLURAL forms (codes, tokens, keys) are NOT handled. Adding 's?' to the vocabulary would
+    //     catch them at the cost of a second widening axis; SC3 does not require it.
+    //   - ACCEPTED over-redactions, all fail-safe and all analytically low-value: under the
+    //     separator rule token_bucket_size, session_timeout_seconds, auth_provider, key_size,
+    //     code_version, secret_santa, password_hint_enabled; under the camelCase rule (D-13)
+    //     codeName, keyName, tokenCount. auth_provider is the only one with real analytic value
+    //     and redacting it is still the correct default for a key literally named auth_*.
+    private const val SENSITIVE_KEY_EXPR =
+        "(?:(?:$KNOWN_SESSION_KEYS)|" +
+            "$KEY_CHARS{0,64}$WORD_BEFORE(?:$SENSITIVE_WORDS)$WORD_AFTER$KEY_CHARS{0,64})"
+
     // Tokens/secrets in URL query strings, e.g. ?access_token=xyz or &api_key=xyz
+    // (PRIV-05) SC3: the key side is the shared key expression, so compound and vendor keys
+    // (auth_token, api-key, X-Session-Id, JSESSIONID) are caught here too. Group 1 is still the
+    // whole "[?&]key=" prefix, so the "$1[REDACTED]" replacement in apply() is unchanged.
     private val urlTokenParamRegex =
         Regex(
-            "(?i)([?&]($SENSITIVE_KEYS)=)[^&\\s\"'<>]+",
+            "(?i)([?&](?:$SENSITIVE_KEY_EXPR)=)[^&\\s\"'<>]+",
         )
 
     // (PRIV-02) x-www-form-urlencoded field ANYWHERE in a body, INCLUDING the leading field.
     // The (^|[?&]) anchor closes the documented gap: the old [?&]-only urlTokenParamRegex
     // missed "apikey=sk-abc123&user=bob" (no leading ? or &). (?im) = multiline+case-insensitive.
     // The value charclass [^&\s"'<>]+ is bounded — no trailing anchor that would backtrack (Pitfall 3).
+    // (PRIV-05) SC3: group 1 is still the ^/?/& prefix and group 2 is still the WHOLE key, so the
+    // "$1$2=[REDACTED]" lambda in apply() reproduces compound keys such as auth_token exactly.
     private val formBodyParamRegex =
         Regex(
-            "(?im)(^|[?&])($SENSITIVE_KEYS)=[^&\\s\"'<>]+",
+            "(?im)(^|[?&])($SENSITIVE_KEY_EXPR)=[^&\\s\"'<>]+",
         )
 
     // (PRIV-02) JSON values for known-sensitive key names.
@@ -112,9 +182,12 @@ object Redaction {
     // Limitation: a value containing an escaped quote (e.g. "token":"ab\"cd") will be partially
     // matched (stops at the backslash). This is an accepted limitation — real API tokens are
     // [A-Za-z0-9._-] and do not contain embedded quotes; use a JSON parser if full coverage is needed.
+    // (PRIV-05) SC3: the key side is the shared key expression, which is already (?:...)-wrapped —
+    // do not wrap it again here. Group 1 is still "key": including whitespace and group 2 is still
+    // the value, so the "$1\"[REDACTED]\"" lambda in apply() is unchanged.
     private val jsonSecretKeyRegex =
         Regex(
-            "(?i)(\"(?:$SENSITIVE_KEYS)\"\\s*:\\s*)(\"[^\"]*\"|true|false|null|-?\\d+(?:\\.\\d+)?)",
+            "(?i)(\"$SENSITIVE_KEY_EXPR\"\\s*:\\s*)(\"[^\"]*\"|true|false|null|-?\\d+(?:\\.\\d+)?)",
         )
 
     // (PRIV-02) Custom user patterns compiled by setCustomPatterns. Volatile so writes from the
