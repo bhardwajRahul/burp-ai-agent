@@ -299,6 +299,251 @@ object Redaction {
             }
     }
 
+    // (PRIV-06) D-02: nanoseconds per millisecond, used to turn System.nanoTime() deltas into the
+    // millisecond deadlines SafeRegex takes. A named constant because detekt's MagicNumber rule
+    // ignores only -1/0/1/2 and QUAL-07 forbids growing detekt-baseline.xml.
+    private const val NANOS_PER_MS = 1_000_000L
+
+    // (PRIV-06) D-01 / T-21-06: how many times a window that did not scan in time may be halved at
+    // a line boundary and retried before it is dropped. Measured headroom at the 1 MB window width
+    // is only ~2.2x on Apple Silicon (23 ms for dense form content against a 50 ms per-pattern
+    // deadline), so a 2-3x slower machine would drop content that ships today. Two levels turn the
+    // deadline into a pacing mechanism instead of a cliff.
+    private const val WINDOW_RETRY_MAX_DEPTH = 2
+
+    // (PRIV-06) D-03 / T-21-05: the marker left in the payload when the total budget is spent and
+    // the remaining tail is dropped. Exactly ONE of these is emitted per call, never one per
+    // window — a 200 MB input would otherwise produce ~200 markers and bloat the very prompt this
+    // stage exists to bound.
+    //
+    // The wording is load-bearing in four ways and must keep all four:
+    //   - it says the content was REMOVED, not passed through. A "TRUNCATED / NOT SCRUBBED" phrasing
+    //     reads as "what follows is unfiltered", the opposite of what actually happened.
+    //   - it is distinguishable from [REDACTED], so a reader can tell "removed for size" from
+    //     "removed for secrecy" — the same reason [JWT_REDACTED] and [STRIPPED] are distinct today.
+    //   - it is a constant shape plus one integer, so it carries ZERO attacker-controlled substring
+    //     and is not a prompt-injection vector.
+    //   - it is not phrased as an instruction to the model.
+    // ASCII hyphen, never an em dash: the marker is prompt content that gets hashed into
+    // sha256Hex(singlePrompt) and round-trips through backend transports.
+    private fun budgetExceededMarker(droppedChars: Int): String = "[REDACTION BUDGET EXCEEDED - $droppedChars CHARS DROPPED AND NOT SENT]"
+
+    // (PRIV-06) D-02 / D-03: the marker left in place of a single window that could not be fully
+    // scanned inside its deadline. Same four wording properties as the budget marker above; a
+    // distinct token so "the budget ran out" and "this window would not scan" stay tellable apart
+    // in a prompt.
+    private fun windowDroppedMarker(droppedChars: Int): String = "[REDACTION INCOMPLETE - $droppedChars CHARS DROPPED AND NOT SENT]"
+
+    // (PRIV-06) D-01 AMENDED / D-02 / D-04 / D-05 / D-14: the body-redaction stage.
+    //
+    // Before Phase 21 this was an `if (out.length <= MAX_REDACTION_BODY_CHARS)` guard INSIDE the
+    // redactTokens branch: an input above the cap had the form, JSON and custom-pattern rules
+    // skipped entirely and the original passed through untouched. That is redaction failing open on
+    // exactly the inputs most likely to carry a secret (T-21-02), and removing it is PRIV-06.
+    //
+    // D-01 AMENDED — the input is cut into windows at LINE BOUNDARIES and every window is scanned;
+    // nothing is skipped. A line is never split: every built-in body rule is line-anchored or
+    // line-local, so a mid-line cut is the only thing that can change their semantics, and it was
+    // measured doing so in BOTH directions (creating a match at an artificial line start, and
+    // truncating a match that spans the cut). The original decision's OVERLAP clause is
+    // deliberately dropped rather than implemented: the value side of every built-in is
+    // length-unbounded (measured single matches of 200 006 characters) and user patterns are
+    // unbounded by construction, so no finite overlap constant is defensible. Line-boundary cutting
+    // was proven byte-identical to whole-document processing, which is the property actually
+    // needed. Matcher.region() has the right semantics but replaceAll() silently resets the region,
+    // so region-scoped replacement is not available at all.
+    //
+    // D-02 / D-14 — fail CLOSED. Every rule above the window width runs through
+    // SafeRegex.replaceAllSafeReporting and a window whose timedOut flag is set is DROPPED behind a
+    // marker, never emitted. Assigning replaceAllSafe's return value there would be fail-OPEN at
+    // exactly the moment D-02 demands fail-closed, because on timeout it returns the input
+    // unchanged — byte-identical to "the pattern matched nothing" (T-21-03).
+    @Suppress("ReturnCount")
+    private fun bodyStage(
+        input: String,
+        builtinsEnabled: Boolean,
+    ): String {
+        val rules =
+            buildList {
+                if (builtinsEnabled) {
+                    // The $n replacement strings are byte-for-byte equivalent to the Kotlin lambdas
+                    // they replace (verified); SafeRegex takes a String replacement, not a lambda.
+                    add(formBodyParamRegex.toPattern() to "\$1\$2=[REDACTED]")
+                    add(jsonSecretKeyRegex.toPattern() to "\$1\"[REDACTED]\"")
+                }
+                // PRIV-06 / D-05: the custom-pattern loop sits OUTSIDE the redactTokens branch and
+                // therefore applies in EVERY privacy mode, including OFF. A user's custom list is a
+                // "never send this, ever" list and is independent of the privacy mode; OFF now
+                // means "no built-in redaction", not "no redaction at all".
+                compiledCustomPatterns.forEach { add(it to "[REDACTED]") }
+            }
+
+        // OFF with no custom patterns must be a byte-identical passthrough, so this check comes
+        // BEFORE any windowing. Any marker, normalisation or trailing-newline difference introduced
+        // here fails offModePreservesBodies and offModePreservesAllTokens.
+        if (rules.isEmpty()) return input
+
+        // PRIV-06 / D-04: at or below the window width this is a single pass whose cost and
+        // behaviour match the pre-Phase-21 implementation for the overwhelming majority of
+        // payloads. One genuine change even on this path: the two built-in body rules previously
+        // ran with NO deadline at all (only custom patterns went through SafeRegex) and now all of
+        // them do, so a rule that overruns here is skipped rather than allowed to run long.
+        if (input.length <= Defaults.MAX_REDACTION_BODY_CHARS) {
+            var out = input
+            for ((pattern, replacement) in rules) {
+                out = SafeRegex.replaceAllSafe(out, pattern, replacement)
+            }
+            return out
+        }
+
+        return windowedScan(input, rules)
+    }
+
+    // (PRIV-06) D-01 AMENDED / D-02: the windowed loop used above the window width. Windows are
+    // processed IN ORDER, and each one is either fully scanned and appended or dropped behind a
+    // marker. Once the total budget is spent, ALL remaining characters are coalesced into exactly
+    // one tail marker and the loop breaks. Every piece of loop state is a local: apply() runs
+    // concurrently on scanner threads and MCP tool threads, so object-level window state would
+    // corrupt output across them (T-21-23).
+    private fun windowedScan(
+        input: String,
+        rules: List<Pair<Pattern, String>>,
+    ): String {
+        val budgetDeadlineNanos = System.nanoTime() + Defaults.MAX_REDACTION_BUDGET_MS * NANOS_PER_MS
+        val sink = StringBuilder(input.length)
+        var index = 0
+        while (index < input.length) {
+            if (remainingBudgetMs(budgetDeadlineNanos) <= 0L) {
+                sink.append(budgetExceededMarker(input.length - index))
+                break
+            }
+            val end = windowEnd(input, index, Defaults.MAX_REDACTION_BODY_CHARS)
+            scanWindow(input.substring(index, end), rules, budgetDeadlineNanos, 0, sink)
+            index = end
+        }
+        return sink.toString()
+    }
+
+    // (PRIV-06) D-02: milliseconds left in the total body-stage budget; zero or negative once spent.
+    private fun remainingBudgetMs(budgetDeadlineNanos: Long): Long = (budgetDeadlineNanos - System.nanoTime()) / NANOS_PER_MS
+
+    // (PRIV-06) D-02 / D-14: applies every rule to one window under a bounded deadline and appends
+    // the result ONLY when the whole window was scanned.
+    //
+    // The minOf() is what stops a per-pattern deadline outliving the total budget: a rule starting
+    // with 12 ms of budget left gets a 12 ms deadline and REPORTS a timeout instead of overrunning.
+    // replaceAllSafe's return value is never assigned here — on timeout it returns the input
+    // unchanged, indistinguishable from "no matches".
+    private fun scanWindow(
+        window: String,
+        rules: List<Pair<Pattern, String>>,
+        budgetDeadlineNanos: Long,
+        depth: Int,
+        sink: StringBuilder,
+    ) {
+        var current = window
+        for ((pattern, replacement) in rules) {
+            val remainingMs = remainingBudgetMs(budgetDeadlineNanos)
+            if (remainingMs <= 0L) {
+                dropOrRetry(window, rules, budgetDeadlineNanos, depth, sink)
+                return
+            }
+            val result =
+                SafeRegex.replaceAllSafeReporting(
+                    current,
+                    pattern,
+                    replacement,
+                    minOf(SafeRegex.DEFAULT_TIMEOUT_MS, remainingMs),
+                )
+            if (result.timedOut) {
+                dropOrRetry(window, rules, budgetDeadlineNanos, depth, sink)
+                return
+            }
+            current = result.text
+        }
+        sink.append(current)
+    }
+
+    // (PRIV-06) D-01 / T-21-06: halve-and-retry before dropping. A window that did not scan in time
+    // is split at a LINE boundary and each half retried, to WINDOW_RETRY_MAX_DEPTH levels, so a
+    // slower machine paces instead of losing content outright. When the budget is already spent, or
+    // the retry depth is exhausted, or the window has no interior line boundary to split on, the
+    // window is dropped behind exactly one marker — fail closed, so its unscanned bytes never reach
+    // a backend.
+    private fun dropOrRetry(
+        window: String,
+        rules: List<Pair<Pattern, String>>,
+        budgetDeadlineNanos: Long,
+        depth: Int,
+        sink: StringBuilder,
+    ) {
+        val retryable = depth < WINDOW_RETRY_MAX_DEPTH && remainingBudgetMs(budgetDeadlineNanos) > 0L
+        val cut = if (retryable) splitPoint(window) else 0
+        if (cut <= 0 || cut >= window.length) {
+            sink.append(windowDroppedMarker(window.length))
+            return
+        }
+        scanWindow(window.substring(0, cut), rules, budgetDeadlineNanos, depth + 1, sink)
+        scanWindow(window.substring(cut), rules, budgetDeadlineNanos, depth + 1, sink)
+    }
+
+    // (PRIV-06) D-01: the line boundary nearest the middle of [window], or 0 when the window cannot
+    // be split without cutting a line. The returned index is just past a newline, so both halves
+    // stay line-aligned and (?m)^ keeps its meaning inside each of them.
+    private fun splitPoint(window: String): Int {
+        val mid = window.length / 2
+        val backward = window.lastIndexOf('\n', mid)
+        if (backward > 0) return backward + 1
+        val forward = window.indexOf('\n', mid)
+        return if (forward >= 0 && forward + 1 < window.length) forward + 1 else 0
+    }
+
+    // (PRIV-06) D-01 AMENDED: the end of the window starting at [start] — the index just past the
+    // last newline at or before [start] + [width]. A single line longer than [width] becomes its own
+    // oversized window rather than being split; the per-pattern deadline already bounds what that
+    // costs, and a mid-line cut is the only thing that can change a line-anchored rule's semantics.
+    //
+    // JSON boundary safety: jsonSecretKeyRegex's whitespace class CAN span newlines (it matches a
+    // pretty-printed key/colon/value spread over four lines), so a pair split exactly across a
+    // window boundary would be missed. When the last line of the prospective window ends with a
+    // colon or a double quote after a trailing-whitespace strip, one more line is pulled in.
+    // formBodyParamRegex and urlTokenParamRegex cannot span newlines (their value classes exclude
+    // \s) and need nothing.
+    //
+    // ACCEPTED RESIDUAL: a CUSTOM pattern whose match straddles a window boundary can still be
+    // missed. There is no principled bound on a user regex's match length, so no window scheme can
+    // close this; it is recorded rather than pretended away.
+    @Suppress("ReturnCount")
+    private fun windowEnd(
+        s: String,
+        start: Int,
+        width: Int,
+    ): Int {
+        // Written this way rather than as start + width so the sum cannot overflow on a huge input.
+        val hard = if (width >= s.length - start) s.length else start + width
+        if (hard == s.length) return hard
+        val lastNewline = s.lastIndexOf('\n', hard)
+        if (lastNewline <= start) {
+            // The line starting at [start] is longer than the window: keep that line whole.
+            val next = s.indexOf('\n', start)
+            return if (next < 0) s.length else next + 1
+        }
+        var end = lastNewline + 1
+        val prevLineStart = s.lastIndexOf('\n', lastNewline - 1) + 1
+        if (isJsonPairBoundaryRisk(s.substring(maxOf(start, prevLineStart), lastNewline))) {
+            val following = s.indexOf('\n', end)
+            if (following >= 0) end = following + 1
+        }
+        return end
+    }
+
+    // (PRIV-06) D-01: true when [line] ends where jsonSecretKeyRegex's newline-spanning whitespace
+    // class could be sitting between a key and its value.
+    private fun isJsonPairBoundaryRisk(line: String): Boolean {
+        val trimmed = line.trimEnd()
+        return trimmed.endsWith(":") || trimmed.endsWith("\"")
+    }
+
     private val hostHeaderRegex = Regex("(?im)^host:\\s*([^\\s]+)\\s*$")
 
     // REL-02/SC5b: cap for the inner per-salt LRU maps. A few thousand entries (4096) is large
@@ -421,30 +666,18 @@ object Redaction {
             out = out.replace(basicAuthRegex, "Basic [REDACTED]")
             out = out.replace(jwtRegex, "[JWT_REDACTED]")
             out = out.replace(urlTokenParamRegex, "$1[REDACTED]")
-
-            // PRIV-02: body-level redaction (form + JSON + custom patterns).
-            // The size cap (~1 MB) is a belt-and-suspenders bound for callers that may pass
-            // larger strings (MCP tools, bounty resolver). Bodies over the cap are skipped
-            // entirely — not hung, not partially redacted.
-            if (out.length <= Defaults.MAX_REDACTION_BODY_CHARS) {
-                // x-www-form-urlencoded: redact sensitive field values including the LEADING
-                // field (no preceding ?/&). Replacement keeps the key + delimiter in group 1+2.
-                out =
-                    out.replace(formBodyParamRegex) { m ->
-                        "${m.groupValues[1]}${m.groupValues[2]}=[REDACTED]"
-                    }
-                // JSON: redact the value of a known-sensitive key, preserving the key + colon.
-                out =
-                    out.replace(jsonSecretKeyRegex) { m ->
-                        "${m.groupValues[1]}\"[REDACTED]\""
-                    }
-                // User-supplied custom patterns — each one runs under the SafeRegex 50 ms deadline
-                // so no single pathological pattern can stall the pipeline (T-13-06).
-                for (p in compiledCustomPatterns) {
-                    out = SafeRegex.replaceAllSafe(out, p, "[REDACTED]")
-                }
-            }
         }
+
+        // (PRIV-06) D-01 AMENDED / D-02 / D-05: body-level redaction (form + JSON + custom
+        // patterns), invoked UNCONDITIONALLY rather than from inside the redactTokens branch above.
+        // The built-in body rules still follow policy.redactTokens, but the custom-pattern loop no
+        // longer does — that move is the whole of D-05, and it is what lets a user's "never send
+        // this, ever" list apply under PrivacyMode.OFF as well.
+        //
+        // The eight header-stage rules above deliberately stay OUTSIDE this budget: they run
+        // unbounded on the full input exactly as they did before this phase. That is a pre-existing
+        // condition outside D-01/D-02's scope, recorded rather than silently claimed as fixed.
+        out = bodyStage(out, builtinsEnabled = policy.redactTokens)
 
         if (policy.anonymizeHosts) {
             out =

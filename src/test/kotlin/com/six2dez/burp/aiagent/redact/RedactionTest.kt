@@ -714,10 +714,19 @@ class RedactionTest {
             assertFalse(output.contains("SECRET-1234"), "$mode: original value must not appear after redaction")
         }
 
-        // OFF mode: custom patterns are in the redactTokens branch — inactive in OFF.
+        // (PRIV-06) D-05: this limb is DELIBERATELY INVERTED. It previously asserted
+        // assertEquals(input, offOutput) because the custom-pattern loop lived inside the
+        // redactTokens branch and was therefore inert under OFF. The loop now sits outside that
+        // branch, so a user's custom patterns are a "never send this, ever" list that is
+        // independent of the privacy mode: OFF means "no BUILT-IN redaction", not "no redaction at
+        // all". 21-VALIDATION.md records this as one of SC6's two named exceptions, so it must not
+        // be read as a regression. The method NAME is kept unchanged on purpose — 21-CONTEXT.md,
+        // 21-VALIDATION.md and 21-VERIFICATION.md all refer to this test by name and a rename would
+        // break that traceability.
         val offPolicy = RedactionPolicy.fromMode(PrivacyMode.OFF)
         val offOutput = Redaction.apply(input, offPolicy, stableHostSalt = "salt")
-        assertEquals(input, offOutput, "OFF mode must not apply custom patterns")
+        assertTrue(offOutput.contains("[REDACTED]"), "OFF: a custom pattern must still redact SECRET-1234")
+        assertFalse(offOutput.contains("SECRET-1234"), "OFF: the original custom-pattern value must not survive")
     }
 
     // PRIV-02 / CR-01: regression — custom patterns carried on a loaded settings object must
