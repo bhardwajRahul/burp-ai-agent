@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CopyOnWriteArrayList
 
 // RFC 5869 Test Case 1 inputs/outputs for the HKDF vector test.
 // Source: https://www.rfc-editor.org/rfc/rfc5869 Appendix A.1
@@ -115,11 +116,27 @@ private object Rfc5869TestCase1 {
 // alone and to nothing else in the pipeline.
 private const val SC3_SENTINEL = "SENTINEL-VALUE-9F2A7C"
 
+// (PRIV-06) D-03: the injected clock for the truncation-notice window. Named constants rather than
+// inline literals so the relationship to the 10 s window is readable: T_INSIDE_WINDOW is 5 s after
+// T0 and must be suppressed, T_AFTER_WINDOW is 11 s after T0 and must emit. Nothing here sleeps.
+private const val T0 = 1_000_000L
+private const val T_INSIDE_WINDOW = 1_005_000L
+private const val T_AFTER_WINDOW = 1_011_000L
+
 class RedactionTest {
     @AfterEach
     fun resetCustomPatterns() {
         // Prevent custom-pattern bleed across tests: reset after each test.
         Redaction.setCustomPatterns(emptyList())
+    }
+
+    @AfterEach
+    fun resetTruncationSignal() {
+        // Redaction is a singleton object: a capturing sink left registered here would keep firing
+        // on every later test in the shared JVM, and the limiter's window would carry over and make
+        // the injected-clock assertions order-dependent.
+        Redaction.truncationLogger = null
+        Redaction.resetTruncationWindowForTest()
     }
 
     @Test
@@ -758,6 +775,39 @@ class RedactionTest {
         val afterSeed = Redaction.apply(input, strict, stableHostSalt = "salt")
         assertTrue(afterSeed.contains("[REDACTED]"), "Post-seed: loaded custom pattern must redact")
         assertFalse(afterSeed.contains("INTERNAL-ABC123"), "Post-seed: original secret must not appear")
+    }
+
+    // (PRIV-06) D-03: the truncation notice is rate-limited to one line per 10 s window, and the
+    // line that ends a window reports how many notices were suppressed inside it.
+    //
+    // The clock is injected through maybeLogTruncation's nowMs parameter — the
+    // PassiveAiScannerAnalysis.maybeLogBackoff convention — so the window is asserted exactly and
+    // nothing sleeps. resetTruncationWindowForTest() is called first because Redaction is a
+    // singleton object and a previous test in the same JVM may have opened the window already.
+    @Test
+    fun truncationSignalIsRateLimited() {
+        Redaction.resetTruncationWindowForTest()
+        // The sink fires on the caller's thread (a scanner or MCP tool thread in production) and is
+        // read from the JUnit thread, so the capture list must be concurrent.
+        val lines = CopyOnWriteArrayList<String>()
+        Redaction.truncationLogger = { lines += it }
+
+        Redaction.maybeLogTruncation(T0, 1_000L)
+        assertEquals(1, lines.size, "The first truncation in a window must emit a notice")
+
+        Redaction.maybeLogTruncation(T_INSIDE_WINDOW, 2_000L)
+        assertEquals(1, lines.size, "A second truncation inside the same window must be suppressed")
+
+        Redaction.maybeLogTruncation(T_AFTER_WINDOW, 3_000L)
+        assertEquals(2, lines.size, "A truncation past the window must emit a second notice")
+        assertTrue(
+            lines[1].contains("Further notices suppressed since the previous line: 1"),
+            "The notice that closes a window must report the suppressed count; got: ${lines[1]}",
+        )
+        assertFalse(
+            lines[0].contains("suppressed"),
+            "The first notice of a burst must not claim a suppressed count",
+        )
     }
 
     // PRIV-02: A body larger than Defaults.MAX_REDACTION_BODY_CHARS must be short-circuited.

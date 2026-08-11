@@ -4,6 +4,7 @@ import com.six2dez.burp.aiagent.config.Defaults
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 import javax.crypto.Mac
@@ -299,6 +300,82 @@ object Redaction {
             }
     }
 
+    /**
+     * (PRIV-06) D-03: optional sink for the truncation notice.
+     *
+     * Wired in App.initialize to api.logging()::logToOutput, beside the other diagnostics sinks. It
+     * is null in tests and in headless contexts and the redaction pipeline never depends on it —
+     * a missing sink costs the user visibility, never correctness.
+     *
+     * @Volatile because the write happens on the EDT at startup while the reads happen on scanner
+     * threads and MCP tool threads. Modelled on backends/BackendDiagnostics.output, which is the
+     * house idiom for a settable diagnostic sink on an otherwise stateless object.
+     *
+     * This callback is why `redact/` gains NO new dependency for D-03. Routing the notice through
+     * the project's audit log was ruled out on two counts: this package is deliberately
+     * dependency-light and free of any UI toolkit import, and audit logging is off by default here,
+     * so an audit-only signal would be invisible to the very user it exists to warn.
+     */
+    @Volatile
+    var truncationLogger: ((String) -> Unit)? = null
+
+    // (PRIV-06) D-03: rate-limiter state for [maybeLogTruncation]. Two AtomicLongs rather than a
+    // lock, so the read-then-CAS below stays allocation-free on the redaction hot path. These are
+    // the ONLY object-level fields this phase adds — all window-loop state is local (T-21-23).
+    private val lastTruncationLogMs = AtomicLong(0L)
+
+    private val suppressedTruncations = AtomicLong(0L)
+
+    // (PRIV-06) D-03: the notice window, the same length as PassiveAiScannerAnalysis's
+    // BACKOFF_LOG_INTERVAL_MS so the two Output-tab limiters cannot drift apart.
+    private const val TRUNCATION_LOG_INTERVAL_MS = 10_000L
+
+    /**
+     * (PRIV-06) D-03: emits at most one truncation notice per [TRUNCATION_LOG_INTERVAL_MS] window,
+     * reporting how many further notices were suppressed since the previous one.
+     *
+     * [nowMs] is a PARAMETER and the system clock is never read inside, which is the convention
+     * established by `PassiveAiScannerAnalysis.maybeLogBackoff(nowMs, untilMs)`: it makes the window
+     * assertable without sleeping. That limiter is the model here, deliberately and not
+     * `CliBackend.availabilityLogged`, whose semantics are once-ever rather than windowed.
+     *
+     * [droppedChars] is a count, never the dropped text. The emitted line carries counts only and
+     * can therefore never echo attacker-controlled content into the Output tab (T-21-22).
+     */
+    internal fun maybeLogTruncation(
+        nowMs: Long,
+        droppedChars: Long,
+    ) {
+        val prev = lastTruncationLogMs.get()
+        // Short-circuits so the CAS is only attempted once the window has actually elapsed. Losing
+        // the CAS means a concurrent thread emitted for this window, so this call is a suppression.
+        if (nowMs - prev < TRUNCATION_LOG_INTERVAL_MS || !lastTruncationLogMs.compareAndSet(prev, nowMs)) {
+            suppressedTruncations.incrementAndGet()
+            return
+        }
+        val suppressed = suppressedTruncations.getAndSet(0L)
+        truncationLogger?.invoke(truncationLine(droppedChars, suppressed))
+    }
+
+    // (PRIV-06) D-03: the notice text. A constant sentence plus counts — no dropped content, and
+    // no literal window duration that could drift away from TRUNCATION_LOG_INTERVAL_MS.
+    private fun truncationLine(
+        droppedChars: Long,
+        suppressed: Long,
+    ): String {
+        val line = "[Redaction] Body redaction dropped $droppedChars characters; that content was NOT sent to the AI backend."
+        return if (suppressed > 0L) "$line Further notices suppressed since the previous line: $suppressed." else line
+    }
+
+    // Internal test seam — clears the D-03 limiter window. NOT part of the public API; only
+    // referenced from the test source set, in the style of the testHkdfExtract seam below. It
+    // exists because Redaction is a singleton object, so the limiter state otherwise bleeds across
+    // tests sharing a JVM and makes an injected-clock assertion order-dependent.
+    internal fun resetTruncationWindowForTest() {
+        lastTruncationLogMs.set(0L)
+        suppressedTruncations.set(0L)
+    }
+
     // (PRIV-06) D-02: nanoseconds per millisecond, used to turn System.nanoTime() deltas into the
     // millisecond deadlines SafeRegex takes. A named constant because detekt's MagicNumber rule
     // ignores only -1/0/1/2 and QUAL-07 forbids growing detekt-baseline.xml.
@@ -414,7 +491,9 @@ object Redaction {
         var index = 0
         while (index < input.length) {
             if (remainingBudgetMs(budgetDeadlineNanos) <= 0L) {
-                sink.append(budgetExceededMarker(input.length - index))
+                val dropped = input.length - index
+                sink.append(budgetExceededMarker(dropped))
+                maybeLogTruncation(System.currentTimeMillis(), dropped.toLong())
                 break
             }
             val end = windowEnd(input, index, Defaults.MAX_REDACTION_BODY_CHARS)
@@ -481,6 +560,7 @@ object Redaction {
         val cut = if (retryable) splitPoint(window) else 0
         if (cut <= 0 || cut >= window.length) {
             sink.append(windowDroppedMarker(window.length))
+            maybeLogTruncation(System.currentTimeMillis(), window.length.toLong())
             return
         }
         scanWindow(window.substring(0, cut), rules, budgetDeadlineNanos, depth + 1, sink)
