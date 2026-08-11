@@ -36,9 +36,14 @@ class PrivacyPill : JLabel() {
                 toolTipText = "BALANCED mode strips cookies and redacts tokens but keeps hosts."
             }
             PrivacyMode.OFF -> {
+                // The empty text + hidden pill is a value-display decision, not a redaction bypass —
+                // D-06's do-not-touch list protects it. Only the tooltip string changes here.
                 text = ""
                 isVisible = false
-                toolTipText = "OFF mode sends raw traffic without redaction."
+                // D-07: OFF skips the built-in rules but custom patterns still run (D-05). updateMode
+                // takes only the mode, so conditioning would need a signature change; the "if any are
+                // configured" clause keeps this wording true whether or not the user has patterns.
+                toolTipText = "OFF mode disables built-in redaction; custom redaction patterns, if any are configured, still apply."
             }
         }
     }
