@@ -54,6 +54,15 @@ security advisory (DOC-03, Phase 26); `SecretShapes` / the Phase 15 tripwire.
   Rejected: truncate-and-redact (silent capability loss on large JSON), refuse (turns a redaction
   concern into a functional failure at five call sites, each needing its own failure story).
 
+- **D-01 AMENDED 2026-08-11 by `21-RESEARCH.md` §"Decision 3" — the overlap clause is dropped.**
+  The intent (scan everything, skip nothing) stands; the *mechanism* does not. Measured on JDK 21,
+  a single match of the existing body rules reaches **200,006 characters**, so no finite overlap
+  width is sound — the clause is unsatisfiable as written. **Cut at line boundaries and never split
+  a line instead**, which was proven byte-identical to whole-document processing. Two corroborating
+  findings: naive `substring()` windowing genuinely corrupts `(?m)^` (it makes the anchor match
+  mid-line), and while `Matcher.region()` has the correct semantics, `Matcher.replaceAll()`
+  **silently resets the region**, so region-based replacement is not available.
+
 - **D-02:** The body stage carries a **total wall-clock budget**. Windows are processed in order
   until it is spent; everything past that point is **dropped with a visible marker**, not passed
   through. **Fail closed — unscanned bytes never reach a backend.** This is what bounds the worst
@@ -108,6 +117,18 @@ security advisory (DOC-03, Phase 26); `SecretShapes` / the Phase 15 tripwire.
   worse than a small overlap with DOC-03. **The GitBook site and the security advisory stay with
   DOC-03 / Phase 26.**
 
+- **D-07 AMENDED 2026-08-11 — it is four strings, and one path was misnamed.** Research read the
+  sources: `PrivacyConfigPanel` holds **no** OFF string; the notice is composed by
+  `ui/SettingsPanelActions.kt:236-251` (`refreshPrivacyNotice`) and merely rendered by the panel.
+  A fourth string, `ui/components/PrivacyPill.kt:41` (`"OFF mode sends raw traffic without
+  redaction."`), becomes equally false under D-05 and **is in scope** (maintainer confirmed
+  2026-08-11). **This does not conflict with D-06's do-not-touch list:** that list protects
+  `PrivacyPill.kt`'s `PrivacyMode.OFF` *check*, not its tooltip text. The four strings are
+  `ui/ChatPanel.kt:1146`, `ui/components/ContextPreviewDialog.kt:122`,
+  `ui/SettingsPanelActions.kt:236-251`, `ui/components/PrivacyPill.kt:41`.
+  `ui/panels/HelpConfigPanel.kt:26` (`"OFF (raw data)"`) stays with DOC-03 — a mode summary rather
+  than a redaction claim, in a panel Phase 26 rewrites.
+
 - **D-08:** Both PRIV-06 decisions are recorded as **one ADR-14** in repo-root `DECISIONS.md`
   (last existing entry is ADR-13), titled around *"redaction never fails open"*. D-01…D-04 and D-05
   answer the same question — what does the pipeline do when it cannot or will not fully redact? — and
@@ -116,10 +137,66 @@ security advisory (DOC-03, Phase 26); `SecretShapes` / the Phase 15 tripwire.
   this deliberately widens it, because the fail-open-above-1 MB bug is exactly what recurs when the
   reasoning is not written down.
 
-### Claude's Discretion
+- **D-08 REFINED 2026-08-11 — ADR-14 claims only what ships.** Research found the **eight
+  header-stage rules run unbounded on the full input** and are outside D-01/D-02's stated scope, so
+  an unqualified "redaction never fails open" would be false the day it is written. Word ADR-14 as
+  **"the body stage never fails open"** and record the header-stage gap in
+  `.planning/codebase/CONCERNS.md` alongside the existing regex-coverage entry. Note also that the
+  built-in body rules have **no deadline at all** today — only custom patterns go through
+  `SafeRegex` — which this phase changes.
 
-Two gray areas were deliberately delegated by the maintainer. Both carry a recommendation that phase
-research should confirm or overturn — treat them as **open**, not settled.
+### Post-research decisions (2026-08-11)
+
+Added after `21-RESEARCH.md` resolved both discretion items and surfaced two questions requiring
+maintainer input. **Locked.** Every claim below was executed against JDK 21 with the project's live
+regexes, not reasoned about — see `21-RESEARCH.md` §Sources for the probe programs.
+
+**Discretion item 1 — cookie fix placement — RESOLVED: recommendation confirmed, with two corrections.**
+
+- **D-09:** The rule lives in `redact/Redaction.kt` and redacts **every** cookie value, as
+  recommended. But the context-free `name=value` alternative was not merely riskier — it
+  **cannot satisfy SC2 at all**: the trailing ` (COOKIE)` suffix defeats the `$` anchor. It also
+  mangles `x=1`, `DEBUG=true` and `AAAA==`. The section-scoped rule is therefore the only candidate
+  that works, not merely the preferred one.
+- **D-10:** The section rule **must iterate every occurrence of the section header**, never
+  `indexOf`. A first-occurrence-only rule is *exploitable*: an attacker-controlled `Server:` header
+  flows through `ScanKnowledgeBase.recordTechStack` into the `=== PRIOR KNOWLEDGE ===` block, which
+  is emitted **before** the real cookie section — demonstrated to shield a decoy section and leak
+  the genuine cookies. This is a security requirement, not a robustness nicety, and it needs its own
+  regression test.
+
+**Discretion item 2 — sensitive-key matching — RESOLVED: recommendation confirmed, one part dropped.**
+
+- **D-11:** Use **token-boundary containment**
+  (`(?<![A-Za-z0-9])(?:WORDS)(?![A-Za-z0-9])`) plus the vendor-name list. Measured: **31/31**
+  must-redact (including `auth_token`, `api-key`, `X-Session-Id`, `remember_me`, `JSESSIONID`,
+  `PHPSESSID`, `connect.sid`, `csrftoken`) and **21/21** must-not-redact, adding **zero** new
+  vocabulary words, and **strictly monotone** — no key that redacts today stops redacting.
+- **D-12:** The recommended **benign-key guard is dropped**. `keyboard_layout` and `codename` are
+  **not** over-redacted today — `formBodyParamRegex`'s `(^|[?&])…=` already delimits the word on
+  both sides. There is nothing to guard against. **Consequence for the plan: SC3's "without
+  over-redacting" limb is a regression guard, not a fix.** A task framed as "stop over-redacting
+  these" would be a no-op; the tests must be labelled as guards that are green before and after.
+- **D-13:** **camelCase matching ships** (`authToken`, `accessToken`, `userSessionId`), written with
+  `(?-i:...)` — it cannot be written inline under `(?i)`, which makes `[A-Z]` match lowercase. It
+  costs exactly three false positives in the tested corpus: `codeName`, `keyName`, `tokenCount`.
+  Maintainer confirmed 2026-08-11: **ship it, and assert those three as *accepted* over-redactions
+  in the test** so the behaviour is deliberate and the one-line revert point is documented.
+  `keyboardLayout` and `monkeyBars` are unaffected; SC3's literal `codename` still does not redact.
+
+**Reconciling `SafeRegex` with D-02 — the subtlest interaction in the phase.**
+
+- **D-14:** `SafeRegex.replaceAllSafe` returns the input **unchanged** on timeout, indistinguishable
+  from "no matches" — that is fail-**open**, exactly where D-02 demands fail-closed. Add a
+  `replaceAllSafeReporting` sibling that surfaces a `timedOut` flag so the body stage can drop the
+  window rather than pass it through. There is one production caller today, so the change is
+  contained. The existing fail-open assertion in `SafeRegexTest:44` stays green unchanged.
+
+### Claude's Discretion — RESOLVED by research
+
+Both gray areas below were delegated at discuss-phase and are now **settled** — see
+§"Post-research decisions" above (D-09/D-10 for the first, D-11/D-12/D-13 for the second). The
+original framing is retained for the record.
 
 - **Cookie fix placement and policy (SC1, SC2).**
   Where does the fix live — the emitter (`PassiveAiScannerAnalysis` stops producing bare
