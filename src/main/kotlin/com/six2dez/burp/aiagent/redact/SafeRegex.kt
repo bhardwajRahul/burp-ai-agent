@@ -54,27 +54,60 @@ object SafeRegex {
     const val DEFAULT_TIMEOUT_MS = 50L
 
     /**
+     * Outcome of a bounded replacement (PRIV-06 / D-14).
+     *
+     * [timedOut] is the ONLY reliable signal that the pattern did not complete. [text] equals the
+     * original input in BOTH the "the pattern matched nothing" case and the "the pattern never
+     * finished" case, so a caller that inspects [text] alone cannot tell those two apart. A caller
+     * that must fail closed — a body-redaction window whose unscanned bytes must never reach a
+     * backend — has to branch on [timedOut], never on whether [text] changed.
+     */
+    data class SafeReplaceResult(
+        val text: String,
+        val timedOut: Boolean,
+    )
+
+    /**
+     * Replaces all matches of [pattern] in [input] with [replacement], bounding the match to
+     * [timeoutMs] milliseconds, and reports whether the match ran to completion (PRIV-06 / D-14).
+     *
+     * On timeout [SafeReplaceResult.text] is the ORIGINAL [input] — the same fail-soft text
+     * behaviour as [replaceAllSafe] — but [SafeReplaceResult.timedOut] is true, which is what
+     * lets a caller drop unscanned content instead of silently passing it through. See
+     * [SafeReplaceResult] for why the flag, not the text, is the signal.
+     */
+    fun replaceAllSafeReporting(
+        input: String,
+        pattern: Pattern,
+        replacement: String,
+        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+    ): SafeReplaceResult =
+        try {
+            val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+            val matcher = pattern.matcher(DeadlineCharSequence(input, deadline))
+            SafeReplaceResult(matcher.replaceAll(replacement), false)
+        } catch (_: RegexTimeoutException) {
+            // Fail-soft on the text as before, but report the timeout so the caller can fail closed.
+            SafeReplaceResult(input, true)
+        }
+
+    /**
      * Replaces all matches of [pattern] in [input] with [replacement], bounding the match to
      * [timeoutMs] milliseconds.
      *
      * If the pattern times out (RegexTimeoutException from the DeadlineCharSequence), the
      * ORIGINAL [input] is returned unchanged — fail-open so the redaction pipeline never hangs
      * and never corrupts content on account of a slow pattern.
+     *
+     * This façade therefore conflates "matched nothing" with "timed out"; callers that must tell
+     * the two apart use [replaceAllSafeReporting] instead.
      */
     fun replaceAllSafe(
         input: String,
         pattern: Pattern,
         replacement: String,
         timeoutMs: Long = DEFAULT_TIMEOUT_MS,
-    ): String =
-        try {
-            val deadline = System.nanoTime() + timeoutMs * 1_000_000L
-            val matcher = pattern.matcher(DeadlineCharSequence(input, deadline))
-            matcher.replaceAll(replacement)
-        } catch (_: RegexTimeoutException) {
-            // Fail-open: give up on this pattern; never corrupt or hang the pipeline.
-            input
-        }
+    ): String = replaceAllSafeReporting(input, pattern, replacement, timeoutMs).text
 
     /**
      * Returns true if [regex] compiles successfully AND finishes matching the adversarial probe

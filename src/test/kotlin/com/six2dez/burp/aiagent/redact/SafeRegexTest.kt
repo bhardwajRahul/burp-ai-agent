@@ -45,6 +45,37 @@ class SafeRegexTest {
         assertTrue(elapsed < 200L, "replaceAllSafe must return within 200 ms; took $elapsed ms")
     }
 
+    // PRIV-06 / D-14: the pair of tests is deliberate. catastrophicPatternTimesOutAndReturnsInput
+    // above pins the fail-open FAÇADE (replaceAllSafe returns the input, and callers depend on it);
+    // this one pins the SIGNAL that makes fail-closed possible. The returned text is identical in
+    // both the "no matches" and the "timed out" cases, so timedOut is the only way a body-redaction
+    // caller can tell that a window was never fully scanned and must be dropped rather than sent.
+    @Test
+    fun catastrophicPatternReportsTimedOut() {
+        // Same input and pattern as catastrophicPatternTimesOutAndReturnsInput — 2 000 'a'
+        // characters followed by '!' reliably trips the 50 ms deadline on JDK 21 for (a+)+$.
+        val input = "a".repeat(2_000) + "!"
+        val pattern = Pattern.compile("(a+)+\$")
+
+        val start = System.currentTimeMillis()
+        val result = SafeRegex.replaceAllSafeReporting(input, pattern, "[REDACTED]")
+        val elapsed = System.currentTimeMillis() - start
+
+        assertTrue(result.timedOut, "On timeout replaceAllSafeReporting must report timedOut = true")
+        assertEquals(input, result.text, "On timeout replaceAllSafeReporting must still return the original input as text")
+        assertTrue(elapsed < 200L, "replaceAllSafeReporting must return within 200 ms; took $elapsed ms")
+    }
+
+    // PRIV-06 / D-14: the counter-assertion — timedOut must be false for a pattern that completes,
+    // otherwise a fail-closed caller would drop every window and the flag would prove nothing.
+    @Test
+    fun benignPatternReportsNotTimedOut() {
+        val result = SafeRegex.replaceAllSafeReporting("abc123", Pattern.compile("\\d+"), "[REDACTED]")
+
+        assertFalse(result.timedOut, "A pattern that completes must report timedOut = false")
+        assertEquals("abc[REDACTED]", result.text, "replaceAllSafeReporting must apply the replacement when it completes")
+    }
+
     // WR-01: patterns that can match the empty (zero-width) string must be rejected. Otherwise
     // replaceAll would insert the replacement between every character, corrupting/bloating the
     // outbound context. Covers the common footguns: *, ?, and alternations with an empty branch.
