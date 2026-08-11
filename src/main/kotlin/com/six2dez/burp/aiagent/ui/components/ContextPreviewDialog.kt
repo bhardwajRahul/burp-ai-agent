@@ -18,6 +18,9 @@ object ContextPreviewDialog {
     fun confirm(
         parent: Component?,
         privacyMode: PrivacyMode,
+        // D-07: deliberately has NO default value. There is exactly one caller, and a default is how a
+        // future caller silently gets the OFF hint wrong.
+        customPatternsConfigured: Boolean,
         actionName: String,
         prompt: String,
         contextJson: String,
@@ -28,7 +31,7 @@ object ContextPreviewDialog {
         val header = JPanel()
         header.layout = BoxLayout(header, BoxLayout.Y_AXIS)
 
-        val modeLabel = JLabel("Privacy mode: ${privacyMode.name}${privacyModeHint(privacyMode)}")
+        val modeLabel = JLabel("Privacy mode: ${privacyMode.name}${privacyModeHint(privacyMode, customPatternsConfigured)}")
         val actionLabel = JLabel("Action: $actionName")
 
         header.add(actionLabel)
@@ -115,10 +118,21 @@ object ContextPreviewDialog {
         return choice == 0
     }
 
-    private fun privacyModeHint(mode: PrivacyMode): String =
+    private fun privacyModeHint(
+        mode: PrivacyMode,
+        customPatternsConfigured: Boolean,
+    ): String =
         when (mode) {
             PrivacyMode.STRICT -> "  (cookies, tokens, and hosts redacted)"
             PrivacyMode.BALANCED -> "  (cookies and tokens redacted, hosts kept)"
-            PrivacyMode.OFF -> "  (no redaction; raw traffic will be sent)"
+            // D-07: under OFF the built-in rules are skipped but custom patterns still run (D-05), so
+            // the pre-flight hint must not promise raw traffic when the user has patterns configured.
+            // The two leading spaces are part of each string — they separate the hint from the mode name.
+            PrivacyMode.OFF ->
+                if (customPatternsConfigured) {
+                    "  (built-in redaction off; only your custom patterns are applied)"
+                } else {
+                    "  (no redaction; raw traffic will be sent)"
+                }
         }
 }

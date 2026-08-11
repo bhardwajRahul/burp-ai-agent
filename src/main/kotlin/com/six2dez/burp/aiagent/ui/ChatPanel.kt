@@ -310,6 +310,9 @@ class ChatPanel(
         if (!ContextPreviewDialog.confirm(
                 parent = root,
                 privacyMode = getSettings().privacyMode,
+                // D-07: the dialog's OFF hint is conditioned on this — no default on the parameter,
+                // so a future second caller cannot silently inherit the wrong answer.
+                customPatternsConfigured = getSettings().customRedactionPatterns.isNotEmpty(),
                 actionName = spec.actionName,
                 prompt = prompt,
                 contextJson = capture.contextJson,
@@ -1143,7 +1146,15 @@ class ChatPanel(
         when (mode) {
             PrivacyMode.STRICT -> "Privacy: STRICT (cookies stripped, tokens redacted, hosts anonymized)"
             PrivacyMode.BALANCED -> "Privacy: BALANCED (cookies stripped, tokens redacted)"
-            PrivacyMode.OFF -> "Privacy: OFF (no redaction)"
+            // D-07: OFF disables the built-in rules only. Custom patterns are the user's "never send
+            // this, ever" list and apply in every mode (D-05), so the old wording was false. Conditioned
+            // on whether any are configured so the label never claims patterns run when the user has none.
+            PrivacyMode.OFF ->
+                if (getSettings().customRedactionPatterns.isNotEmpty()) {
+                    "Privacy: OFF (built-in redaction disabled; your custom patterns still apply)"
+                } else {
+                    "Privacy: OFF (built-in redaction disabled; no custom patterns configured)"
+                }
         }
 
     private fun updatePrivacyPill() {
