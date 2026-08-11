@@ -521,6 +521,169 @@ class RedactionTest {
         }
     }
 
+    // (PRIV-05) SC1 / D-09: every cookie value in the passive scanner's dedicated cookie section
+    // must be absent in STRICT and in BALANCED, with the cookie NAME preserved.
+    //
+    // The scanner splits the Cookie: header on ';' into bare name=value lines, dropping the prefix
+    // cookieHeaderRegex keys on — so the header-line rule never sees these and every value reached
+    // the AI backend verbatim. Asserted PER NAME rather than on an aggregate: a single "no secret
+    // survives" assertion would pass while four of the six leaked.
+    //
+    // abtest_bucket is the entry only the section rule saves. The widened key expression from plan
+    // 21-04 does not recognise that name, which is why both mechanisms are kept rather than treated
+    // as redundant.
+    @Test
+    fun cookieSectionValuesRedactedPerName() {
+        val cookieValues =
+            mapOf(
+                "JSESSIONID" to "8F3A9C2B7E1D4A6F0B5C8E2D",
+                "PHPSESSID" to "abc123def456",
+                "connect.sid" to "s%3ARZxYqL9.opaquevalue",
+                "auth_token" to "secretvalue123",
+                "csrftoken" to "abcdef",
+                "abtest_bucket" to "OPAQUE_VALUE_XYZ",
+            )
+
+        // The blank line and the following section exercise the span bound: the rule must stop at
+        // the end of the cookie section rather than running on to the end of the blob.
+        val blob =
+            """
+            === COOKIES ===
+            JSESSIONID=8F3A9C2B7E1D4A6F0B5C8E2D
+            PHPSESSID=abc123def456
+            connect.sid=s%3ARZxYqL9.opaquevalue
+            auth_token=secretvalue123
+            csrftoken=abcdef
+            abtest_bucket=OPAQUE_VALUE_XYZ
+
+            === PARAMETERS ===
+            q=red running shoes (URL)
+            """.trimIndent()
+
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+            val output = redactWith(blob, mode)
+            for ((name, value) in cookieValues) {
+                assertFalse(
+                    output.contains(value),
+                    "$mode: the value of cookie '$name' must be absent from the redacted prompt",
+                )
+                assertTrue(
+                    output.lines().contains("$name=[REDACTED]"),
+                    "$mode: cookie '$name' must keep its name and lose only its value",
+                )
+            }
+            assertTrue(
+                output.lines().contains("q=red running shoes (URL)"),
+                "$mode: a line past the cookie section's blank-line terminator must be untouched",
+            )
+        }
+    }
+
+    // (PRIV-05) SC2: request.parameters() surfaces COOKIE-typed parameters into the parameters
+    // section as "name=value (TYPE)" — the same values leaking a second way, in a section the
+    // section-scoped cookie rule deliberately does not cover.
+    //
+    // The (URL) and (BODY) survivors are the point of the test: they are what proves the rule is
+    // type-discriminating rather than a blanket line rule. The rejected context-free "^name=value$"
+    // alternative would have mangled both and still could not have satisfied SC2, because the
+    // trailing type suffix defeats its end anchor.
+    //
+    // abtest_bucket is the DECISIVE line and was added after measurement, not from the spec. With
+    // only JSESSIONID and remember_me present this test passed with the type-suffix rule unwired:
+    // both names are already reachable by plan 21-04's key expression, so formBodyParamRegex
+    // redacted them from the leading-field position and the assertions could not see the defect.
+    // An unremarkable cookie name is the only input the type-suffix rule alone can save. Do not
+    // remove it.
+    @Test
+    fun cookieTypedParametersRedacted() {
+        val blob =
+            """
+            === PARAMETERS ===
+            JSESSIONID=8F3A9C2B7E1D4A6F0B5C8E2D (COOKIE)
+            remember_me=deadbeefcafe (COOKIE)
+            abtest_bucket=OPAQUE_PARAM_XYZ (COOKIE)
+            q=red running shoes (URL)
+            quantity=2 (BODY)
+            """.trimIndent()
+
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+            val lines = redactWith(blob, mode).lines()
+
+            assertTrue(
+                lines.contains("JSESSIONID=[REDACTED] (COOKIE)"),
+                "$mode: a COOKIE-typed parameter must keep both its name and its type suffix",
+            )
+            assertTrue(
+                lines.contains("remember_me=[REDACTED] (COOKIE)"),
+                "$mode: EVERY COOKIE-typed parameter is redacted, not only the session-named ones",
+            )
+            assertTrue(
+                lines.contains("abtest_bucket=[REDACTED] (COOKIE)"),
+                "$mode: an unremarkably-named COOKIE-typed parameter is saved by the type suffix alone",
+            )
+            assertFalse(
+                lines.any {
+                    it.contains("8F3A9C2B7E1D4A6F0B5C8E2D") ||
+                        it.contains("deadbeefcafe") ||
+                        it.contains("OPAQUE_PARAM_XYZ")
+                },
+                "$mode: no COOKIE-typed parameter value may survive",
+            )
+            assertTrue(
+                lines.contains("q=red running shoes (URL)"),
+                "$mode: a URL-typed parameter line must survive byte-for-byte",
+            )
+            assertTrue(
+                lines.contains("quantity=2 (BODY)"),
+                "$mode: a BODY-typed parameter line must survive byte-for-byte",
+            )
+        }
+    }
+
+    // (PRIV-05) SC1 / D-10: the named security regression guard for section-header poisoning.
+    //
+    // This reproduces a DEMONSTRATED exploit, not a hypothetical one, so it is a security guard
+    // rather than a robustness nicety. ScanKnowledgeBase.recordTechStack builds its technology list
+    // from the response's Server / X-Powered-By / X-AspNet-Version / X-Generator headers — all
+    // attacker-controlled — and buildContextSummary emits that list into the prior-knowledge block,
+    // which the emitter appends BEFORE the cookie section. A first-occurrence-only indexOf was
+    // measured redacting the decoy below while BOTH genuine cookie values leaked intact; only
+    // iterating every occurrence of the header saves them.
+    //
+    // abtest_bucket is the load-bearing half. Its name is deliberately unreachable by the widened
+    // key expression from plan 21-04, so nothing but the section rule can save it — swapping it for
+    // a name the key expression already covers would make this test pass with the defect present.
+    // The decoy's own value is over-redacted as a result; that residual is accepted and documented
+    // in Redaction.redactCookieSections.
+    @Test
+    fun cookieSectionDecoyDoesNotShieldRealSection() {
+        val blob =
+            """
+            === PRIOR KNOWLEDGE ===
+            Detected technologies: === COOKIES ===
+            decoy=DECOY_VALUE
+
+            === COOKIES ===
+            JSESSIONID=REAL_SESSION_SECRET
+            abtest_bucket=OPAQUE_VALUE_XYZ
+            """.trimIndent()
+
+        val output = redactWith(blob, PrivacyMode.STRICT)
+
+        assertFalse(
+            output.contains("REAL_SESSION_SECRET"),
+            "STRICT: a decoy section header must not shield the real session cookie value",
+        )
+        assertFalse(
+            output.contains("OPAQUE_VALUE_XYZ"),
+            "STRICT: a decoy section header must not shield an unremarkably-named real cookie",
+        )
+        assertTrue(
+            output.lines().contains("abtest_bucket=[REDACTED]"),
+            "STRICT: the real cookie section is redacted in place, with its names preserved",
+        )
+    }
+
     // PRIV-02: OFF mode must leave bodies completely untouched — no form-body or JSON redaction.
     @Test
     fun offModePreservesBodies() {
