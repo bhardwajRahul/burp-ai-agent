@@ -199,7 +199,12 @@ None - no external service configuration required.
 - One coupling to carry forward: `redactScanMetadata` is now the single scanner-side entry into `Redaction.apply`. When D-05 moves the custom-pattern loop outside the `redactTokens` branch, `redactScanMetadata_offModeIsByteIdentical` remains true only because this test class clears custom patterns in `@BeforeEach` — keep that reset when extending the file.
 - The MCP half of D-06 (`mcp/McpToolContext.kt:59-66`) is untouched by this plan and remains outstanding.
 
-## Self-Check: PENDING
+## Self-Check: PASSED
+
+All 4 claimed files exist on disk; all 4 claimed commits (`b93fed2`, `e2aa5a8`, `cadb3ff`, `bd2b2dc`)
+exist in the branch history. Plan verification block re-run at completion:
+`./gradlew test ktlintCheck detekt -q` exits 0, `git diff --stat -- detekt-baseline.xml` is empty,
+and `grep -v '^\s*//' PassiveAiScannerAnalysis.kt | grep -c 'PrivacyMode'` returns 0.
 
 ---
 *Phase: 21-redaction-completeness*
