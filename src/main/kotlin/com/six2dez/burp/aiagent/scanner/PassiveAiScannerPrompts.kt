@@ -1,5 +1,15 @@
+// (PRIV-05) This file is the receiver-free, Montoya-free home for the passive scanner's prompt
+// builders; the Phase 21 extractions push it past detekt's 11-function file threshold. Its three
+// same-package siblings (PassiveAiScannerAnalysis.kt, PassiveAiScannerFilters.kt,
+// PassiveAiScannerFinding.kt) all carry the identical finding via detekt-baseline.xml. Suppressed at
+// file level rather than added to that baseline, which QUAL-07 forbids from growing.
+@file:Suppress("TooManyFunctions")
+
 package com.six2dez.burp.aiagent.scanner
 
+import com.six2dez.burp.aiagent.redact.PrivacyMode
+import com.six2dez.burp.aiagent.redact.Redaction
+import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
 import com.six2dez.burp.aiagent.util.SecurityExcerpts
 
@@ -16,6 +26,100 @@ internal fun truncateWithEllipsis(
     if (text.length <= maxChars) return text
     return text.take(maxChars) + "..."
 }
+
+// (PRIV-05) Renders one line of the parameters section as `name=value (TYPE)`, where TYPE
+// is HttpParameterType.name. The " (COOKIE)" suffix is the discriminator the section-scoped cookie
+// redaction rule keys on, so the shape is pinned here rather than inlined in doAnalysis. The value is
+// truncated by the caller: PARAM_VALUE_MAX_CHARS is file-private to PassiveAiScannerAnalysis.kt.
+internal fun formatParamLine(
+    name: String,
+    value: String,
+    type: String,
+): String = "$name=$value ($type)"
+
+// (PRIV-06 / D-06) Redacts the assembled scan metadata blob before it leaves the machine.
+// Redaction.apply is called UNCONDITIONALLY — there is deliberately no `if (mode == PrivacyMode.OFF)`
+// short-circuit here. OFF is expressed once, as a policy, inside Redaction: RedactionPolicy.fromMode
+// decides what OFF means. A caller-side bypass would make D-05 (custom patterns apply under OFF) true
+// in Redaction.kt and false on the exact path PRIV-05 is about.
+internal fun redactScanMetadata(
+    metadataText: String,
+    mode: PrivacyMode,
+    hostSalt: String,
+): String = Redaction.apply(metadataText, RedactionPolicy.fromMode(mode), stableHostSalt = hostSalt)
+
+// (PRIV-05) Assembles the scan metadata blob that doAnalysis hands to redactScanMetadata. Extracted
+// verbatim from doAnalysis so the emitted section shapes — in particular the cookie and parameter
+// section headers — are assertable against the real blob without a MontoyaApi. Byte-identical output
+// is the contract: do not tidy the appendLine() blank lines.
+// The 14 parameters exceed detekt's LongParameterList functionThreshold of 10. Suppressed on the
+// declaration (precedent: PassiveAiScannerAnalysis.kt:170) rather than added to detekt-baseline.xml,
+// which QUAL-07 forbids from growing; a data-class holder would trip constructorThreshold 10 too.
+@Suppress("LongParameterList")
+internal fun buildScanMetadataText(
+    kbSummary: String?,
+    displayUrl: String,
+    urlPath: String,
+    method: String,
+    statusCode: Int,
+    mimeType: String,
+    potentialIds: List<String>,
+    requestHeaders: List<String>,
+    responseHeaders: List<String>,
+    authHeaders: List<String>,
+    cookies: List<String>,
+    params: List<String>,
+    requestBody: String,
+    responseBody: String,
+): String =
+    buildString {
+        // Include knowledge base context if available
+        if (!kbSummary.isNullOrBlank()) {
+            appendLine("=== PRIOR KNOWLEDGE ===")
+            appendLine(kbSummary)
+            appendLine()
+        }
+        appendLine("URL: $displayUrl")
+        appendLine("Path: $urlPath")
+        appendLine("Method: $method")
+        appendLine("Status: $statusCode")
+        appendLine("MIME Type: $mimeType")
+        appendLine()
+        if (potentialIds.isNotEmpty()) {
+            appendLine("Potential Object IDs: ${potentialIds.joinToString(", ")}")
+        }
+        appendLine()
+        appendLine("=== REQUEST HEADERS ===")
+        requestHeaders.forEach { appendLine(it) }
+        appendLine()
+        appendLine("=== RESPONSE HEADERS ===")
+        responseHeaders.forEach { appendLine(it) }
+        appendLine()
+        if (authHeaders.isNotEmpty()) {
+            appendLine("=== AUTH HEADERS ===")
+            authHeaders.forEach { appendLine(it) }
+            appendLine()
+        }
+        if (cookies.isNotEmpty()) {
+            appendLine("=== COOKIES ===")
+            cookies.forEach { appendLine(it) }
+            appendLine()
+        }
+        if (params.isNotEmpty()) {
+            appendLine("=== PARAMETERS ===")
+            params.forEach { appendLine(it) }
+            appendLine()
+        }
+        if (requestBody.isNotEmpty()) {
+            appendLine("=== REQUEST BODY ===")
+            appendLine(requestBody)
+            appendLine()
+        }
+        if (responseBody.isNotEmpty()) {
+            appendLine("=== RESPONSE BODY ===")
+            appendLine(responseBody)
+        }
+    }
 
 internal fun buildCompactRequestBody(
     body: String,
