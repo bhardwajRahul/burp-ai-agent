@@ -108,6 +108,103 @@ class PassiveAiScannerPromptRedactionTest {
         assertFalse(redacted.contains("Host: example.com"), "STRICT must not leave the real host in the Host header")
     }
 
+    // (PRIV-05) SC1, end to end. Asserting only at the Redaction.apply level over a hand-written
+    // blob would leave the emitter's exact format unasserted — and that unasserted gap is precisely
+    // what let PRIV-05 ship. This test runs the REAL builder output through the REAL redaction step,
+    // and asserts per cookie name rather than on the aggregate.
+    @Test
+    fun emittedCookieSectionValuesAreRedacted_sc1() {
+        val cookieValues =
+            mapOf(
+                "JSESSIONID" to "8F3A9C2B7E1D4A6F0B5C8E2D",
+                "PHPSESSID" to "abc123def456",
+                "connect.sid" to "s%3ARZxYqL9.opaquevalue",
+                "auth_token" to "secretvalue123",
+                "csrftoken" to "abcdef",
+                // Unreachable by the widened key expression from plan 21-04 — only the
+                // section-scoped rule can save it, which is why both mechanisms are kept.
+                "abtest_bucket" to "OPAQUE_VALUE_XYZ",
+            )
+
+        val blob = metadataBlob(cookies = cookieValues.map { (name, value) -> "$name=$value" })
+
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+            val redacted = redactScanMetadata(blob, mode, HOST_SALT)
+            for ((name, value) in cookieValues) {
+                assertFalse(
+                    redacted.contains(value),
+                    "$mode: the emitted value of cookie '$name' must not survive redaction",
+                )
+                assertTrue(
+                    redacted.lines().contains("$name=[REDACTED]"),
+                    "$mode: cookie '$name' must keep its name in the emitted blob",
+                )
+            }
+        }
+    }
+
+    // (PRIV-05) SC2, end to end. The parameter lines are built through formatParamLine and the REAL
+    // HttpParameterType constants, never hand-written strings: the whole point is that the shape the
+    // emitter produces and the shape the redaction rule keys on are the same object.
+    //
+    // abtest_bucket is the decisive line. JSESSIONID alone would pass even with the type-suffix rule
+    // unwired, because the key expression from plan 21-04 already redacts it from the leading-field
+    // position; an unremarkable cookie name is what the type suffix alone has to save.
+    @Test
+    fun emittedCookieTypedParametersAreRedacted_sc2() {
+        val blob =
+            metadataBlob(
+                params =
+                    listOf(
+                        formatParamLine("JSESSIONID", "8F3A9C2B7E1D4A6F0B5C8E2D", HttpParameterType.COOKIE.name),
+                        formatParamLine("abtest_bucket", "OPAQUE_PARAM_XYZ", HttpParameterType.COOKIE.name),
+                        formatParamLine("q", "red running shoes", HttpParameterType.URL.name),
+                        formatParamLine("quantity", "2", HttpParameterType.BODY.name),
+                    ),
+            )
+
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+            val lines = redactScanMetadata(blob, mode, HOST_SALT).lines()
+
+            assertTrue(
+                lines.contains("JSESSIONID=[REDACTED] (COOKIE)"),
+                "$mode: an emitted COOKIE-typed parameter keeps its name and its Montoya type suffix",
+            )
+            assertTrue(
+                lines.contains("abtest_bucket=[REDACTED] (COOKIE)"),
+                "$mode: the type suffix alone must save an unremarkably-named cookie parameter",
+            )
+            assertFalse(
+                lines.any { it.contains("8F3A9C2B7E1D4A6F0B5C8E2D") || it.contains("OPAQUE_PARAM_XYZ") },
+                "$mode: no emitted COOKIE-typed parameter value may reach the backend",
+            )
+            assertTrue(
+                lines.contains("q=red running shoes (URL)"),
+                "$mode: a URL-typed parameter line must survive byte-for-byte",
+            )
+            assertTrue(
+                lines.contains("quantity=2 (BODY)"),
+                "$mode: a BODY-typed parameter line must survive byte-for-byte",
+            )
+        }
+    }
+
+    // (PRIV-05 / T-21-20) The parity half of the shared-constant coupling, in the spirit of
+    // McpToolParityTest.registeredToolIds_matchCatalog. The constant makes a RENAME of the section a
+    // compile error; this assertion makes a silent FORMAT CHANGE around it a test failure, which is
+    // the other way a section-scoped security control can be disabled without anyone noticing.
+    @Test
+    fun emittedBlobContainsTheSectionConstant_parity() {
+        val blob = metadataBlob(cookies = listOf("JSESSIONID=SEED_A"))
+
+        // Line-exact rather than String.contains, so a future edit that merges the header onto
+        // another line fails here instead of passing on a substring match.
+        assertTrue(
+            blob.lines().contains(Redaction.COOKIE_SECTION_HEADER),
+            "The emitted blob must carry the section header the redaction rule keys on, on its own line",
+        )
+    }
+
     private fun metadataBlob(
         requestHeaders: List<String> = listOf("User-Agent: burp-ai-agent-test"),
         cookies: List<String> = emptyList(),
