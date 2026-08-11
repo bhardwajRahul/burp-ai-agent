@@ -108,15 +108,24 @@ interceptor still runs after the first responds), and `finish()` is not callable
 6. The existing `RedactionTest` suite including the RFC 5869 HKDF vector stays green; the fix must not perturb host anonymization.
 
 **Plans**: 7 plans in 4 waves
-
 Plans:
+**Wave 1**
 
 - [ ] 21-01-PLAN.md — Wave 0: three Montoya-free extractions into `PassiveAiScannerPrompts.kt` + the new test seam; D-06 scanner half (wave 1)
 - [ ] 21-02-PLAN.md — `SafeRegex.replaceAllSafeReporting` (D-14) and the `Defaults` window/budget constants (D-04) (wave 1)
 - [ ] 21-03-PLAN.md — D-06 `McpToolContext` half and the four D-07 user-facing OFF strings (wave 1)
 - [ ] 21-04-PLAN.md — SC3: `SENSITIVE_KEY_EXPR` token-boundary matching + vendor list + camelCase, both directions asserted (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 21-05-PLAN.md — SC1/SC2: the two cookie rules, the shared section constant, and D-10's decoy-poisoning regression test (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 21-06-PLAN.md — SC4/SC5: the line-boundary windowed, budgeted, fail-closed body stage + D-03 truncation signal + the two deliberate SC6 inversions (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 21-07-PLAN.md — SC4 red-before-green gate (runs alone: it transiently mutates `Redaction.kt`), ADR-14, and the CONCERNS.md residuals (wave 4)
 
 **SC6 note**: two existing `RedactionTest` assertions are *deliberately* inverted by locked decisions and are

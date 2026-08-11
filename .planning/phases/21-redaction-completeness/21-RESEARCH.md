@@ -1276,9 +1276,16 @@ assumptions above are all tuning constants and scope judgements, not facts.*
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED 2026-08-11)
+
+**All five are closed.** Q1–Q3 by maintainer decision, recorded as locks in `21-CONTEXT.md`
+§"Post-research decisions"; Q4–Q5 by adoption in the plans. Resolutions are stated inline below.
 
 ### 1. Should camelCase key matching ship in Phase 21?
+**RESOLVED — yes, ship it.** Locked as **D-13** in `21-CONTEXT.md`. Maintainer confirmed 2026-08-11:
+the three false positives (`codeName`, `keyName`, `tokenCount`) are asserted **as accepted**
+over-redactions so the behaviour is deliberate and the one-line revert point is documented.
+Implemented by plan **21-04 T1** (the `(?-i:...)` construct) and **21-04 T2** (the corpus).
 - **What we know:** it works (`(?-i:...)` verified on JDK 21); it gains `authToken`, `accessToken`,
   `userSessionId`; it costs exactly three FPs in the tested corpus (`codeName`, `keyName`,
   `tokenCount`); `keyboardLayout` and `monkeyBars` are unaffected.
@@ -1289,6 +1296,11 @@ assumptions above are all tuning constants and scope judgements, not facts.*
   a one-line revert if vetoed.
 
 ### 2. Are there four user-facing OFF strings, not three?
+**RESOLVED — four.** Locked as **D-07 AMENDED** in `21-CONTEXT.md`. Maintainer confirmed 2026-08-11
+that `PrivacyPill.kt:41` is in scope: D-06's do-not-touch list protects that file's `PrivacyMode.OFF`
+*check*, not its tooltip string. `HelpConfigPanel.kt:26` stays with DOC-03. Implemented by plan
+**21-03 T2** (ChatPanel, ContextPreviewDialog, PrivacyPill) and **21-03 T3** (all four
+`SettingsPanelActions` arms, treated as one unit).
 - **What we know:** D-07 names `ChatPanel.kt:1146`, `ContextPreviewDialog.kt:122`, and "the
   `PrivacyConfigPanel` OFF notice". The third is `ui/SettingsPanelActions.kt:236-251`
   (`refreshPrivacyNotice` composes the `SubtleNotice` that `PrivacyConfigPanel` renders — the panel
@@ -1303,6 +1315,10 @@ assumptions above are all tuning constants and scope judgements, not facts.*
   explicit confirmation before editing.
 
 ### 3. Should the total budget cover the header stage too?
+**RESOLVED — no; scope the ADR instead.** Locked as **D-08 REFINED** in `21-CONTEXT.md`. ADR-14 claims
+"**the body stage** never fails open" rather than the unqualified version, which would be false the day
+it is written. The header-stage gap is recorded in `.planning/codebase/CONCERNS.md`. Implemented by
+plan **21-07 T2** (ADR wording, grep-asserted) and **21-07 T3** (the CONCERNS entry).
 - **What we know:** the eight header-stage rules run unbounded on the full input; at 10 MB each costs
   25-51 ms, so a 200 MB input spends seconds there before the budgeted body stage begins.
 - **What's unclear:** D-01/D-02 scope explicitly to "the body stage".
@@ -1311,12 +1327,20 @@ assumptions above are all tuning constants and scope judgements, not facts.*
   Record the header-stage gap in `CONCERNS.md`.
 
 ### 4. What should `redact_preview` (`McpToolExecutorImpl.kt:986`) do with the marker?
+**RESOLVED — no special handling, and therefore no task.** The recommendation below was adopted as-is:
+the marker is the honest answer and matches what the scanner path would send. Deliberately absent from
+the plans; recorded here so its absence reads as a decision rather than an omission.
 - **What we know:** it is a user-facing MCP tool that returns redacted text. After D-01 an oversized
   input returns text with a drop marker.
 - **Recommendation:** no special handling — the marker is the honest answer and matches what the
   scanner path would send. Add a one-line note to the tool's description if it has one.
 
 ### 5. Should the extracted prompt builder live in `PassiveAiScannerPrompts.kt`?
+**RESOLVED — yes.** Adopted by plan **21-01** (T1: `formatParamLine` + `redactScanMetadata`;
+T2: `buildScanMetadataText`). Note the constraint `21-PATTERNS.md` added: that file uses `//`
+comments exclusively (zero KDoc blocks), and `buildScanMetadataText` carries
+`@Suppress("LongParameterList")` because its 14 parameters exceed `detekt.yml`'s
+`functionThreshold: 10` and QUAL-07 forbids growing the baseline.
 - **What we know:** that file already holds `truncateWithEllipsis`, `buildCompactRequestBody`,
   `buildCompactResponseBody` as top-level `internal fun`s with no `PassiveAiScanner` receiver — the
   natural home.
