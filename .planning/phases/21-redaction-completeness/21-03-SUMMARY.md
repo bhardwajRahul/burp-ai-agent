@@ -236,6 +236,16 @@ None — no external service configuration required, no dependency added, no pac
 - **One residual, disclosed in the plan's threat model and unchanged:** no unit test covers the MCP half of D-06 — constructing an `McpToolContext` requires a `MontoyaApi` mock, an `McpRequestLimiter` and a `BurpSuiteEdition`. The behaviour it enables is proven where the logic lives (`RedactionTest`'s inverted OFF limb and `PassiveAiScannerPromptRedactionTest.offStillAppliesCustomPatterns`, both plan 21-06). The MCP half is covered here by the source assertion that the branch is absent.
 - **No blockers.**
 
+## Self-Check: PASSED
+
+- All 5 modified source files exist and are tracked; `git diff --stat e76a65a..HEAD` shows exactly the 5 files in the plan's `files_modified` and nothing else.
+- `git diff --diff-filter=D --name-only e76a65a..HEAD` is empty — no file was deleted anywhere in this plan.
+- All four commits verified present on `worktree-agent-a71ad0abdd612c28f`: `7e83436`, `7ef4883`, `ad36c5a`, `cd2cf7d`.
+- `21-03-SUMMARY.md` exists on disk and is committed.
+- Working tree clean; no untracked files left behind.
+- No stubs: every string and branch changed by this plan is wired to live state. `ContextPreviewDialog.confirm`'s new parameter has one real caller passing a real value.
+- No new threat surface beyond the plan's `<threat_model>`: no endpoint, auth path, file access or schema change; net effect is one deleted bypass on an existing trust boundary plus five string changes.
+
 ---
 *Phase: 21-redaction-completeness*
 *Completed: 2026-08-11*
