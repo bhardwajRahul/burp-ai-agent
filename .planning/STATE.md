@@ -4,8 +4,8 @@ milestone: v0.10.0
 milestone_name: — Security Correctness & Agent Trust
 status: executing
 stopped_at: Phase 21 context gathered
-last_updated: "2026-08-11T10:05:45.650Z"
-last_activity: 2026-08-11 -- Phase 21 planning complete
+last_updated: "2026-08-11T13:03:03.733Z"
+last_activity: 2026-08-11 -- Phase 21 execution started
 progress:
   total_phases: 7
   completed_phases: 1
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-05)
 
 **Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable.
-**Current focus:** Phase 20 — mcp-access-control-correctness
+**Current focus:** Phase 21 — redaction-completeness
 
 ## Current Position
 
-Phase: 21 (redaction-completeness) — not started
-Plan: Not started
-Status: Ready to execute
+Phase: 21 (redaction-completeness) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 21
 Resume file: .planning/phases/21-redaction-completeness/21-CONTEXT.md
-Last activity: 2026-08-11 -- Phase 21 planning complete
+Last activity: 2026-08-11 -- Phase 21 execution started
 
 ## Milestone Origin
 
