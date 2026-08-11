@@ -430,11 +430,14 @@ object Redaction {
     // needed. Matcher.region() has the right semantics but replaceAll() silently resets the region,
     // so region-scoped replacement is not available at all.
     //
-    // D-02 / D-14 — fail CLOSED. Every rule above the window width runs through
-    // SafeRegex.replaceAllSafeReporting and a window whose timedOut flag is set is DROPPED behind a
-    // marker, never emitted. Assigning replaceAllSafe's return value there would be fail-OPEN at
-    // exactly the moment D-02 demands fail-closed, because on timeout it returns the input
-    // unchanged — byte-identical to "the pattern matched nothing" (T-21-03).
+    // D-02 / D-14 — fail CLOSED, at EVERY size. Every rule, on both the single-pass path and the
+    // windowed path, runs through SafeRegex.replaceAllSafeReporting, and a timedOut flag is never
+    // ignored: above the window width the affected window is DROPPED behind a marker, and at or
+    // below it the partial result is discarded and the whole input is re-scanned through the
+    // windowed path. Assigning replaceAllSafe's return value anywhere in this stage would be
+    // fail-OPEN at exactly the moment D-02 demands fail-closed, because on timeout it returns the
+    // input unchanged — byte-identical to "the pattern matched nothing" (T-21-03). There is
+    // therefore no size at which a body rule can time out and its unscanned bytes still be emitted.
     @Suppress("ReturnCount")
     private fun bodyStage(
         input: String,
@@ -462,13 +465,39 @@ object Redaction {
 
         // PRIV-06 / D-04: at or below the window width this is a single pass whose cost and
         // behaviour match the pre-Phase-21 implementation for the overwhelming majority of
-        // payloads. One genuine change even on this path: the two built-in body rules previously
-        // ran with NO deadline at all (only custom patterns went through SafeRegex) and now all of
-        // them do, so a rule that overruns here is skipped rather than allowed to run long.
+        // payloads — when no rule times out, the loop below is byte-identical to a plain
+        // replace-each-rule chain. One genuine change even on this path: the two built-in body
+        // rules previously ran with NO deadline at all (only custom patterns went through
+        // SafeRegex) and now all of them do.
+        //
+        // (PRIV-06) D-02 / D-14: that new deadline must not smuggle a fail-OPEN back in.
+        // SafeRegex.replaceAllSafe returns its input UNCHANGED on timeout, byte-identical to "the
+        // pattern matched nothing", so assigning its result here would silently skip an overrunning
+        // rule and emit unredacted content on the common path — the exact failure mode this phase
+        // exists to remove, reintroduced one size class lower. replaceAllSafeReporting's timedOut
+        // flag is the only signal that tells the two cases apart, so it is what is branched on.
+        //
+        // On timeout the PARTIAL result is discarded and the ORIGINAL input is handed to
+        // windowedScan, which already fails closed (halve-and-retry to WINDOW_RETRY_MAX_DEPTH, then
+        // drop behind a visible marker). Restarting from the original rather than continuing from
+        // the partially-processed string avoids double-marking and any partial-application ordering
+        // artifact, and it reuses that machinery instead of duplicating it here.
+        //
+        // BUDGET CEILING — stated rather than assumed: this composition CAN exceed
+        // Defaults.MAX_REDACTION_BUDGET_MS, because windowedScan starts its own budget clock. The
+        // excess is bounded by construction: the single pass gives up after at most
+        // rules.size * SafeRegex.DEFAULT_TIMEOUT_MS, so the worst case is
+        // rules.size * DEFAULT_TIMEOUT_MS + MAX_REDACTION_BUDGET_MS — finite, and only reachable
+        // when a rule is already pathological. Threading one shared deadline into windowedScan was
+        // rejected: the fallthrough would then routinely arrive with the budget already spent and
+        // drop the ENTIRE body behind a single marker, which is fail-closed but destroys all
+        // analytic context (T-21-06) on an input small enough to scan properly.
         if (input.length <= Defaults.MAX_REDACTION_BODY_CHARS) {
             var out = input
             for ((pattern, replacement) in rules) {
-                out = SafeRegex.replaceAllSafe(out, pattern, replacement)
+                val result = SafeRegex.replaceAllSafeReporting(out, pattern, replacement)
+                if (result.timedOut) return windowedScan(input, rules)
+                out = result.text
             }
             return out
         }
