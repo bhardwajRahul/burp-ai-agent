@@ -810,23 +810,90 @@ class RedactionTest {
         )
     }
 
-    // PRIV-02: A body larger than Defaults.MAX_REDACTION_BODY_CHARS must be short-circuited.
-    // The body-stage redaction is skipped; the call must return promptly and not throw.
-    // The over-cap secret may remain (documented size-cap behaviour).
+    // (PRIV-06) SC4 / T-21-02: a body above the old size cap must not smuggle a secret past the
+    // body stage.
+    //
+    // This test is a DELIBERATE REWRITE, not an extension. It previously asserted the fail-open as
+    // correct behaviour: its comment recorded that an over-cap secret was allowed to remain, and
+    // its only substantive assertion was that the call returned quickly — which stayed true
+    // precisely BECAUSE every body rule was skipped. That is the PRIV-06 defect asserted as a
+    // contract. 21-VALIDATION.md records this rewrite as one of SC6's two named exceptions, so it
+    // is not a regression; plan 21-07 proves it goes RED against the pre-fix body stage. The old
+    // name would now misdescribe the contract, and 21-VALIDATION.md's automated selector
+    // *RedactionTest.oversizeBody* matches both the old and the new name.
+    //
+    // Two properties make this a real gate rather than a smoke test:
+    //   - the filler is MULTI-LINE, so line-boundary windowing genuinely produces more than one
+    //     window and the secret sits past the old cut-off, inside the second one;
+    //   - the secret is reachable by a body-stage rule ALONE. formBodyParamRegex catches it through
+    //     its (^|[?&]) leading-field anchor, while urlTokenParamRegex — which runs unbounded in the
+    //     header stage and would otherwise mask the defect — requires a '?' or '&' before the key
+    //     and cannot reach it. The value is not bearer- or basic-prefixed and does not start with
+    //     "eyJ", so no other rule can save it either. If the body stage skips, the secret survives.
     @Test
-    fun oversizeBodySkippedSafely() {
-        // Generate a body larger than the cap (cap is ~1 MB = 1_000_000 chars).
-        val oversizeBody = "apikey=" + "x".repeat(Defaults.MAX_REDACTION_BODY_CHARS + 10)
-        val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
+    fun oversizeBodySecretDoesNotSurvive() {
+        // 10 001 lines of 99 'x' plus a newline is 1 000 100 characters, just over the window width.
+        val filler = ("x".repeat(99) + "\n").repeat(10_001)
+        val oversizeBody = filler + "api_key=SC4-SECRET-VALUE-7B3E\n"
+        assertTrue(
+            oversizeBody.length > Defaults.MAX_REDACTION_BODY_CHARS,
+            "The fixture must exceed the window width or this test proves nothing",
+        )
 
-        // The primary assertion: the call must return without throwing or hanging.
+        val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
         val start = System.currentTimeMillis()
         val output = Redaction.apply(oversizeBody, policy, stableHostSalt = "salt")
         val elapsed = System.currentTimeMillis() - start
 
-        // Should return in well under a second (body stage is skipped entirely).
-        assertTrue(elapsed < 5_000, "Oversize body must short-circuit quickly; took ${elapsed}ms")
-        // The output must be a string (not null, not empty) — the call completed.
-        assertTrue(output.isNotEmpty(), "Output must be non-empty even when oversize body is skipped")
+        assertFalse(
+            output.contains("SC4-SECRET-VALUE-7B3E"),
+            "STRICT: a secret past the old size cap must not survive the body stage",
+        )
+        assertTrue(
+            output.contains("api_key=[REDACTED]"),
+            "STRICT: the over-cap field must be redacted in place, keeping its key",
+        )
+        assertTrue(elapsed < 5_000, "The windowed body stage must stay bounded; took ${elapsed}ms")
+    }
+
+    // (PRIV-06) SC4 / D-02 / D-14 / T-21-03: a pathological pattern on an oversized input must
+    // produce a MARKER, never passthrough.
+    //
+    // This is the fail-CLOSED half of SC4 and the explicit guard against treating
+    // SafeRegex.replaceAllSafe's return value as success: on timeout that facade returns the input
+    // unchanged, byte-identical to "the pattern matched nothing", so a body stage built on it would
+    // silently emit unscanned bytes while looking correct. Only the timedOut flag from
+    // replaceAllSafeReporting can tell the two apart.
+    //
+    // (a+)+$ is the classic catastrophic-backtracking pattern and 2 000 'a' characters followed by
+    // '!' is the input shape SafeRegexTest already proves trips the 50 ms deadline on JDK 21. It is
+    // pushed in through setCustomPatterns rather than through the save path on purpose: isPatternSafe
+    // rejects it at save time, and what is under test here is what the ENGINE does if such a pattern
+    // ever reaches it. The @AfterEach resetCustomPatterns prevents any bleed.
+    @Test
+    fun oversizeBodyFailsClosed() {
+        Redaction.setCustomPatterns(listOf("(a+)+\$"))
+
+        val oversizeBody = ("a".repeat(2_000) + "!\n").repeat(600)
+        assertTrue(
+            oversizeBody.length > Defaults.MAX_REDACTION_BODY_CHARS,
+            "The fixture must exceed the window width or no windowing happens",
+        )
+
+        val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
+        val start = System.currentTimeMillis()
+        val output = Redaction.apply(oversizeBody, policy, stableHostSalt = "salt")
+        val elapsed = System.currentTimeMillis() - start
+
+        assertTrue(
+            output.contains("REDACTION INCOMPLETE") || output.contains("REDACTION BUDGET EXCEEDED"),
+            "A window that could not be fully scanned must be dropped behind a marker, not passed through",
+        )
+        assertFalse(
+            output.contains(oversizeBody),
+            "The unscanned input must not survive verbatim alongside the marker",
+        )
+        // Generous so a slow machine cannot make this flaky, tight enough to fail if it hangs.
+        assertTrue(elapsed < 30_000, "The total budget must bound a pathological pattern; took ${elapsed}ms")
     }
 }

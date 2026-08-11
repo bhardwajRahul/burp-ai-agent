@@ -4,6 +4,7 @@ import burp.api.montoya.http.message.params.HttpParameterType
 import burp.api.montoya.http.message.params.ParsedHttpParameter
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.redact.Redaction
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -32,6 +33,14 @@ class PassiveAiScannerPromptRedactionTest {
         // would bleed in here. Under D-05 custom patterns apply even in OFF, so the byte-identity
         // assertion below is only meaningful with the list provably empty.
         Redaction.setCustomPatterns(emptyList())
+    }
+
+    @AfterEach
+    fun clearCustomPatternsAfterEach() {
+        // The @BeforeEach above only protects THIS class. offStillAppliesCustomPatterns configures a
+        // pattern on the Redaction singleton that would otherwise bleed OUT into every later test
+        // class in the shared JVM, so the list is cleared on the way out as well as on the way in.
+        clearCustomPatterns()
     }
 
     @Test
@@ -205,10 +214,40 @@ class PassiveAiScannerPromptRedactionTest {
         )
     }
 
+    // (PRIV-06) D-05 / D-06: custom patterns must apply under PrivacyMode.OFF, proven on a REAL
+    // caller seam rather than only against Redaction.apply in isolation.
+    //
+    // This is what makes D-06's deleted caller-side short-circuits load-bearing: before this phase
+    // the scanner tested `if (privacyMode == OFF) metadataText else Redaction.apply(...)`, so under
+    // OFF the engine was never entered and a configured custom pattern could not fire no matter
+    // what the engine did. Asserting only on Redaction.apply would leave exactly that gap
+    // unasserted — the same class of gap that let PRIV-05 ship.
+    //
+    // The value is attributable to the custom pattern and to nothing else: OFF sets stripCookies,
+    // redactTokens and anonymizeHosts all false, so every built-in rule is inert, and 'leaked' is
+    // not a sensitive key name in any case.
+    @Test
+    fun offStillAppliesCustomPatterns() {
+        Redaction.setCustomPatterns(listOf("\\bOFF-CUSTOM-[A-Z0-9]{6}\\b"))
+
+        val blob = metadataBlob(responseBody = "leaked=OFF-CUSTOM-A1B2C3")
+        val redacted = redactScanMetadata(blob, PrivacyMode.OFF, HOST_SALT)
+
+        assertFalse(
+            redacted.contains("OFF-CUSTOM-A1B2C3"),
+            "OFF: a user's custom pattern is a 'never send this' list and must still redact",
+        )
+        assertTrue(
+            redacted.contains("[REDACTED]"),
+            "OFF: the custom-pattern replacement must appear in the emitted blob",
+        )
+    }
+
     private fun metadataBlob(
         requestHeaders: List<String> = listOf("User-Agent: burp-ai-agent-test"),
         cookies: List<String> = emptyList(),
         params: List<String> = emptyList(),
+        responseBody: String = "",
     ): String =
         buildScanMetadataText(
             kbSummary = null,
@@ -224,6 +263,6 @@ class PassiveAiScannerPromptRedactionTest {
             cookies = cookies,
             params = params,
             requestBody = "",
-            responseBody = "",
+            responseBody = responseBody,
         )
 }
