@@ -211,6 +211,13 @@ None — no external service configuration required.
 - **Carry into 21-07 (ADR-14 / CONCERNS):** `21-RESEARCH.md` flags that the eight **header-stage** rules still run unbounded on the full input and are outside D-01/D-02's scope. `MAX_REDACTION_BUDGET_MS` bounds the body stage only. ADR-14's title must claim "the body stage never fails open", not the unqualified form (T-21-08 residual, accepted).
 - **Open question for 21-06 (planner's call, ~15 lines, from `21-RESEARCH.md` §Throughput):** on a window timeout, halve the window at a line boundary and retry to a depth of 2 before dropping. Headroom at 1 MB is only ~2.2× on Apple Silicon, so on a 2-3× slower machine dense form content would time out and, under D-02's fail-closed rule, drop a window that today passes through — a user-visible capability regression. `timedOut` is exactly the signal that retry loop needs.
 
+## Self-Check: PASSED
+
+All four claimed files exist on disk (`21-02-SUMMARY.md`, `SafeRegex.kt`, `SafeRegexTest.kt`, `Defaults.kt`)
+and all four claimed commits are present on `worktree-agent-a8e442ceb5e21a03b` above the plan's base
+`e76a65a`: `bb579f6`, `fc9b83b`, `61454ad`, `b2b1e49`. Working tree clean, no untracked files, no file
+deletions in any commit.
+
 ---
 *Phase: 21-redaction-completeness*
 *Completed: 2026-08-11*
