@@ -5,7 +5,6 @@ import com.six2dez.burp.aiagent.audit.ActivityType
 import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.config.Defaults
-import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import com.six2dez.burp.aiagent.redact.SecretTripwire
@@ -237,7 +236,7 @@ internal fun PassiveAiScanner.doAnalysis(requestResponse: HttpRequestResponse) {
                 .take(paramMaxCount)
                 .map { p ->
                     val value = truncateWithEllipsis(p.value(), PARAM_VALUE_MAX_CHARS)
-                    "${p.name()}=$value (${p.type().name})"
+                    formatParamLine(p.name(), value, p.type().name)
                 }.toList()
 
         val requestHeaders = sanitizeHeadersForPrompt(request.headers(), isRequest = true)
@@ -390,16 +389,8 @@ internal fun PassiveAiScanner.doAnalysis(requestResponse: HttpRequestResponse) {
                 }
             }
 
-        val safeMetadataText =
-            if (settings.privacyMode == PrivacyMode.OFF) {
-                metadataText
-            } else {
-                Redaction.apply(
-                    metadataText,
-                    redactionPolicy,
-                    stableHostSalt = settings.hostAnonymizationSalt,
-                )
-            }
+        // PRIV-06 / D-06: no caller-side PrivacyMode.OFF short-circuit — OFF is a policy inside Redaction.
+        val safeMetadataText = redactScanMetadata(metadataText, settings.privacyMode, settings.hostAnonymizationSalt)
 
         // Single-item prompt cache check
         val singlePrompt = buildAnalysisPrompt(safeMetadataText, settings.passiveAiMinSeverity.name)
