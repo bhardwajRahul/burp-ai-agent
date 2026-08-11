@@ -80,6 +80,91 @@ object Redaction {
     private val cookieHeaderRegex = Regex("(?im)^cookie:\\s*.+$")
     private val setCookieHeaderRegex = Regex("(?im)^set-cookie:\\s*.+$")
 
+    /**
+     * The passive scanner's dedicated cookie-section header.
+     *
+     * Public, and owned HERE in the redactor rather than in the emitter, because
+     * scanner/PassiveAiScannerPrompts.kt imports this constant instead of writing the literal
+     * inline. A future rename of the section is then a COMPILE ERROR rather than the silent
+     * disabling of a security control — which is the standing objection to any section-scoped
+     * redaction rule, converted into a compile-time coupling. The parity half of that coupling is
+     * PassiveAiScannerPromptRedactionTest.emittedBlobContainsTheSectionConstant_parity, which turns
+     * a silent format change AROUND the constant into a test failure.
+     */
+    const val COOKIE_SECTION_HEADER = "=== COOKIES ==="
+
+    // (PRIV-05) SC1 / D-09: one name=value pair inside a cookie section. [^=\r\n]+ stops at the
+    // FIRST '=', so a value that itself contains '=' (base64 padding) is consumed whole by the
+    // trailing .* and cannot survive as a fragment.
+    private val cookieSectionPairRegex = Regex("(?m)^([^=\\r\\n]+)=(.*)$")
+
+    // (PRIV-05) SC1: the start of the NEXT prompt section. One of the three span terminators used
+    // to bound a cookie section; the other two are a blank line and end-of-text.
+    private val nextSectionRegex = Regex("(?m)^=== ")
+
+    // (PRIV-05) SC1 / D-09 / D-10: redacts the VALUE of every name=value pair inside EVERY
+    // [COOKIE_SECTION_HEADER] span, preserving the names. The scanner splits the Cookie: header on
+    // ';' into a dedicated section, dropping the prefix the two header rules above key on — that is
+    // the PRIV-05 leak, and it is a pattern-reach problem, not a call-site problem.
+    //
+    // D-09 — EVERY value, not only sensitive-named ones. Cookies are near-universally
+    // session-bearing, and name-based selectivity is precisely what produced PRIV-05. Names are
+    // preserved deliberately: COOKIES_MAX_COUNT bounds the section to six lines, so this costs the
+    // model at most six opaque values while keeping all six names, which is the analytically useful
+    // part (ScanKnowledgeBase.recordAuthInfo already records authCookieNames separately for exactly
+    // this reason). Full-line stripping in the style of the two header rules above would destroy
+    // the names and is therefore wrong here.
+    //
+    // D-10 — EVERY occurrence of the header, never only the first. This is a SECURITY requirement
+    // with a demonstrated exploit behind it, not a robustness nicety. ScanKnowledgeBase.recordTechStack
+    // populates the technology list from the response's Server, X-Powered-By, X-AspNet-Version and
+    // X-Generator headers — all attacker-controlled — and buildContextSummary emits that list into
+    // the prior-knowledge block, which the emitter appends BEFORE the cookie section. A Server
+    // header carrying the section header therefore plants a decoy section ahead of the real one,
+    // and a first-occurrence-only indexOf was measured redacting the decoy while the genuine
+    // JSESSIONID and abtest_bucket values leaked intact. The while loop below is that fix;
+    // RedactionTest.cookieSectionDecoyDoesNotShieldRealSection is its named regression guard.
+    //
+    // ACCEPTED RESIDUAL: an attacker who injects the section header into a response header causes
+    // EXTRA redaction of their own response content. That is an over-redaction nuisance, never a
+    // leak, and it is strictly better than the alternative.
+    private fun redactCookieSections(text: String): String {
+        var out = text
+        var from = 0
+        while (true) {
+            val h = out.indexOf(COOKIE_SECTION_HEADER, from)
+            if (h < 0) return out
+            val bodyStart = h + COOKIE_SECTION_HEADER.length
+            var end = out.length
+            val blankLine = out.indexOf("\n\n", bodyStart)
+            if (blankLine >= 0) end = minOf(end, blankLine)
+            val nextSection = nextSectionRegex.find(out, bodyStart)
+            if (nextSection != null) end = minOf(end, nextSection.range.first)
+            val section = out.substring(bodyStart, end)
+            out =
+                out.substring(0, bodyStart) +
+                section.replace(cookieSectionPairRegex) { "${it.groupValues[1]}=[REDACTED]" } +
+                out.substring(end)
+            // Advance past this header only: bodyStart is strictly greater than h, so the loop
+            // always terminates, and the prefix rewritten above keeps every index below it valid.
+            from = bodyStart
+        }
+    }
+
+    // (PRIV-05) SC2 / D-09: a COOKIE-typed parameter line — the second entry point of the same
+    // leak, reached through request.parameters(). Parameters are emitted as "name=value (TYPE)"
+    // where TYPE is the Montoya HttpParameterType name (formatParamLine in
+    // scanner/PassiveAiScannerPrompts.kt), so keying on the semantic type label rather than on a
+    // section header makes this rule CONTEXT-FREE: it survives a section rename and works wherever
+    // the shape appears. The asymmetry with the section rule above is deliberate — that section has
+    // no discriminator other than its header, whereas a parameter line carries one in its own text.
+    //
+    // The context-free "^name=value$" alternative was rejected on CAPABILITY, not merely on
+    // over-redaction: the trailing type suffix defeats the end anchor, so it cannot satisfy SC2 at
+    // all — and it additionally mangles x=1, DEBUG=true and AAAA== when they stand on their own
+    // line. Group 3 is the suffix and is written back verbatim, so name and type label both survive.
+    private val cookieTypedParamRegex = Regex("(?im)^([^=\\r\\n]+)=(.*?)(\\s\\(COOKIE\\))\\s*$")
+
     // very generic JWT-like pattern (not perfect by design)
     private val jwtRegex = Regex("\\beyJ[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+\\b")
 
@@ -310,6 +395,20 @@ object Redaction {
         if (policy.stripCookies) {
             out = out.replace(cookieHeaderRegex, "Cookie: [STRIPPED]")
             out = out.replace(setCookieHeaderRegex, "Set-Cookie: [STRIPPED]")
+            // (PRIV-05) SC1: the passive scanner re-emits cookies as bare name=value lines in a
+            // dedicated section, stripped of the prefix the two header rules above key on.
+            out = redactCookieSections(out)
+            // (PRIV-05) SC2: the same values leak a second time as typed parameter lines. Only the
+            // value is replaced; the name and the trailing type label are written back verbatim.
+            // Both rules run BEFORE the body stage and are idempotent under it — re-matching
+            // NAME=[REDACTED] reproduces NAME=[REDACTED] — so no ordering hazard exists.
+            out =
+                out.replace(cookieTypedParamRegex) { m ->
+                    // Destructured rather than groupValues[3]: detekt's MagicNumber rule ignores
+                    // only -1/0/1/2, and a named binding reads better than a bare group index.
+                    val (name, _, typeSuffix) = m.destructured
+                    "$name=[REDACTED]$typeSuffix"
+                }
         }
 
         if (policy.redactTokens) {

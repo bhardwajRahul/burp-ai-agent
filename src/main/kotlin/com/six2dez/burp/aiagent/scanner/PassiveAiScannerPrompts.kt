@@ -101,7 +101,12 @@ internal fun buildScanMetadataText(
             appendLine()
         }
         if (cookies.isNotEmpty()) {
-            appendLine("=== COOKIES ===")
+            // (PRIV-05) SC1: the header is owned by redact/Redaction.kt and imported, never written
+            // inline here, so renaming the section is a compile error rather than the silent
+            // disabling of the section-scoped cookie rule that keys on it. The parameters section
+            // below deliberately keeps its inline literal — the SC2 rule keys on the type suffix of
+            // each line instead, so it is context-free and needs no coupling to this format.
+            appendLine(Redaction.COOKIE_SECTION_HEADER)
             cookies.forEach { appendLine(it) }
             appendLine()
         }
