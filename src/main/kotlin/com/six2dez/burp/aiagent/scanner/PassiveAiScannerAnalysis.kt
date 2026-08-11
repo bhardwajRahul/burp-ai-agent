@@ -338,56 +338,25 @@ internal fun PassiveAiScanner.doAnalysis(requestResponse: HttpRequestResponse) {
         val requestBody = buildCompactRequestBody(requestBodyRaw, request.headerValue("Content-Type").orEmpty(), requestBodyPromptMaxChars)
         val responseBody = buildCompactResponseBody(responseBodyRaw, response?.headerValue("Content-Type").orEmpty(), responseBodyPromptMaxChars)
 
+        // Named arguments: a future parameter reorder must not silently transpose the header lists.
         val metadataText =
-            buildString {
-                // Include knowledge base context if available
-                val kbSummary = ScanKnowledgeBase.buildContextSummary(host)
-                if (!kbSummary.isNullOrBlank()) {
-                    appendLine("=== PRIOR KNOWLEDGE ===")
-                    appendLine(kbSummary)
-                    appendLine()
-                }
-                appendLine("URL: $displayUrl")
-                appendLine("Path: $urlPath")
-                appendLine("Method: ${request.method()}")
-                appendLine("Status: ${response?.statusCode() ?: 0}")
-                appendLine("MIME Type: ${response?.statedMimeType()?.name ?: "unknown"}")
-                appendLine()
-                if (potentialIds.isNotEmpty()) {
-                    appendLine("Potential Object IDs: ${potentialIds.joinToString(", ")}")
-                }
-                appendLine()
-                appendLine("=== REQUEST HEADERS ===")
-                requestHeaders.forEach { appendLine(it) }
-                appendLine()
-                appendLine("=== RESPONSE HEADERS ===")
-                responseHeaders.forEach { appendLine(it) }
-                appendLine()
-                if (authHeaders.isNotEmpty()) {
-                    appendLine("=== AUTH HEADERS ===")
-                    authHeaders.forEach { appendLine(it) }
-                    appendLine()
-                }
-                if (cookies.isNotEmpty()) {
-                    appendLine("=== COOKIES ===")
-                    cookies.forEach { appendLine(it) }
-                    appendLine()
-                }
-                if (params.isNotEmpty()) {
-                    appendLine("=== PARAMETERS ===")
-                    params.forEach { appendLine(it) }
-                    appendLine()
-                }
-                if (requestBody.isNotEmpty()) {
-                    appendLine("=== REQUEST BODY ===")
-                    appendLine(requestBody)
-                    appendLine()
-                }
-                if (responseBody.isNotEmpty()) {
-                    appendLine("=== RESPONSE BODY ===")
-                    appendLine(responseBody)
-                }
-            }
+            buildScanMetadataText(
+                kbSummary = ScanKnowledgeBase.buildContextSummary(host),
+                displayUrl = displayUrl,
+                urlPath = urlPath,
+                method = request.method(),
+                // Montoya statusCode() is a Short; widen here so the rendered digits stay identical.
+                statusCode = response?.statusCode()?.toInt() ?: 0,
+                mimeType = response?.statedMimeType()?.name ?: "unknown",
+                potentialIds = potentialIds,
+                requestHeaders = requestHeaders,
+                responseHeaders = responseHeaders,
+                authHeaders = authHeaders,
+                cookies = cookies,
+                params = params,
+                requestBody = requestBody,
+                responseBody = responseBody,
+            )
 
         // PRIV-06 / D-06: no caller-side PrivacyMode.OFF short-circuit — OFF is a policy inside Redaction.
         val safeMetadataText = redactScanMetadata(metadataText, settings.privacyMode, settings.hostAnonymizationSalt)

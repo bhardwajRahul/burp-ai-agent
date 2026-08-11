@@ -27,7 +27,7 @@ internal fun truncateWithEllipsis(
     return text.take(maxChars) + "..."
 }
 
-// (PRIV-05) Renders one line of the "=== PARAMETERS ===" section as `name=value (TYPE)`, where TYPE
+// (PRIV-05) Renders one line of the parameters section as `name=value (TYPE)`, where TYPE
 // is HttpParameterType.name. The " (COOKIE)" suffix is the discriminator the section-scoped cookie
 // redaction rule keys on, so the shape is pinned here rather than inlined in doAnalysis. The value is
 // truncated by the caller: PARAM_VALUE_MAX_CHARS is file-private to PassiveAiScannerAnalysis.kt.
@@ -47,6 +47,79 @@ internal fun redactScanMetadata(
     mode: PrivacyMode,
     hostSalt: String,
 ): String = Redaction.apply(metadataText, RedactionPolicy.fromMode(mode), stableHostSalt = hostSalt)
+
+// (PRIV-05) Assembles the scan metadata blob that doAnalysis hands to redactScanMetadata. Extracted
+// verbatim from doAnalysis so the emitted section shapes — in particular the cookie and parameter
+// section headers — are assertable against the real blob without a MontoyaApi. Byte-identical output
+// is the contract: do not tidy the appendLine() blank lines.
+// The 14 parameters exceed detekt's LongParameterList functionThreshold of 10. Suppressed on the
+// declaration (precedent: PassiveAiScannerAnalysis.kt:170) rather than added to detekt-baseline.xml,
+// which QUAL-07 forbids from growing; a data-class holder would trip constructorThreshold 10 too.
+@Suppress("LongParameterList")
+internal fun buildScanMetadataText(
+    kbSummary: String?,
+    displayUrl: String,
+    urlPath: String,
+    method: String,
+    statusCode: Int,
+    mimeType: String,
+    potentialIds: List<String>,
+    requestHeaders: List<String>,
+    responseHeaders: List<String>,
+    authHeaders: List<String>,
+    cookies: List<String>,
+    params: List<String>,
+    requestBody: String,
+    responseBody: String,
+): String =
+    buildString {
+        // Include knowledge base context if available
+        if (!kbSummary.isNullOrBlank()) {
+            appendLine("=== PRIOR KNOWLEDGE ===")
+            appendLine(kbSummary)
+            appendLine()
+        }
+        appendLine("URL: $displayUrl")
+        appendLine("Path: $urlPath")
+        appendLine("Method: $method")
+        appendLine("Status: $statusCode")
+        appendLine("MIME Type: $mimeType")
+        appendLine()
+        if (potentialIds.isNotEmpty()) {
+            appendLine("Potential Object IDs: ${potentialIds.joinToString(", ")}")
+        }
+        appendLine()
+        appendLine("=== REQUEST HEADERS ===")
+        requestHeaders.forEach { appendLine(it) }
+        appendLine()
+        appendLine("=== RESPONSE HEADERS ===")
+        responseHeaders.forEach { appendLine(it) }
+        appendLine()
+        if (authHeaders.isNotEmpty()) {
+            appendLine("=== AUTH HEADERS ===")
+            authHeaders.forEach { appendLine(it) }
+            appendLine()
+        }
+        if (cookies.isNotEmpty()) {
+            appendLine("=== COOKIES ===")
+            cookies.forEach { appendLine(it) }
+            appendLine()
+        }
+        if (params.isNotEmpty()) {
+            appendLine("=== PARAMETERS ===")
+            params.forEach { appendLine(it) }
+            appendLine()
+        }
+        if (requestBody.isNotEmpty()) {
+            appendLine("=== REQUEST BODY ===")
+            appendLine(requestBody)
+            appendLine()
+        }
+        if (responseBody.isNotEmpty()) {
+            appendLine("=== RESPONSE BODY ===")
+            appendLine(responseBody)
+        }
+    }
 
 internal fun buildCompactRequestBody(
     body: String,
