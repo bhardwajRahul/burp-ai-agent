@@ -896,4 +896,53 @@ class RedactionTest {
         // Generous so a slow machine cannot make this flaky, tight enough to fail if it hangs.
         assertTrue(elapsed < 30_000, "The total budget must bound a pathological pattern; took ${elapsed}ms")
     }
+
+    // (PRIV-06) SC4 / D-02 / D-14 / T-21-03: the fail-closed guarantee holds BELOW the window
+    // width too, not only above it.
+    //
+    // The sibling above covers oversized input. This one covers the single-pass path, which plan
+    // 21-06 shipped assigning SafeRegex.replaceAllSafe's return value: that facade returns its
+    // input unchanged on timeout, byte-identical to "the pattern matched nothing", so a rule that
+    // overran the 50 ms deadline was silently skipped and its unredacted content passed straight
+    // through. That is fail-OPEN, one size class below the defect the phase exists to remove, and
+    // it is what this test pins shut. The fix discards the partial result and re-scans the ORIGINAL
+    // input through the windowed path, which already drops unscannable content behind a marker.
+    //
+    // FIXTURE STRENGTH (the 21-05 lesson: a test another rule also satisfies is vacuous). Two
+    // properties make this reachable ONLY by the path under test:
+    //   - the body is 800 800 characters, strictly BELOW MAX_REDACTION_BODY_CHARS, so the windowed
+    //     path is not entered directly and the single-pass loop is what must fail closed. The
+    //     assertion below pins that, so a future change to the constant cannot silently turn this
+    //     into a duplicate of oversizeBodyFailsClosed;
+    //   - the content is nothing but 'a' runs and '!' — no '=', no sensitive key name, no cookie
+    //     section, no bearer/basic prefix, no "eyJ" and no host header. Not one built-in rule can
+    //     match it, in either stage, so the marker asserted below can only have been produced by
+    //     the fail-closed fallthrough. Verified by mutation, not by inspection.
+    @Test
+    fun subWindowBodyFailsClosed() {
+        Redaction.setCustomPatterns(listOf("(a+)+\$"))
+
+        // 400 lines of 2 000 'a' plus "!\n" is 800 800 characters — under the 1 MB window width.
+        val body = ("a".repeat(2_000) + "!\n").repeat(400)
+        assertTrue(
+            body.length <= Defaults.MAX_REDACTION_BODY_CHARS,
+            "The fixture must stay BELOW the window width or this test duplicates oversizeBodyFailsClosed",
+        )
+
+        val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
+        val start = System.currentTimeMillis()
+        val output = Redaction.apply(body, policy, stableHostSalt = "salt")
+        val elapsed = System.currentTimeMillis() - start
+
+        assertTrue(
+            output.contains("REDACTION INCOMPLETE") || output.contains("REDACTION BUDGET EXCEEDED"),
+            "A sub-window body whose rule timed out must be dropped behind a marker, never passed through",
+        )
+        assertFalse(
+            output.contains(body),
+            "The unscanned input must not survive verbatim on the single-pass path either",
+        )
+        // Bounds the documented composition: one single-pass sweep plus one full windowed budget.
+        assertTrue(elapsed < 30_000, "The single-pass fallthrough must stay bounded; took ${elapsed}ms")
+    }
 }
