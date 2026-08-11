@@ -160,6 +160,14 @@ forgotten. The two are reconciled inside this same phase by plan 21-06 (wave 3),
 `replaceAllSafeReporting` likewise has no production caller yet — `replaceAllSafe` delegates to it, so it is
 fully exercised, but the fail-closed branch on `timedOut` arrives with 21-06.
 
+**`REQUIREMENTS.md` was deliberately not updated by this plan.** The `requirements-completed: [PRIV-06]`
+frontmatter above records what this plan's `requirements` field claims, per the summary template — it is
+**not** an assertion that PRIV-06 is satisfied. PRIV-06 is a single phase-wide checkbox
+(`REQUIREMENTS.md:24`) claimed by five of the seven plans in phase 21 (21-01, 21-02, 21-03, 21-06, 21-07),
+and it cannot be true until 21-06 removes the fail-open from `Redaction.apply`. Checking it off here would
+be a false claim, and `REQUIREMENTS.md` is a shared artifact that every wave-1 worktree would edit on the
+same lines. The orchestrator reconciles it after the phase completes.
+
 ## Known Stubs
 
 None. Both new API surfaces are complete and fully tested; neither is a placeholder. The absence of a production
