@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: — Security Correctness & Agent Trust
-status: executing
-stopped_at: "Phase 20 COMPLETE (2026-08-10) — 10 plans, re-verified 6/6, SEC-04 + SEC-05 satisfied. 2 human-UAT items open in 20-HUMAN-UAT.md (local SSE over h1 AND h2; external mode + bearer over TLS). Next: /gsd-discuss-phase 21 (Redaction Completeness, PRIV-05/PRIV-06)."
-last_updated: "2026-08-10T11:16:49.956Z"
-last_activity: 2026-08-10
+status: completed
+stopped_at: Phase 21 context gathered
+last_updated: "2026-08-11T07:59:02.936Z"
+last_activity: 2026-08-10 -- Phase 20 closed (10 plans, re-verified 6/6, SEC-04 + SEC-05 satisfied)
 progress:
   total_phases: 7
   completed_phases: 1
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 Phase: 21 (redaction-completeness) — not started
 Plan: Not started
 Status: Phase 20 complete and closed. 2 human-UAT items remain open in `20-HUMAN-UAT.md` — they do not block Phase 21 (disjoint files: `redact/` + `scanner/` vs `mcp/`).
-Resume file: .planning/phases/20-mcp-access-control-correctness/20-HUMAN-UAT.md
+Resume file: .planning/phases/21-redaction-completeness/21-CONTEXT.md
 Last activity: 2026-08-10 -- Phase 20 closed (10 plans, re-verified 6/6, SEC-04 + SEC-05 satisfied)
 
 ## Milestone Origin
@@ -210,6 +210,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-16T11:52:52.058Z
-Stopped at: Completed 19-03-PLAN.md
+Last session: 2026-08-11T07:59:02.932Z
+Stopped at: Phase 21 context gathered
 Resume file: None
