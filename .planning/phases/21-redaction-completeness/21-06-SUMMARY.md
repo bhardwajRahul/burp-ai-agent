@@ -437,5 +437,3 @@ Working tree clean, no untracked files, no file deletions in any of the three co
 ---
 *Phase: 21-redaction-completeness*
 *Completed: 2026-08-11*
-</content>
-</invoke>
