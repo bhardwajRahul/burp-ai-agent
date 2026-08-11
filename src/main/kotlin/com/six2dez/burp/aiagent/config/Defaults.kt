@@ -51,11 +51,31 @@ object Defaults {
     const val PAYLOAD_MAX_OUTPUT_TOKENS = 1024
     const val OPENCODE_IDLE_TIMEOUT_MS = 30_000L
 
-    // Belt-and-suspenders cap for the body-redaction stage in Redaction.apply.
-    // ContextCollector already truncates bodies to 4k/8k; this cap protects the other callers
-    // (MCP tools, bounty resolver) that may pass larger strings. Bodies over this limit are
-    // skipped entirely — not hung, not partially redacted — per PRIV-02 size-cap requirement.
+    // (PRIV-06 / D-04) Window width for the body-redaction stage in Redaction.apply — a window
+    // width, NOT a skip threshold. Input at or below this length is processed in a single pass
+    // whose cost and behaviour are identical to the pre-Phase-21 implementation, which covers the
+    // overwhelming majority of payloads (ContextCollector already truncates bodies to 4k/8k; the
+    // larger strings come from the other callers — MCP tools, bounty resolver). Input above this
+    // length is cut into windows at line boundaries and every window is scanned: nothing is
+    // skipped, and unscanned bytes never reach a backend.
+    // The name and the 1_000_000 value are kept deliberately. Renaming this to something like
+    // REDACTION_WINDOW_CHARS would churn Defaults, Redaction, RedactionTest and the Phase 13
+    // planning documents for no behavioural gain.
     const val MAX_REDACTION_BODY_CHARS = 1_000_000
+
+    // (PRIV-06 / D-02) Total wall-clock budget for the body-redaction stage. Windows are processed
+    // in order until it is spent; everything past that point is dropped behind a visible marker
+    // rather than passed through — fail closed, so unscanned bytes never reach a backend. The
+    // per-pattern deadline handed to SafeRegex is min(SafeRegex.DEFAULT_TIMEOUT_MS, remaining
+    // budget), so a per-pattern deadline can never outlive the total. The MAX_ prefix matches
+    // MAX_REDACTION_BODY_CHARS above.
+    // Sized from measurement rather than from an external source: ~27 ms per 1 MB window for the
+    // form plus JSON rules on Apple Silicon / JDK 21, so 2 000 ms covers tens of megabytes (the
+    // reference implementation processed a 4.16 MB input in 849 ms).
+    // Deliberately NOT user-configurable: D-04 rejected exposing the window and the budget in the
+    // Privacy settings panel, because a user who set the budget to 0 would silently disable body
+    // redaction — exactly the class of bug this phase exists to kill.
+    const val MAX_REDACTION_BUDGET_MS = 2_000L
 
     const val PREPROCESS_PROXY_HISTORY_ENABLED = true
     const val PREPROCESS_MAX_RESPONSE_SIZE_KB = 20
