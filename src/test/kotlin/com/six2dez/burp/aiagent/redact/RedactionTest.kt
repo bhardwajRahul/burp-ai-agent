@@ -109,6 +109,12 @@ private object Rfc5869TestCase1 {
         )
 }
 
+// (PRIV-05) SC3: the single sentinel value used by the whole sensitive-key corpus. It is chosen so
+// it matches NO other redaction rule — not bearer-prefixed, not basic-prefixed, does not start with
+// "eyJ" and contains no '=' — so its disappearance is attributable to the sensitive-key expression
+// alone and to nothing else in the pipeline.
+private const val SC3_SENTINEL = "SENTINEL-VALUE-9F2A7C"
+
 class RedactionTest {
     @AfterEach
     fun resetCustomPatterns() {
@@ -306,6 +312,212 @@ class RedactionTest {
             assertTrue(output.contains("\"name\":\"alice\""), "$mode: non-sensitive name key must NOT be touched")
             assertTrue(output.contains("\"balance\":99.5"), "$mode: non-sensitive numeric balance must NOT be touched")
             assertFalse(output.contains("12345"), "$mode: original numeric token must not appear")
+        }
+    }
+
+    // (PRIV-05) SC3 helpers. One key is rendered into each of the three consumer contexts, so a
+    // single corpus exercises urlTokenParamRegex, formBodyParamRegex and jsonSecretKeyRegex —
+    // all three are driven by the same shared key expression, so widening it widens all three.
+    private fun sc3Query(key: String) = "https://example.com/a?$key=$SC3_SENTINEL&name=alice"
+
+    private fun sc3Form(key: String) = "$key=$SC3_SENTINEL&user=bob"
+
+    private fun sc3Json(key: String) = """{"$key":"$SC3_SENTINEL","name":"alice"}"""
+
+    private fun redactWith(
+        input: String,
+        mode: PrivacyMode,
+    ): String = Redaction.apply(input, RedactionPolicy.fromMode(mode), stableHostSalt = "salt")
+
+    // Context label -> redacted output, so every assertion message can name the exact cell that
+    // failed rather than reporting a bare "expected true".
+    private fun sc3Contexts(
+        key: String,
+        mode: PrivacyMode,
+    ): Map<String, String> =
+        mapOf(
+            "query string" to redactWith(sc3Query(key), mode),
+            "form body" to redactWith(sc3Form(key), mode),
+            "JSON body" to redactWith(sc3Json(key), mode),
+        )
+
+    // The benign companion parameter carried by each context. Asserting it survives in the SAME
+    // pass that asserts the secret disappeared is what proves the widening stayed key-scoped
+    // instead of degrading into a blanket rule (T-21-06).
+    private val sc3Survivors =
+        mapOf(
+            "query string" to "name=alice",
+            "form body" to "user=bob",
+            "JSON body" to "\"name\":\"alice\"",
+        )
+
+    // (PRIV-05) SC3 / D-11: the 31 key names whose value MUST be redacted. The first 18 were
+    // measured as passing through UNREDACTED in STRICT and BALANCED before the key expression
+    // landed — that is the PRIV-05 defect class. The remaining 13 already redacted and are carried
+    // here as the monotonicity half: the widening must not take any of them away.
+    private val sc3MustRedactKeys =
+        listOf(
+            // Previously missed: compound, separator-delimited and vendor key names.
+            "auth_token",
+            "api-key",
+            "X-Session-Id",
+            "api.key",
+            "session_id",
+            "_csrf",
+            "connect.sid",
+            "remember_me",
+            "JSESSIONID",
+            "PHPSESSID",
+            "csrftoken",
+            "ASP.NET_SessionId",
+            "laravel_session",
+            "user_api_key",
+            "x-auth-token",
+            "auth-token",
+            "access-token",
+            "XSRF-TOKEN",
+            // Already redacted before the change — must still redact after it.
+            "access_token",
+            "api_key",
+            "apikey",
+            "auth",
+            "token",
+            "key",
+            "secret",
+            "password",
+            "pwd",
+            "session",
+            "sid",
+            "code",
+            "SESSION",
+        )
+
+    // (PRIV-05) SC3: the 21 benign key names whose value must survive untouched.
+    private val sc3BenignKeys =
+        listOf(
+            "keyboard_layout",
+            "codename",
+            "sidebar",
+            "keychain",
+            "passwordless_enabled",
+            "description",
+            "codes",
+            "tokenizer",
+            "monkey",
+            "broken",
+            "secretary",
+            "authority",
+            "encoded",
+            "decode_me",
+            "username",
+            "name",
+            "email",
+            "q",
+            "page",
+            "filename",
+            "locale",
+        )
+
+    // (PRIV-05) SC3 / D-11: real-world sensitive key names must have their value redacted in all
+    // three consumer contexts, under STRICT and BALANCED.
+    //
+    // Before the key expression, a key had to be EXACTLY one of the twelve vocabulary words. That
+    // is why auth_token missed (auth was followed by '_', not '='), why only a cookie literally
+    // named "session" was caught, and why JSESSIONID, PHPSESSID, connect.sid, csrftoken,
+    // remember_me, api-key and X-Session-Id all reached the backend verbatim.
+    //
+    // Each iteration also asserts the context's benign companion survives, so a regression that
+    // "fixes" this test by redacting everything fails it instead.
+    @Test
+    fun sensitiveKeyNamesRedacted() {
+        assertEquals(31, sc3MustRedactKeys.size, "SC3 must-redact corpus must stay at 31 keys")
+
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+            for (key in sc3MustRedactKeys) {
+                for ((context, output) in sc3Contexts(key, mode)) {
+                    assertFalse(
+                        output.contains(SC3_SENTINEL),
+                        "$mode / $context: the value of sensitive key '$key' must be redacted",
+                    )
+                    assertTrue(
+                        output.contains(sc3Survivors.getValue(context)),
+                        "$mode / $context: benign companion must survive alongside '$key'",
+                    )
+                }
+            }
+        }
+    }
+
+    // (PRIV-05) SC3 / D-12: this is a REGRESSION GUARD on the new mechanism, NOT a fix.
+    //
+    // keyboard_layout and codename are NOT over-redacted today and never were: formBodyParamRegex's
+    // (^|[?&])…= already delimits the word on both sides, so the exact-word alternation could not
+    // match them either. These assertions are therefore green BEFORE and AFTER the key expression
+    // landed, by design. Phase 20's SC4 discipline says a test green on both sides has tested
+    // nothing, so this one is explicitly labelled a guard rather than counted as evidence of a fix;
+    // a task framed as "stop over-redacting keyboard_layout" would have been a no-op.
+    //
+    // What it does buy: the widening is the moment these could START failing, and the 21 keys below
+    // are the standing proof that it did not happen. This is also why no benign-key denylist exists
+    // in Redaction.kt (D-12) — there was measurably nothing to guard against.
+    @Test
+    fun benignKeyNamesNotRedacted() {
+        assertEquals(21, sc3BenignKeys.size, "SC3 must-not-redact corpus must stay at 21 keys")
+
+        for (key in sc3BenignKeys) {
+            for ((context, output) in sc3Contexts(key, PrivacyMode.STRICT)) {
+                assertTrue(
+                    output.contains(SC3_SENTINEL),
+                    "STRICT / $context: the value of benign key '$key' must NOT be redacted",
+                )
+            }
+        }
+    }
+
+    // (PRIV-05) SC3 / D-13: camelCase key matching.
+    //
+    // authToken, accessToken and userSessionId are extremely common modern JSON key names and are
+    // NOT reachable by the separator rule alone (auth is followed by 'T', which is alphanumeric).
+    // The camelCase boundary is written with Java's inline flag-off group (?-i:...) because under
+    // the consumers' (?i) the class [A-Z] also matches lowercase.
+    //
+    // ACCEPTED OVER-REDACTIONS: codeName, keyName and tokenCount are asserted as REDACTED on
+    // purpose. They are the exact, maintainer-confirmed price of D-13 — recorded here as deliberate
+    // behaviour rather than discovered in the field. They over-redact (the fail-safe direction) and
+    // are structurally identical to the already-accepted token_bucket_size case.
+    // REVERT POINT: deleting the (?-i:...) alternative from WORD_BEFORE and WORD_AFTER in
+    // Redaction.kt drops D-13 entirely — it loses nothing SC3 requires and removes these three.
+    //
+    // keyboardLayout and monkeyBars must still survive: they are what distinguishes a camelCase
+    // boundary from a plain substring match. SC3's literal all-lowercase codename is covered by
+    // benignKeyNamesNotRedacted and is unaffected by D-13.
+    @Test
+    fun camelCaseKeysRedactedWithAcceptedOverRedactions() {
+        for (key in listOf("authToken", "accessToken", "userSessionId")) {
+            for ((context, output) in sc3Contexts(key, PrivacyMode.STRICT)) {
+                assertFalse(
+                    output.contains(SC3_SENTINEL),
+                    "STRICT / $context: camelCase key '$key' must be redacted (D-13 gain)",
+                )
+            }
+        }
+
+        for (key in listOf("codeName", "keyName", "tokenCount")) {
+            for ((context, output) in sc3Contexts(key, PrivacyMode.STRICT)) {
+                assertFalse(
+                    output.contains(SC3_SENTINEL),
+                    "STRICT / $context: '$key' is an ACCEPTED D-13 over-redaction and must stay redacted",
+                )
+            }
+        }
+
+        for (key in listOf("keyboardLayout", "monkeyBars")) {
+            for ((context, output) in sc3Contexts(key, PrivacyMode.STRICT)) {
+                assertTrue(
+                    output.contains(SC3_SENTINEL),
+                    "STRICT / $context: '$key' has no lower-to-upper boundary after the word and must NOT be redacted",
+                )
+            }
         }
     }
 
