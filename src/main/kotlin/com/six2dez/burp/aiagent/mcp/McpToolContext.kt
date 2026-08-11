@@ -57,13 +57,14 @@ data class McpToolContext(
     }
 
     fun redactIfNeeded(raw: String): String {
-        // Compute the FINAL post-redaction string (two existing branches preserved).
-        val finalText =
-            if (privacyMode == PrivacyMode.OFF) {
-                raw
-            } else {
-                Redaction.apply(raw, RedactionPolicy.fromMode(privacyMode), stableHostSalt = hostSalt)
-            }
+        // PRIV-06 / D-06: the OFF mode is expressed exactly once, as a policy, inside Redaction.
+        // fromMode maps OFF to the all-false policy, so this unconditional call is byte-identical to
+        // the caller-side OFF short-circuit it replaces. That short-circuit was DELETED rather than
+        // kept behind a fourth RedactionPolicy flag: a flag would have fixed the unit test and left the
+        // leak, because this caller held a private copy of the OFF decision that no change inside
+        // Redaction.kt could reach. Deleting it is what makes D-05's "custom patterns always apply,
+        // including under OFF" true on the MCP path and not only inside Redaction.kt.
+        val finalText = Redaction.apply(raw, RedactionPolicy.fromMode(privacyMode), stableHostSalt = hostSalt)
         // PRIV-03 (Phase 15): tripwire scan on the FINAL redacted MCP output (G1/G8).
         // Detect + audit-log on match via the single SecretTripwire helper (WR-03 — one payload
         // shape across all hooks); NEVER block — return finalText regardless (SC2).
