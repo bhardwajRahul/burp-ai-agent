@@ -61,6 +61,11 @@ object App {
 
         BackendDiagnostics.output = { api.logging().logToOutput(it) }
         BackendDiagnostics.error = { api.logging().logToError(it) }
+        // (PRIV-06) D-03: surface a redaction truncation to the user in the Output tab. It belongs
+        // here with the other diagnostics sinks rather than at the Redaction.setCustomPatterns
+        // seeding below, because this sink is set once and never changes. The notice itself is
+        // rate-limited inside Redaction and carries counts only, never dropped content.
+        Redaction.truncationLogger = { api.logging().logToOutput(it) }
         api.logging().logToOutput("Backend diagnostics enabled.")
 
         settingsRepo = AgentSettingsRepository(api)

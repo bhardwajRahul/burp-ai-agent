@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.util.concurrent.CopyOnWriteArrayList
 
 // RFC 5869 Test Case 1 inputs/outputs for the HKDF vector test.
 // Source: https://www.rfc-editor.org/rfc/rfc5869 Appendix A.1
@@ -115,11 +116,27 @@ private object Rfc5869TestCase1 {
 // alone and to nothing else in the pipeline.
 private const val SC3_SENTINEL = "SENTINEL-VALUE-9F2A7C"
 
+// (PRIV-06) D-03: the injected clock for the truncation-notice window. Named constants rather than
+// inline literals so the relationship to the 10 s window is readable: T_INSIDE_WINDOW is 5 s after
+// T0 and must be suppressed, T_AFTER_WINDOW is 11 s after T0 and must emit. Nothing here sleeps.
+private const val T0 = 1_000_000L
+private const val T_INSIDE_WINDOW = 1_005_000L
+private const val T_AFTER_WINDOW = 1_011_000L
+
 class RedactionTest {
     @AfterEach
     fun resetCustomPatterns() {
         // Prevent custom-pattern bleed across tests: reset after each test.
         Redaction.setCustomPatterns(emptyList())
+    }
+
+    @AfterEach
+    fun resetTruncationSignal() {
+        // Redaction is a singleton object: a capturing sink left registered here would keep firing
+        // on every later test in the shared JVM, and the limiter's window would carry over and make
+        // the injected-clock assertions order-dependent.
+        Redaction.truncationLogger = null
+        Redaction.resetTruncationWindowForTest()
     }
 
     @Test
@@ -714,10 +731,19 @@ class RedactionTest {
             assertFalse(output.contains("SECRET-1234"), "$mode: original value must not appear after redaction")
         }
 
-        // OFF mode: custom patterns are in the redactTokens branch — inactive in OFF.
+        // (PRIV-06) D-05: this limb is DELIBERATELY INVERTED. It previously asserted
+        // assertEquals(input, offOutput) because the custom-pattern loop lived inside the
+        // redactTokens branch and was therefore inert under OFF. The loop now sits outside that
+        // branch, so a user's custom patterns are a "never send this, ever" list that is
+        // independent of the privacy mode: OFF means "no BUILT-IN redaction", not "no redaction at
+        // all". 21-VALIDATION.md records this as one of SC6's two named exceptions, so it must not
+        // be read as a regression. The method NAME is kept unchanged on purpose — 21-CONTEXT.md,
+        // 21-VALIDATION.md and 21-VERIFICATION.md all refer to this test by name and a rename would
+        // break that traceability.
         val offPolicy = RedactionPolicy.fromMode(PrivacyMode.OFF)
         val offOutput = Redaction.apply(input, offPolicy, stableHostSalt = "salt")
-        assertEquals(input, offOutput, "OFF mode must not apply custom patterns")
+        assertTrue(offOutput.contains("[REDACTED]"), "OFF: a custom pattern must still redact SECRET-1234")
+        assertFalse(offOutput.contains("SECRET-1234"), "OFF: the original custom-pattern value must not survive")
     }
 
     // PRIV-02 / CR-01: regression — custom patterns carried on a loaded settings object must
@@ -751,23 +777,123 @@ class RedactionTest {
         assertFalse(afterSeed.contains("INTERNAL-ABC123"), "Post-seed: original secret must not appear")
     }
 
-    // PRIV-02: A body larger than Defaults.MAX_REDACTION_BODY_CHARS must be short-circuited.
-    // The body-stage redaction is skipped; the call must return promptly and not throw.
-    // The over-cap secret may remain (documented size-cap behaviour).
+    // (PRIV-06) D-03: the truncation notice is rate-limited to one line per 10 s window, and the
+    // line that ends a window reports how many notices were suppressed inside it.
+    //
+    // The clock is injected through maybeLogTruncation's nowMs parameter — the
+    // PassiveAiScannerAnalysis.maybeLogBackoff convention — so the window is asserted exactly and
+    // nothing sleeps. resetTruncationWindowForTest() is called first because Redaction is a
+    // singleton object and a previous test in the same JVM may have opened the window already.
     @Test
-    fun oversizeBodySkippedSafely() {
-        // Generate a body larger than the cap (cap is ~1 MB = 1_000_000 chars).
-        val oversizeBody = "apikey=" + "x".repeat(Defaults.MAX_REDACTION_BODY_CHARS + 10)
-        val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
+    fun truncationSignalIsRateLimited() {
+        Redaction.resetTruncationWindowForTest()
+        // The sink fires on the caller's thread (a scanner or MCP tool thread in production) and is
+        // read from the JUnit thread, so the capture list must be concurrent.
+        val lines = CopyOnWriteArrayList<String>()
+        Redaction.truncationLogger = { lines += it }
 
-        // The primary assertion: the call must return without throwing or hanging.
+        Redaction.maybeLogTruncation(T0, 1_000L)
+        assertEquals(1, lines.size, "The first truncation in a window must emit a notice")
+
+        Redaction.maybeLogTruncation(T_INSIDE_WINDOW, 2_000L)
+        assertEquals(1, lines.size, "A second truncation inside the same window must be suppressed")
+
+        Redaction.maybeLogTruncation(T_AFTER_WINDOW, 3_000L)
+        assertEquals(2, lines.size, "A truncation past the window must emit a second notice")
+        assertTrue(
+            lines[1].contains("Further notices suppressed since the previous line: 1"),
+            "The notice that closes a window must report the suppressed count; got: ${lines[1]}",
+        )
+        assertFalse(
+            lines[0].contains("suppressed"),
+            "The first notice of a burst must not claim a suppressed count",
+        )
+    }
+
+    // (PRIV-06) SC4 / T-21-02: a body above the old size cap must not smuggle a secret past the
+    // body stage.
+    //
+    // This test is a DELIBERATE REWRITE, not an extension. It previously asserted the fail-open as
+    // correct behaviour: its comment recorded that an over-cap secret was allowed to remain, and
+    // its only substantive assertion was that the call returned quickly — which stayed true
+    // precisely BECAUSE every body rule was skipped. That is the PRIV-06 defect asserted as a
+    // contract. 21-VALIDATION.md records this rewrite as one of SC6's two named exceptions, so it
+    // is not a regression; plan 21-07 proves it goes RED against the pre-fix body stage. The old
+    // name would now misdescribe the contract, and 21-VALIDATION.md's automated selector
+    // *RedactionTest.oversizeBody* matches both the old and the new name.
+    //
+    // Two properties make this a real gate rather than a smoke test:
+    //   - the filler is MULTI-LINE, so line-boundary windowing genuinely produces more than one
+    //     window and the secret sits past the old cut-off, inside the second one;
+    //   - the secret is reachable by a body-stage rule ALONE. formBodyParamRegex catches it through
+    //     its (^|[?&]) leading-field anchor, while urlTokenParamRegex — which runs unbounded in the
+    //     header stage and would otherwise mask the defect — requires a '?' or '&' before the key
+    //     and cannot reach it. The value is not bearer- or basic-prefixed and does not start with
+    //     "eyJ", so no other rule can save it either. If the body stage skips, the secret survives.
+    @Test
+    fun oversizeBodySecretDoesNotSurvive() {
+        // 10 001 lines of 99 'x' plus a newline is 1 000 100 characters, just over the window width.
+        val filler = ("x".repeat(99) + "\n").repeat(10_001)
+        val oversizeBody = filler + "api_key=SC4-SECRET-VALUE-7B3E\n"
+        assertTrue(
+            oversizeBody.length > Defaults.MAX_REDACTION_BODY_CHARS,
+            "The fixture must exceed the window width or this test proves nothing",
+        )
+
+        val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
         val start = System.currentTimeMillis()
         val output = Redaction.apply(oversizeBody, policy, stableHostSalt = "salt")
         val elapsed = System.currentTimeMillis() - start
 
-        // Should return in well under a second (body stage is skipped entirely).
-        assertTrue(elapsed < 5_000, "Oversize body must short-circuit quickly; took ${elapsed}ms")
-        // The output must be a string (not null, not empty) — the call completed.
-        assertTrue(output.isNotEmpty(), "Output must be non-empty even when oversize body is skipped")
+        assertFalse(
+            output.contains("SC4-SECRET-VALUE-7B3E"),
+            "STRICT: a secret past the old size cap must not survive the body stage",
+        )
+        assertTrue(
+            output.contains("api_key=[REDACTED]"),
+            "STRICT: the over-cap field must be redacted in place, keeping its key",
+        )
+        assertTrue(elapsed < 5_000, "The windowed body stage must stay bounded; took ${elapsed}ms")
+    }
+
+    // (PRIV-06) SC4 / D-02 / D-14 / T-21-03: a pathological pattern on an oversized input must
+    // produce a MARKER, never passthrough.
+    //
+    // This is the fail-CLOSED half of SC4 and the explicit guard against treating
+    // SafeRegex.replaceAllSafe's return value as success: on timeout that facade returns the input
+    // unchanged, byte-identical to "the pattern matched nothing", so a body stage built on it would
+    // silently emit unscanned bytes while looking correct. Only the timedOut flag from
+    // replaceAllSafeReporting can tell the two apart.
+    //
+    // (a+)+$ is the classic catastrophic-backtracking pattern and 2 000 'a' characters followed by
+    // '!' is the input shape SafeRegexTest already proves trips the 50 ms deadline on JDK 21. It is
+    // pushed in through setCustomPatterns rather than through the save path on purpose: isPatternSafe
+    // rejects it at save time, and what is under test here is what the ENGINE does if such a pattern
+    // ever reaches it. The @AfterEach resetCustomPatterns prevents any bleed.
+    @Test
+    fun oversizeBodyFailsClosed() {
+        Redaction.setCustomPatterns(listOf("(a+)+\$"))
+
+        val oversizeBody = ("a".repeat(2_000) + "!\n").repeat(600)
+        assertTrue(
+            oversizeBody.length > Defaults.MAX_REDACTION_BODY_CHARS,
+            "The fixture must exceed the window width or no windowing happens",
+        )
+
+        val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
+        val start = System.currentTimeMillis()
+        val output = Redaction.apply(oversizeBody, policy, stableHostSalt = "salt")
+        val elapsed = System.currentTimeMillis() - start
+
+        assertTrue(
+            output.contains("REDACTION INCOMPLETE") || output.contains("REDACTION BUDGET EXCEEDED"),
+            "A window that could not be fully scanned must be dropped behind a marker, not passed through",
+        )
+        assertFalse(
+            output.contains(oversizeBody),
+            "The unscanned input must not survive verbatim alongside the marker",
+        )
+        // Generous so a slow machine cannot make this flaky, tight enough to fail if it hangs.
+        assertTrue(elapsed < 30_000, "The total budget must bound a pathological pattern; took ${elapsed}ms")
     }
 }
