@@ -137,6 +137,23 @@ internal fun buildScanMetadataText(
             // with cookieSectionEntriesAreSanitizedAtTheEmitter asserting the framing directly.
             // The isNotEmpty() check stays keyed on the ORIGINAL list so the framing decision, and
             // therefore the emitted blob's byte-identical shape, is unchanged.
+            //
+            // (PRIV-05) IN-04 — sanitizeCookieSectionEntries RUNS TWICE on the production path, and
+            // that is deliberate. Recorded here because this is where a reader about to "clean up"
+            // the duplication will be standing:
+            //   1. cookieSectionLines, the PRODUCER, calls it BEFORE take(maxCount), so a blank
+            //      element cannot consume one of the display slots and cost the model a real cookie.
+            //      Guard: PassiveAiScannerPromptRedactionTest.blankCookieElementsDoNotConsumeDisplaySlots.
+            //   2. HERE, the EMITTER — defence in depth, and the only place in the pipeline where a
+            //      genuine === PARAMETERS === boundary and a planted === FOO === are distinguishable
+            //      at all. Guard:
+            //      PassiveAiScannerPromptRedactionTest.cookieSectionEntriesAreSanitizedAtTheEmitter.
+            // The operation is IDEMPOTENT, so the second application costs nothing: a
+            // space-prefixed " === FOO ===" produced by the producer no longer satisfies
+            // startsWith("==="), and the CR/LF flattening has no remaining CR or LF to act on. Each
+            // site is mutation-guarded by a DIFFERENT named test, so removing either one because the
+            // other exists reopens a different half of the leak — the producer call's half is a lost
+            // display slot, this call's half is a terminated cookie span. Do not remove either.
             appendLine(Redaction.COOKIE_SECTION_HEADER)
             Redaction.sanitizeCookieSectionEntries(cookies).forEach { appendLine(it) }
             appendLine()

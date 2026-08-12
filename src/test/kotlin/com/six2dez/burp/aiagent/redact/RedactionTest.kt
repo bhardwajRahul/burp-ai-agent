@@ -1257,6 +1257,77 @@ class RedactionTest {
         )
     }
 
+    // (PRIV-05) W-02 / T-21-49: the ACCEPTED-RESIDUAL PIN for a planted === COOKIES === header.
+    //
+    // WHAT IT PINS. A response body that plants the section header blinds exactly
+    // MAX_COOKIE_SECTION_LINES lines of the attacker's OWN content, and the first line past the
+    // bound survives. Both halves are asserted, because the boundary is the whole point: a test that
+    // only asserted the redaction would stay green if the bound grew without limit.
+    //
+    // IT IS A RESIDUAL PIN, NOT A SECURITY GUARD, and it is deliberately NOT merged with
+    // everyEntryOfAMaximalCookieSectionIsRedacted even though both build a maximal section. That
+    // test is a security guard whose failure means cookies leaked; this one is green before and
+    // after by design, and its failure means the accepted over-redaction boundary moved. A residual
+    // pin and a security guard failing for the same reason is how a regression gets misread — the
+    // same division of labour cookieSectionHeaderShapedEntryTerminatesSpan_documentedResidual above
+    // already follows.
+    //
+    // DISPOSITION: ACCEPT, on two grounds this plan MEASURED rather than assumed. Requiring the
+    // emitter's blank-line framing made three genuine unframed cookie sections leak on the
+    // McpToolContext.redactIfNeeded / redact_preview paths while the whole suite stayed green;
+    // shrinking the bound to COOKIES_MAX_COUNT + 2 moved the first leaking entry of a 20-entry
+    // section from index 16 down to index 8. Both alternatives trade an over-redaction nuisance for
+    // an under-redaction leak, which is the wrong direction in the requirement this phase exists
+    // for. The full argument lives on Redaction.redactCookieSections.
+    //
+    // FIXTURE REACHABILITY: the planted lines are named debug, sql, internal, version and l0..lN —
+    // none is a member of SENSITIVE_WORDS, BROAD_WORDS, CREDENTIAL_PREFIXES or KNOWN_SESSION_KEYS,
+    // and no value contains '=', sits behind '?' or '&', carries a Bearer/Basic prefix, begins with
+    // "eyJ" or carries a " (COOKIE)" suffix. So redactCookieSections is the only rule that can touch
+    // them, which is what makes the SURVIVAL of the line past the bound genuine evidence of the
+    // residual rather than some other rule declining to fire.
+    @Test
+    fun plantedCookieHeaderBlastRadiusIsBoundedToTheSectionBound_acceptedResidual() {
+        val bound = Redaction.MAX_COOKIE_SECTION_LINES
+        // A response body an attacker controls, with the section header planted mid-body. The first
+        // four lines are the analytically load-bearing shapes a passive scanner most needs.
+        val planted =
+            listOf("debug=verbose_stack_trace_here", "sql=SELECT * FROM users WHERE id=1", "internal=10.0.0.5") +
+                (3 until bound).map { "l$it=BLINDED_$it" }
+        val survivor = "l$bound=SURVIVES_PAST_THE_BOUND"
+        val blob =
+            "=== RESPONSE BODY ===\n<html>\n" + Redaction.COOKIE_SECTION_HEADER + "\n" +
+                planted.joinToString("\n") + "\n" + survivor + "\n</html>\n"
+
+        // Anti-vacuity: the planted region must be exactly as long as the bound, or the "first line
+        // past the bound" assertion below would not be testing the boundary at all.
+        assertEquals(bound, planted.size, "The planted region must be exactly MAX_COOKIE_SECTION_LINES lines")
+
+        val output = redactWith(blob, PrivacyMode.STRICT)
+
+        assertTrue(
+            output.lines().contains("debug=[REDACTED]"),
+            "RESIDUAL: a planted header blinds the attacker's own body lines — including the debug/sql/internal " +
+                "shapes a passive scanner most needs. Accepted, not desired; see redactCookieSections",
+        )
+        assertFalse(
+            output.contains("SELECT * FROM users WHERE id=1"),
+            "RESIDUAL: the value of a planted name=value line inside the bound is destroyed",
+        )
+        for (i in 3 until bound) {
+            assertFalse(
+                output.contains("BLINDED_$i"),
+                "RESIDUAL: planted line l$i sits inside the $bound-line bound and loses its value",
+            )
+        }
+        assertTrue(
+            output.lines().contains(survivor),
+            "RESIDUAL BOUNDARY: the FIRST line past MAX_COOKIE_SECTION_LINES must survive intact. If this " +
+                "fails the accepted blast radius has grown, which is a deliberate decision to re-take, not a bug " +
+                "to fix by editing this test",
+        )
+    }
+
     // (PRIV-05) CR-03 / T-21-29: redactCookieSections must be O(n) in the input length, not O(k*n).
     //
     // Pre-fix the loop rebuilt the ENTIRE string once per occurrence of the header

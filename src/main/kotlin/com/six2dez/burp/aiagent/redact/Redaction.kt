@@ -193,10 +193,47 @@ object Redaction {
     // JSESSIONID and abtest_bucket values leaked intact. The while loop below is that fix;
     // RedactionTest.cookieSectionDecoyDoesNotShieldRealSection is its named regression guard.
     //
-    // ACCEPTED RESIDUAL: an attacker who injects the section header into a response header causes
-    // EXTRA redaction of their own response content. That is an over-redaction nuisance, never a
-    // leak, and it is strictly better than the alternative. MAX_COOKIE_SECTION_LINES now bounds
-    // that blast radius to 16 lines, where it was previously "to the next blank line".
+    // ACCEPTED RESIDUAL (W-02, disposition: ACCEPT, argued below): an attacker who plants the
+    // section header in a response header or body causes EXTRA redaction of their own response
+    // content. That is over-redaction, never a leak.
+    //
+    // IT IS NOT A PURE TIGHTENING, and the earlier wording — "bounds that blast radius to 16 lines,
+    // where it was previously to the next blank line" — stated only the half that is. Both
+    // directions, measured:
+    //  - For DENSE content with no blank lines it IS a tightening: the previous rule ran to the next
+    //    blank line, which on such content meant to the end of the text.
+    //  - For paginated HTML, log output or pretty-printed config, where blank lines occur every two
+    //    or three lines, it is a WIDENING. It also converts a content-dependent bound into a
+    //    deterministic 16-line primitive a target can rely on to hide a chosen region of its own
+    //    response from the model. Measured: a planted header followed by name=value lines destroys
+    //    exactly 16 of them and the seventeenth survives.
+    // What is lost is not cosmetic. The lines a passive scanner most needs — debug=verbose stack
+    // traces, sql=SELECT ... , internal=10.0.0.5 — are precisely the name=value shape this rule
+    // strips. The same primitive has other reachable surfaces: formatParamLine emits
+    // "name=value (TYPE)" into === PARAMETERS === with no sanitiser, and both header sections pass
+    // attacker-controlled text into the blob. WR-01 was raised and fixed on exactly the ground that
+    // removing analytically load-bearing content from a security prompt is a functional regression,
+    // so the same standard is applied here consciously rather than by omission.
+    //
+    // ACCEPTED ANYWAY, because both proposed alternatives are worse, and both were MEASURED rather
+    // than argued:
+    //  - REQUIRE THE EMITTER'S FRAMING (header alone on its line, preceded by a blank line). This
+    //    trades over-redaction for UNDER-redaction on every consumer that has no emitter. Applied
+    //    verbatim from the review, three genuine cookie sections leaked their values: an MCP
+    //    redact_preview payload whose header follows a caption line, a header not alone on its line,
+    //    and joined tool output. The emitter-framed control still redacted, so the change is a pure
+    //    loss for PRIV-05 — and the ENTIRE redact and scanner suite stayed green while those three
+    //    leaked, which is what makes it a trap rather than a trade. Redaction.apply has six callers
+    //    and only ONE of them is the scanner emitter: McpToolContext.redactIfNeeded (every MCP tool
+    //    result and every tool's args JSON), McpToolExecutorImpl's redact_preview, ContextCollector
+    //    and BountyPromptTagResolver all pass text with no framing guarantee whatsoever.
+    //  - SHRINK THE BOUND to COOKIES_MAX_COUNT + 2. That directly worsens the under-redaction
+    //    direction of MAX_COOKIE_SECTION_LINES. Measured at a bound of 8: the first leaking entry of
+    //    a 20-entry section moves from index 16 down to index 8, and the leaking set triples from
+    //    ck16..ck19 to ck8..ck19.
+    // The residual's boundary is pinned by
+    // RedactionTest.plantedCookieHeaderBlastRadiusIsBoundedToTheSectionBound_acceptedResidual, so a
+    // future change to it is a visible test change rather than a silent one.
     //
     // CR-03 — ONE PASS, not one rebuild per occurrence. This loop previously rebuilt the entire
     // string on every occurrence of the header (substring + replaced + substring), an O(n) copy per
