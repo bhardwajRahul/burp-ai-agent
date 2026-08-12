@@ -99,9 +99,29 @@ object Redaction {
     // trailing .* and cannot survive as a fragment.
     private val cookieSectionPairRegex = Regex("(?m)^([^=\\r\\n]+)=(.*)$")
 
-    // (PRIV-05) SC1: the start of the NEXT prompt section. One of the three span terminators used
-    // to bound a cookie section; the other two are a blank line and end-of-text.
-    private val nextSectionRegex = Regex("(?m)^=== ")
+    // (PRIV-05) SC1: the prefix that begins the NEXT prompt section, and now the only content
+    // terminator of a cookie span. It replaces the previous (?m)^===  regex, which CR-03 dropped:
+    // a regex search can scan to end-of-text on every occurrence of the header, whereas a
+    // startsWith at an already-known line start is O(1) and cannot.
+    private const val NEXT_SECTION_PREFIX = "=== "
+
+    // (PRIV-05) CR-01 / T-21-21: the maximum number of lines one cookie section may span.
+    // PassiveAiScannerAnalysis emits at most COOKIES_MAX_COUNT = 6 entry lines, so 16 is roughly
+    // 2.5x slack. It is a BOUND, not a contract: redactCookieSections also runs over arbitrary MCP
+    // tool output through McpToolContext.redactIfNeeded, where ANY occurrence of the header is
+    // attacker-planted, and this constant is what bounds the over-redaction blast radius of such a
+    // plant to 16 lines where the rule previously ran on "to the next blank line". Named rather
+    // than inline because detekt's MagicNumber ignore list stops at 2 and QUAL-07 forbids growing
+    // detekt-baseline.xml.
+    private const val MAX_COOKIE_SECTION_LINES = 16
+
+    // (PRIV-06) CR-03 / D-02 / T-21-29: the wall-clock ceiling for redactCookieSections across ALL
+    // occurrences within a single call. Sized so it is unreachable by any realistic input now that
+    // the rule is O(n) — reaching it takes tens of megabytes, at which size bodyStage's own
+    // MAX_REDACTION_BUDGET_MS is already dropping the tail — while still bounding the worst case on
+    // a pathological input. Before CR-03 this was the ONLY rule this phase added that bypassed both
+    // SafeRegex and MAX_REDACTION_BUDGET_MS entirely: no budget, no marker, no seam.
+    private const val COOKIE_SECTION_BUDGET_MS = 250L
 
     // (PRIV-05) SC1 / D-09 / D-10: redacts the VALUE of every name=value pair inside EVERY
     // [COOKIE_SECTION_HEADER] span, preserving the names. The scanner splits the Cookie: header on
@@ -128,29 +148,155 @@ object Redaction {
     //
     // ACCEPTED RESIDUAL: an attacker who injects the section header into a response header causes
     // EXTRA redaction of their own response content. That is an over-redaction nuisance, never a
-    // leak, and it is strictly better than the alternative.
-    private fun redactCookieSections(text: String): String {
-        var out = text
-        var from = 0
+    // leak, and it is strictly better than the alternative. MAX_COOKIE_SECTION_LINES now bounds
+    // that blast radius to 16 lines, where it was previously "to the next blank line".
+    //
+    // CR-03 — ONE PASS, not one rebuild per occurrence. This loop previously rebuilt the entire
+    // string on every occurrence of the header (substring + replaced + substring), an O(n) copy per
+    // occurrence and therefore O(k*n) overall, with k attacker-controlled: buildScanMetadataText
+    // emits response headers and body verbatim and McpToolContext.redactIfNeeded runs this rule
+    // over raw MCP tool output. Measured 65 ms at 64 KB rising a clean 4x per doubling to 2 631 ms
+    // at 512 KB, extrapolating to ~42 s at the MCP default maxBodyBytes of 2 MiB, on an
+    // uninterruptible worker thread. It is now one StringBuilder and one monotone cursor.
+    //
+    // TERMINATION AND COMPLEXITY. bodyStart is strictly greater than the header index h, and
+    // cookieSectionEnd clamps its result to at least bodyStart, so cursor advances by at least
+    // COOKIE_SECTION_HEADER.length every iteration and the loop always terminates. The appended
+    // spans are disjoint and cookieSectionEnd only ever reads FORWARD from the cursor, so no
+    // character is examined twice: the pass is O(n) in the input length. That is the whole of CR-03,
+    // and it is why the two independent terminator searches were replaced by a single line walk.
+    //
+    // FAIL CLOSED, NOT OPEN. On deadline expiry the remaining characters are DROPPED behind one
+    // windowDroppedMarker rather than passed through. The alternative — capping the section count
+    // and letting the remainder through — is fail-open, and that remainder can contain whole
+    // unredacted cookie sections, which is the exact failure class this phase exists to remove.
+    // Dropping the tail is the D-02 discipline the body stage already follows, and the marker is
+    // reused verbatim rather than given a third shape: its four wording properties hold unchanged.
+    //
+    // (T-21-23) Every piece of per-call state below — builder, cursor, deadline — is a LOCAL.
+    // Redaction is a stateless object called concurrently from scanner and MCP tool threads, and
+    // this rule adds no object-level field.
+    private fun redactCookieSections(
+        text: String,
+        budgetMs: Long = COOKIE_SECTION_BUDGET_MS,
+    ): String {
+        val sb = StringBuilder(text.length)
+        val deadline = System.nanoTime() + budgetMs * NANOS_PER_MS
+        var cursor = 0
         while (true) {
-            val h = out.indexOf(COOKIE_SECTION_HEADER, from)
-            if (h < 0) return out
+            // Subtraction rather than a direct comparison, so the check is immune to nanoTime
+            // wraparound; ">= 0" rather than "> 0" so an injected budget of 0 ms is deterministically
+            // expired on the first iteration even on a coarse clock. That determinism is what makes
+            // the fail-closed path assertable without a tens-of-megabytes fixture.
+            if (System.nanoTime() - deadline >= 0L) {
+                val dropped = text.length - cursor
+                sb.append(windowDroppedMarker(dropped))
+                maybeLogTruncation(System.currentTimeMillis(), dropped.toLong())
+                // Returns WITHOUT the remainder: the tail is dropped, never passed through.
+                return sb.toString()
+            }
+            val h = text.indexOf(COOKIE_SECTION_HEADER, cursor)
+            if (h < 0) break
             val bodyStart = h + COOKIE_SECTION_HEADER.length
-            var end = out.length
-            val blankLine = out.indexOf("\n\n", bodyStart)
-            if (blankLine >= 0) end = minOf(end, blankLine)
-            val nextSection = nextSectionRegex.find(out, bodyStart)
-            if (nextSection != null) end = minOf(end, nextSection.range.first)
-            val section = out.substring(bodyStart, end)
-            out =
-                out.substring(0, bodyStart) +
-                section.replace(cookieSectionPairRegex) { "${it.groupValues[1]}=[REDACTED]" } +
-                out.substring(end)
-            // Advance past this header only: bodyStart is strictly greater than h, so the loop
-            // always terminates, and the prefix rewritten above keeps every index below it valid.
-            from = bodyStart
+            val end = cookieSectionEnd(text, bodyStart)
+            sb.append(text, cursor, bodyStart)
+            sb.append(
+                text.substring(bodyStart, end).replace(cookieSectionPairRegex) { "${it.groupValues[1]}=[REDACTED]" },
+            )
+            cursor = end
         }
+        sb.append(text, cursor, text.length)
+        return sb.toString()
     }
+
+    // (PRIV-05) CR-01 / SC1 / T-21-28: the end index of the cookie section whose header ends at
+    // [bodyStart]. This function IS the CR-01 fix.
+    //
+    // THE DEFECT IT CLOSES. COOKIE_SECTION_HEADER carries no trailing newline while the emitter uses
+    // appendLine, so [bodyStart] is the header line's OWN newline. The previous bound searched for
+    // "\n\n" starting AT [bodyStart], so a blank FIRST cookie entry matched at [bodyStart] itself:
+    // the span collapsed to the empty string and EVERY cookie value in the section reached the AI
+    // backend unredacted. A blank entry further down truncated the span there instead, leaking every
+    // cookie below it. The scanner really does produce blank entries — it splits the Cookie: header
+    // on ';' with no blank filter — so this was a live leak, not a latent one. Starting the walk at
+    // the line AFTER the header is what closes it.
+    //
+    // BLANK LINES ARE SKIPPED, NEVER TERMINATORS. That closes the mid-list half, which a fix that
+    // merely moved the search start would leave leaking. It is safe precisely because a blank line
+    // holds no name=value pair, so extending a span across one redacts nothing extra.
+    //
+    // WHY ONE FORWARD WALK, replacing the previous pair of independent searches ("\n\n" and the
+    // (?m)^===  regex). Two searches were the second half of CR-03: EACH can scan to the end of the
+    // text even when the other finds a near terminator, which kept the enclosing loop O(k*n) even
+    // once the per-occurrence rebuild was removed. This walk is strictly monotone — it never
+    // examines a character before the cursor — so total work across every occurrence is O(n). That
+    // is the correctness argument behind the complexity claim; do not reintroduce the searches.
+    @Suppress("ReturnCount")
+    private fun cookieSectionEnd(
+        text: String,
+        bodyStart: Int,
+    ): Int {
+        val headerNewline = text.indexOf('\n', bodyStart)
+        val scanFrom = if (headerNewline >= 0) headerNewline + 1 else bodyStart
+        var p = scanFrom
+        var lines = 0
+        while (p < text.length && lines < MAX_COOKIE_SECTION_LINES) {
+            if (text.startsWith(NEXT_SECTION_PREFIX, p)) return p
+            val newline = text.indexOf('\n', p)
+            if (newline < 0) return text.length
+            // p == newline means this line is blank: advance past it WITHOUT terminating.
+            p = newline + 1
+            lines++
+        }
+        // Clamped so a span can never have negative length regardless of where the walk stopped.
+        return maxOf(p, bodyStart)
+    }
+
+    // Internal test seam — runs the cookie-section rule under an INJECTED budget. Not part of the
+    // public API; referenced only from the test source set, in the style of the
+    // resetTruncationWindowForTest and testHkdfExtract seams.
+    //
+    // It exists because the deadline is otherwise reachable only with a tens-of-megabytes fixture,
+    // which would make the fail-closed assertion slow and dependent on machine speed. The project's
+    // established answer to that is an injected bound — the same reason maybeLogTruncation takes
+    // nowMs as a parameter instead of reading the clock itself.
+    internal fun testRedactCookieSections(
+        text: String,
+        budgetMs: Long,
+    ): String = redactCookieSections(text, budgetMs)
+
+    /**
+     * (PRIV-05) CR-01 / T-21-32: makes cookie [entries] safe to emit inside a
+     * [COOKIE_SECTION_HEADER] section.
+     *
+     * This closes the one CR-01 trigger the redactor cannot close on its own. A cookie element
+     * shaped like `=== FOO ===` terminates the section span, and that is IN-BAND SIGNALLING: the
+     * span terminator is necessarily derived from content sitting inside the region it protects, so
+     * no redactor-side rule can distinguish a planted section header from a genuine one. Refusing
+     * to terminate on `=== ` instead would hand an attacker the opposite primitive, where one
+     * planted line swallows the remainder of the prompt.
+     *
+     * Exported from `redact/` rather than written in the scanner for the same reason
+     * [COOKIE_SECTION_HEADER] is owned here: the redactor owns the invariant its own rule depends
+     * on, so the coupling cannot be broken silently from another package.
+     *
+     * Applied per entry, in this order: an entry blank after trimming is dropped; every CR and LF
+     * inside an entry becomes a single space, so one entry can never become two emitted lines; and
+     * an entry still beginning with `===` receives a single leading space. That last step is the
+     * point — a leading space makes the line unable to match `^=== `, and the value is PRESERVED
+     * rather than dropped, so nothing analytically useful is lost.
+     *
+     * Removing the call in `PassiveAiScannerPrompts.buildScanMetadataText` re-opens PRIV-05; the
+     * named guard is the end-to-end test plan 21-10 adds. Nothing in plan 21-08 calls this yet,
+     * which is deliberate — it keeps the two `Redaction.kt` edits in separate waves.
+     */
+    fun sanitizeCookieSectionEntries(entries: List<String>): List<String> =
+        entries
+            .filter { it.isNotBlank() }
+            .map { entry ->
+                val flattened = entry.replace('\r', ' ').replace('\n', ' ')
+                if (flattened.startsWith("===")) " $flattened" else flattened
+            }
 
     // (PRIV-05) SC2 / D-09: a COOKIE-typed parameter line — the second entry point of the same
     // leak, reached through request.parameters(). Parameters are emitted as "name=value (TYPE)"

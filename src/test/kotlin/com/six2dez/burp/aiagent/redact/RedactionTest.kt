@@ -123,6 +123,12 @@ private const val T0 = 1_000_000L
 private const val T_INSIDE_WINDOW = 1_005_000L
 private const val T_AFTER_WINDOW = 1_011_000L
 
+// detekt LargeClass, suppressed on the declaration rather than baselined: QUAL-07 forbids growing
+// detekt-baseline.xml, and the existing LargeClass entries there are all main-source classes. This
+// is the single regression suite for redact/, and its size is the point — the CR-01/CR-03 guards
+// added here are only meaningful sitting beside the SC1..SC6 corpus they must not regress. Splitting
+// it would scatter the monotonicity canaries across files and make that relationship invisible.
+@Suppress("LargeClass")
 class RedactionTest {
     @AfterEach
     fun resetCustomPatterns() {
@@ -698,6 +704,213 @@ class RedactionTest {
         assertTrue(
             output.lines().contains("abtest_bucket=[REDACTED]"),
             "STRICT: the real cookie section is redacted in place, with its names preserved",
+        )
+    }
+
+    // (PRIV-05) CR-01 / T-21-28: a BLANK cookie entry must not collapse or truncate the span.
+    //
+    // This is the live PRIV-05 leak the phase's own code review REPRODUCED, not a hypothetical.
+    // COOKIE_SECTION_HEADER carries no trailing newline while the emitter uses appendLine, so
+    // bodyStart lands on the header line's OWN newline. The pre-fix bound was
+    // out.indexOf("\n\n", bodyStart), which therefore matched AT bodyStart whenever the first
+    // emitted cookie entry was blank: the span became the empty string and EVERY cookie value in
+    // the section reached the AI backend verbatim. A blank entry further down the list truncated
+    // the span at that point instead, leaking every cookie below it.
+    //
+    // The emitter really does produce blank entries. PassiveAiScannerAnalysis splits the Cookie:
+    // header with .split(";").map { c -> c.trim() } and applies no blank filter, so
+    // "Cookie: ; JSESSIONID=..." — or any "a=b;;c=d" — yields one.
+    //
+    // FIXTURE REACHABILITY — what makes this reachable ONLY by redactCookieSections.
+    // abtest_bucket=OPAQUE_VALUE_XYZ is the decisive line. The name's tokens are "abtest" and
+    // "bucket", neither of which is a member of SENSITIVE_WORDS or KNOWN_SESSION_KEYS, so
+    // SENSITIVE_KEY_EXPR and its three consumers cannot reach it. Its value contains no '=', is not
+    // preceded by '?' or '&', does not start with "eyJ", is neither Bearer- nor Basic-prefixed,
+    // sits inside no JSON key/value pair and carries no " (COOKIE)" suffix — so not one other rule
+    // in Redaction.apply can touch it either. JSESSIONID and PHPSESSID are deliberately NOT
+    // decisive: SENSITIVE_KEY_EXPR rescues both from the leading-field position even with the
+    // section rule fully unwired, which is precisely why the pre-fix suite was green on this defect.
+    // Do not swap abtest_bucket for a name the key expression already covers.
+    //
+    // The abtest_bucket line sits AFTER the mid-list blank on purpose. That is the half the code
+    // review's own proposed one-line patch leaves leaking, so its position is what proves the span
+    // bound was genuinely repaired rather than special-cased on the first line.
+    @Test
+    fun cookieSectionBlankEntriesDoNotCollapseSpan() {
+        val cookieValues =
+            mapOf(
+                "JSESSIONID" to "8F3A9C2B7E1D4A6F0B5C8E2D",
+                "PHPSESSID" to "abc123def456",
+                "abtest_bucket" to "OPAQUE_VALUE_XYZ",
+            )
+
+        // First entry blank, fourth entry blank. trimIndent() maps interior blank lines to empty
+        // strings rather than dropping them, so this shape is expressible directly.
+        val blob =
+            """
+            === COOKIES ===
+
+            JSESSIONID=8F3A9C2B7E1D4A6F0B5C8E2D
+            PHPSESSID=abc123def456
+
+            abtest_bucket=OPAQUE_VALUE_XYZ
+
+            === PARAMETERS ===
+            q=red running shoes (URL)
+            """.trimIndent()
+
+        // The fixture is asserted BEFORE the behaviour, so a future reformat that dropped either
+        // blank line could not silently defuse the test into a duplicate of the sibling above.
+        assertTrue(
+            blob.contains(Redaction.COOKIE_SECTION_HEADER + "\n\n"),
+            "The fixture must put a BLANK first entry directly after the header, producing the \"\\n\\n\" at bodyStart",
+        )
+        assertTrue(
+            blob.contains("PHPSESSID=abc123def456\n\nabtest_bucket="),
+            "The fixture must put a BLANK entry MID-LIST, immediately before the decisive abtest_bucket line",
+        )
+
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+            val output = redactWith(blob, mode)
+            for ((name, value) in cookieValues) {
+                assertFalse(
+                    output.contains(value),
+                    "$mode: a blank cookie entry must not let the value of '$name' reach the backend",
+                )
+                assertTrue(
+                    output.lines().contains("$name=[REDACTED]"),
+                    "$mode: cookie '$name' must keep its name and lose only its value across the blank entries",
+                )
+            }
+            assertTrue(
+                output.lines().contains("q=red running shoes (URL)"),
+                "$mode: skipping blank lines must not extend the span past the next section header",
+            )
+        }
+    }
+
+    // (PRIV-05) CR-01 / T-21-32: the DOCUMENTED RESIDUAL — a cookie element shaped like a section
+    // header still terminates the span, so the cookie after it survives.
+    //
+    // This test asserts the residual AS IT STANDS. It is GREEN before this plan and GREEN after it,
+    // BY DESIGN, and that is the whole point: the class is real, it is not closed here, and pinning
+    // it makes the dependency visible instead of leaving it implicit in prose.
+    //
+    // Why no redactor-side rule can close it: this is IN-BAND SIGNALLING. The span terminator is
+    // derived from content sitting INSIDE the region the span is supposed to protect, so the
+    // redactor cannot tell a planted "=== FOO ===" cookie value from a genuine next prompt section.
+    // Refusing to terminate on "=== " instead would hand an attacker the opposite primitive — one
+    // planted line would swallow the remainder of the prompt.
+    //
+    // The class is therefore closed at the EMITTER and only at the emitter, by
+    // Redaction.sanitizeCookieSectionEntries — exported from redact/ by this plan and wired into
+    // PassiveAiScannerPrompts.buildScanMetadataText by plan 21-10, whose end-to-end guard is
+    // PassiveAiScannerPromptRedactionTest.emittedSectionShapedCookieCannotTerminateSpan. If that
+    // sanitizer is ever removed this test keeps passing while the end-to-end guard fails, which is
+    // the correct division of labour between the two.
+    //
+    // FIXTURE REACHABILITY: abtest_bucket=OPAQUE_VALUE_XYZ again, for the reason given in full on
+    // cookieSectionBlankEntriesDoNotCollapseSpan — nothing but the section rule can redact it, so
+    // its SURVIVAL here is genuine evidence of the residual rather than an artefact of some other
+    // rule declining to fire.
+    @Test
+    fun cookieSectionHeaderShapedEntryTerminatesSpan_documentedResidual() {
+        val blob =
+            """
+            === COOKIES ===
+            JSESSIONID=REALSECRET
+            === FOO ===
+            abtest_bucket=OPAQUE_VALUE_XYZ
+            """.trimIndent()
+
+        val output = redactWith(blob, PrivacyMode.STRICT)
+
+        assertFalse(
+            output.contains("REALSECRET"),
+            "STRICT: the cookie ABOVE the planted section header is inside the span and must be redacted",
+        )
+        assertTrue(
+            output.contains("OPAQUE_VALUE_XYZ"),
+            "STRICT: RESIDUAL, asserted deliberately — a section-shaped cookie element ends the span, " +
+                "and only Redaction.sanitizeCookieSectionEntries at the emitter (plan 21-10) can close it",
+        )
+    }
+
+    // (PRIV-05) CR-03 / T-21-29: redactCookieSections must be O(n) in the input length, not O(k*n).
+    //
+    // Pre-fix the loop rebuilt the ENTIRE string once per occurrence of the header
+    // (out.substring(0, bodyStart) + replaced + out.substring(end)), which is an O(n) copy per
+    // occurrence. The occurrence count k is attacker-controlled: buildScanMetadataText emits
+    // response headers and body verbatim, and McpToolContext.redactIfNeeded runs the same rule over
+    // raw tool output. The reviewer measured a clean 4x per doubling on Apple Silicon / JDK 21 —
+    // 65.3 ms at 64 KB, 187.7 ms at 128 KB, 682.4 ms at 256 KB, 2630.9 ms at 512 KB — extrapolating
+    // to ~42 s at the MCP default maxBodyBytes of 2 MiB, on an uninterruptible worker thread with
+    // no budget and no marker. This fixture is that 512 KB row exactly.
+    //
+    // THRESHOLD JUSTIFICATION: 2 631 ms is the pre-fix cost on the FASTEST hardware this project
+    // targets, so a 1 000 ms bound is unreachable pre-fix on any machine, while the post-fix single
+    // pass is a few tens of milliseconds. That leaves more than an order of magnitude of headroom in
+    // both directions, so the test is neither flaky on slow hardware nor blind to a regression. Same
+    // timing-assertion idiom as oversizeBodySecretDoesNotSurvive and oversizeBodyFailsClosed below.
+    //
+    // The marker assertion is load-bearing, not decoration: without it a future change could make
+    // this test pass by tripping COOKIE_SECTION_BUDGET_MS immediately and dropping the tail, which
+    // is fast but is fail-closed truncation rather than the linear pass under test.
+    @Test
+    fun redactCookieSectionsIsLinearInSectionCount() {
+        // 32 768 x 16 chars ("=== COOKIES ===" plus a newline) = 524 288 chars, the 512 KB row.
+        val input = (Redaction.COOKIE_SECTION_HEADER + "\n").repeat(32_768)
+        assertEquals(
+            524_288,
+            input.length,
+            "The fixture must stay at the reviewer's measured 512 KB / 32 768-occurrence point",
+        )
+
+        val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
+        val start = System.currentTimeMillis()
+        val output = Redaction.apply(input, policy, stableHostSalt = "salt")
+        val elapsed = System.currentTimeMillis() - start
+
+        assertFalse(
+            output.contains("REDACTION INCOMPLETE"),
+            "The single pass must COMPLETE inside its budget, not reach 1 000 ms by failing closed early",
+        )
+        assertTrue(
+            elapsed < 1_000,
+            "redactCookieSections must be linear in input length; took ${elapsed}ms " +
+                "(pre-fix this same fixture measured 2 631 ms and rose 4x per doubling)",
+        )
+    }
+
+    // (PRIV-06) CR-03 / D-02 / T-21-29: when the cookie rule's wall-clock budget expires it must
+    // FAIL CLOSED — drop the remainder behind a marker rather than pass it through unscanned.
+    //
+    // Pre-fix this rule was the only one the phase added that bypassed both SafeRegex and
+    // MAX_REDACTION_BUDGET_MS entirely: no deadline, no marker, and no seam to assert either.
+    //
+    // WHY THE BUDGET IS A PARAMETER rather than a constant: reaching a 250 ms deadline through the
+    // real entry point would need a tens-of-megabytes fixture, making the assertion slow and
+    // machine-speed dependent — i.e. exactly the flakiness that an injected bound removes. The
+    // project's established answer is the one maybeLogTruncation(nowMs, droppedChars) already uses:
+    // pass the bound in, never read the clock inside the assertion. testRedactCookieSections is the
+    // matching internal seam, in the style of resetTruncationWindowForTest and testHkdfExtract.
+    //
+    // FIXTURE REACHABILITY: abtest_bucket=OPAQUE_VALUE_XYZ once more, and here the seam makes it
+    // airtight — the call bypasses Redaction.apply altogether, so no other rule even runs, and the
+    // absence of the value can only be the deadline branch dropping the tail.
+    @Test
+    fun cookieSectionDeadlineFailsClosed() {
+        val blob = Redaction.COOKIE_SECTION_HEADER + "\nabtest_bucket=OPAQUE_VALUE_XYZ"
+
+        val output = Redaction.testRedactCookieSections(blob, budgetMs = 0L)
+
+        assertTrue(
+            output.contains("REDACTION INCOMPLETE"),
+            "An expired cookie-section budget must leave the windowDroppedMarker, not silence",
+        )
+        assertFalse(
+            output.contains("OPAQUE_VALUE_XYZ"),
+            "An expired budget must DROP the unscanned remainder, never pass it through unredacted",
         )
     }
 
