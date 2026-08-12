@@ -251,6 +251,11 @@ None. No new network endpoint, auth path, file access pattern or schema change a
 - **Carried forward:** the narrowed built-in residual (pairs spread over more than eight lines) is now recorded in ADR-14 and `CONCERNS.md`, with the fix approach noting that `MAX_JSON_BOUNDARY_LOOKAHEAD_LINES` is a dial, not a fix.
 - **For the verifier:** the RED/GREEN gate commits are `b5d1480` (test) → `3d62891` (fix), in that order.
 
+## Self-Check: PASSED
+
+All five claimed files exist on disk, and all four claimed commits exist in `git log`:
+`b5d1480` (test), `3d62891` (fix), `ea79021` (docs — records), `9af81ae` (docs — summary).
+
 ---
 *Phase: 21-redaction-completeness*
 *Completed: 2026-08-12*
