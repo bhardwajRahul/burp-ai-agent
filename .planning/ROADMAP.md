@@ -40,7 +40,7 @@ Everything else in this milestone is real but was found by reading: an agent loo
 ## Phases
 
 - [x] **Phase 20: MCP Access-Control Correctness** — Move the auth/Origin/header interceptor ahead of routing so it runs on every request; regression tests that fail against today's code (completed 2026-08-10 — 10 plans: 6 original + 4 gap closure. First verification `gaps_found` 5/6; re-verified 6/6 after gap closure. SEC-04 + SEC-05 satisfied. 2 human-UAT items open in `20-HUMAN-UAT.md`)
-- [x] **Phase 21: Redaction Completeness** — Close the cookie-section leak, match real-world sensitive key names, stop redaction failing open on large bodies (completed 2026-08-11)
+- [ ] **Phase 21: Redaction Completeness** — Close the cookie-section leak, match real-world sensitive key names, stop redaction failing open on large bodies (7 plans executed 2026-08-11; NOT complete — `21-REVIEW.md` found 4 blockers including CR-01, a reproduced live PRIV-05 cookie leak. Gap-closure plans 21-08..21-12 planned 2026-08-12)
 - [ ] **Phase 22: Agent Tool-Call Trust Boundary** — User decision gate for model-emitted tool calls, plus the ADR that records the threat model
 - [ ] **Phase 23: EDT Confinement & UI Responsiveness** — Tool execution, backend HTTP and MCP stop() off the Swing EDT
 - [ ] **Phase 24: Scheduler & Process Robustness** — Guard recurring tasks against death-by-exception; fix the CLI output race and unbounded resource use
@@ -107,7 +107,7 @@ interceptor still runs after the first responds), and `finish()` is not callable
 5. The interaction between user custom patterns and `PrivacyMode.OFF` is settled deliberately and documented in `DECISIONS.md` — whichever way it goes, it is a decision rather than a side effect of the `redactTokens` branch.
 6. The existing `RedactionTest` suite including the RFC 5869 HKDF vector stays green; the fix must not perturb host anonymization.
 
-**Plans**: 7 plans in 4 waves
+**Plans**: 12 plans — 7 original in 4 waves, plus 5 gap-closure in 4 waves
 Plans:
 **Wave 1**
 
@@ -127,6 +127,30 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 21-07-PLAN.md — SC4 red-before-green gate (runs alone: it transiently mutates `Redaction.kt`), ADR-14, and the CONCERNS.md residuals (wave 4)
+
+**Gap-closure round** *(planned 2026-08-12 from `21-REVIEW.md`; run with `/gsd-execute-phase 21 --gaps-only`)*
+
+The seven plans above all executed and merged — full suite green, ktlint and detekt clean, detekt baseline
+unchanged — but the phase's own code-review gate found **4 BLOCKER findings**, all reproduced with
+standalone JDK 21 probes. CR-01 is a **live PRIV-05 cookie leak**, the exact defect class this phase exists
+to close, so the phase goal is not met and Phase 21 is not complete.
+
+**Gap Wave 1**
+
+- [ ] 21-08-PLAN.md — CR-01 + CR-03: single-pass, line-bounded, deadline-bounded `redactCookieSections`; the span bound that cannot collapse on a blank entry; exports `sanitizeCookieSectionEntries` (gap wave 1)
+
+**Gap Wave 2** *(blocked on Gap Wave 1; the two plans are file-disjoint and run in parallel)*
+
+- [ ] 21-09-PLAN.md — CR-02 + WR-06: loop the `windowEnd` JSON-boundary extension under `MAX_JSON_BOUNDARY_LOOKAHEAD_LINES`; the D-01 invariant sweep; correct the falsified byte-identity claim in source, ADR-14 and `CONCERNS.md` (gap wave 2)
+- [ ] 21-10-PLAN.md — CR-01 second trigger: wire the `redact/`-owned cookie-entry sanitizer into the emitter and producer so a cookie value cannot forge the section framing (gap wave 2)
+
+**Gap Wave 3** *(blocked on Gap Wave 2)*
+
+- [ ] 21-11-PLAN.md — CR-04 + WR-05: `splitPoint` safe-cut fallback so a newline-free body is scanned instead of destroyed; retry depth 2 → 4; de-vacuum the two fail-closed tests; qualify ADR-14's line-boundary claim (gap wave 3)
+
+**Gap Wave 4** *(blocked on Gap Wave 3; NOT autonomous — carries a blocking maintainer decision)*
+
+- [ ] 21-12-PLAN.md — WR-01 decision gate: is `SENSITIVE_KEY_EXPR`'s breadth correct, given it redacts `status_code`, `errorCode` and `token_type`? Pins the answer in the SC3 corpus. Also carries the phase-wide deferral record for WR-02, WR-03, WR-04 and WR-07 (gap wave 4)
 
 **SC6 note**: two existing `RedactionTest` assertions are *deliberately* inverted by locked decisions and are
 not regressions — `oversizeBodySkippedSafely` (rewritten by D-01, it currently asserts the fail-open as
