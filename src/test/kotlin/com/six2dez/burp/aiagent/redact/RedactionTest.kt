@@ -523,6 +523,122 @@ class RedactionTest {
             "locale",
         )
 
+    // (PRIV-05) WR-01: the 32 broad-word key names that MUST survive after the narrowing.
+    //
+    // These are a SEPARATE corpus from sc3BenignKeys on purpose. The 31/21/8 SC3 corpora are the
+    // record of what plan 21-04 measured, and ADR-14 and CONCERNS.md both cite those sizes by name;
+    // folding WR-01's names into them would rewrite a historical measurement rather than add to it.
+    // Both corpora run through the same sc3Contexts helper, so the coverage is identical.
+    //
+    // The first 28 are the code-review's measured over-redaction list. The last four —
+    // key_size, code_version, codeName and keyName — were four of the TEN accepted over-redactions
+    // recorded in Redaction.kt before WR-01; they are broad-word driven, so the narrowing freed
+    // them and they move from "accepted" to "must not redact".
+    //
+    // public_key and publicKey sit here because the maintainer-confirmed CREDENTIAL_PREFIXES set
+    // does not contain 'public'. That is the deliberate reading of the ruling, not an executor
+    // judgement call: a public key is publishable by definition. If that is ever revisited, the
+    // change is visible here rather than silent.
+    private val wr01BroadWordBenignKeys =
+        listOf(
+            // The names the analysis prompt cannot function without.
+            "status_code",
+            "error_code",
+            "response_code",
+            "http_code",
+            "statusCode",
+            "errorCode",
+            // Ordinary business vocabulary that merely contains 'code'.
+            "zip_code",
+            "country_code",
+            "postal_code",
+            "currency_code",
+            "language_code",
+            "product_code",
+            "promo_code",
+            "coupon_code",
+            "area_code",
+            "qr_code",
+            // Ordinary storage/indexing vocabulary that merely contains 'key'.
+            "primary_key",
+            "foreign_key",
+            "sort_key",
+            "partition_key",
+            "cache_key",
+            "idempotency_key",
+            "row_key",
+            "sortKey",
+            "cacheKey",
+            "zipCode",
+            "public_key",
+            "publicKey",
+            // Formerly ACCEPTED over-redactions, freed by the narrowing.
+            "key_size",
+            "code_version",
+            "codeName",
+            "keyName",
+        )
+
+    // (PRIV-05) WR-01: the 24 broad-word key names that MUST STILL redact. This is the half that
+    // matters — the narrowing is the dangerous direction, and under-redaction is the failure mode
+    // that ships a leak. Two mechanisms are covered: whole-key equality ('key', 'code' — which have
+    // no code of their own and rely entirely on each consumer's anchors) and the CREDENTIAL_PREFIXES
+    // path in every separator shape the prefix rule admits, including the no-separator camelCase
+    // and all-lowercase forms.
+    private val wr01CredentialBroadWordKeys =
+        listOf(
+            // Whole-key equality. Also carried in sc3MustRedactKeys; asserted here too because this
+            // is the corpus a future narrowing would be measured against.
+            "key",
+            "code",
+            // 'api' prefix, every separator shape.
+            "api_key",
+            "api-key",
+            "api.key",
+            "apiKey",
+            "apikey",
+            "x_api_key",
+            "user_api_key",
+            // The remaining six confirmed prefixes.
+            "access_code",
+            "access-key",
+            "accessKey",
+            "secret_key",
+            "secretKey",
+            "auth_code",
+            "authKey",
+            "private_key",
+            "privateKey",
+            "signing_key",
+            "signingKey",
+            "enc_key",
+            "encKey",
+            // No separator at all: these two did NOT redact before WR-01, because 'key'/'code' were
+            // preceded by an alphanumeric and D-11's boundary rejected them. They are a small gain
+            // in the fail-safe direction rather than a cost.
+            "accesscode",
+            "authcode",
+        )
+
+    // (PRIV-05) WR-01: names the code review measured as over-redacted that the narrowing does NOT
+    // reach, asserted AS ACCEPTED so the limit of the decision is visible rather than assumed.
+    //
+    // Every one of these is driven by 'auth', 'session' or 'token' — words the WR-01 ruling left
+    // alone, because it narrowed 'key' and 'code' only. token_type and tokenType are the painful
+    // pair: token_type: "Bearer" is benign OAuth metadata and the plan's own text expects it to
+    // survive, but it cannot without either a suffix denylist (which D-12 rejects on principle, as
+    // every entry is a place a real credential could be allowlisted) or a narrowing of 'token'
+    // itself, which would put access-token and XSRF-TOKEN at risk. Both are maintainer decisions.
+    // Pinned here so the gap is asserted, dated and discoverable instead of being rediscovered.
+    private val wr01AcceptedOverRedactions =
+        listOf(
+            "token_type",
+            "tokenType",
+            "session_count",
+            "auth_type",
+            "auth_url",
+        )
+
     // (PRIV-05) SC3 / D-11: real-world sensitive key names must have their value redacted in all
     // three consumer contexts, under STRICT and BALANCED.
     //
@@ -579,6 +695,130 @@ class RedactionTest {
         }
     }
 
+    // (PRIV-05) WR-01: the narrowing decision, pinned in the direction it went.
+    //
+    // Plan 21-04's SENSITIVE_KEY_EXPR let the two broadest vocabulary words, 'key' and 'code',
+    // take part in D-11's free containment rule. The Phase 21 code review drove the live
+    // formBodyParamRegex and jsonSecretKeyRegex over a wider corpus and measured the resulting
+    // class: 32 names, including status_code, error_code, statusCode and errorCode. That is not a
+    // cosmetic over-redaction — {"statusCode": 401, "errorCode": "AUTH_FAILED"} reached the
+    // analysis prompt as two [REDACTED] tokens while the model was being asked to find an
+    // authentication flaw, which is a functional regression in a passive vulnerability scanner.
+    //
+    // The maintainer ruled on 2026-08-12 to narrow (option-b): 'key' and 'code' now require either
+    // whole-key equality or one of the confirmed CREDENTIAL_PREFIXES. This test is the assertion of
+    // that ruling. It is deliberately BOTH directions in one place, because the narrowing is a
+    // LOOSENING of a security pattern under CONCERNS.md's tightening protocol, and a corpus that
+    // only asserted the names that now survive would let the credential half rot silently.
+    @Test
+    fun wr01BroadWordKeysSurviveUnlessCredentialBearing() {
+        assertEquals(32, wr01BroadWordBenignKeys.size, "WR-01 must-not-redact corpus must stay at 32 keys")
+        assertEquals(24, wr01CredentialBroadWordKeys.size, "WR-01 must-redact corpus must stay at 24 keys")
+
+        for (key in wr01BroadWordBenignKeys) {
+            for ((context, output) in sc3Contexts(key, PrivacyMode.STRICT)) {
+                assertTrue(
+                    output.contains(SC3_SENTINEL),
+                    "STRICT / $context: WR-01 narrowed the broad words, so '$key' must NOT be redacted",
+                )
+            }
+        }
+
+        // The direction that ships a leak if it regresses, so it runs in BALANCED as well as
+        // STRICT, and asserts the benign companion survives in the same pass — a mutation that
+        // "passes" this half by redacting everything fails it instead.
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+            for (key in wr01CredentialBroadWordKeys) {
+                for ((context, output) in sc3Contexts(key, mode)) {
+                    assertFalse(
+                        output.contains(SC3_SENTINEL),
+                        "$mode / $context: credential-bearing broad-word key '$key' must STILL be redacted",
+                    )
+                    assertTrue(
+                        output.contains(sc3Survivors.getValue(context)),
+                        "$mode / $context: benign companion must survive alongside '$key'",
+                    )
+                }
+            }
+        }
+    }
+
+    // (PRIV-05) WR-01 / T-21-38: the shipped SENSITIVE_KEY_EXPR is hand-factored by first letter for
+    // a measured reason (see SENSITIVE_KEY_WORDS in Redaction.kt: the unfactored WR-01 vocabulary
+    // cost +16% on the dominant JSON rule and exhausted the body stage's 2 s budget on the 4 MB
+    // newline-free fixture). Hand-factoring a security-critical alternation is exactly the kind of
+    // change that looks right and is subtly wrong, so it is CHECKED here rather than trusted.
+    //
+    // Redaction.NAIVE_KEY_EXPR_FOR_TEST is the same expression built straight from the readable
+    // SENSITIVE_WORDS / CREDENTIAL_PREFIXES / BROAD_WORDS constants. This test drives both over
+    // every key name any corpus in this file mentions and asserts they agree on all of them. A word
+    // added to the readable spec but forgotten in the factored form fails here — which is the whole
+    // reason the seam exists.
+    @Test
+    fun factoredKeyVocabularyMatchesItsReadableSpecification() {
+        val naiveJsonRule =
+            Regex(
+                "(?i)(\"${Redaction.NAIVE_KEY_EXPR_FOR_TEST}\"\\s*:\\s*)" +
+                    "(\"[^\"]*\"|true|false|null|-?\\d+(?:\\.\\d+)?)",
+            )
+        val corpus =
+            sc3MustRedactKeys + sc3BenignKeys + wr01BroadWordBenignKeys +
+                wr01CredentialBroadWordKeys + wr01AcceptedOverRedactions +
+                listOf(
+                    "authToken",
+                    "accessToken",
+                    "userSessionId",
+                    "tokenCount",
+                    "keyboardLayout",
+                    "monkeyBars",
+                    "token_bucket_size",
+                    "session_timeout_seconds",
+                    "auth_provider",
+                    "secret_santa",
+                    "password_hint_enabled",
+                    "abtest_bucket",
+                    "stripe_key",
+                    "encrypted_key",
+                    "myapi_key",
+                )
+
+        // Guard against the corpus silently emptying — an empty list would make every assertion
+        // below vacuous, which is the failure mode that has bitten this phase five times.
+        assertTrue(corpus.size > 100, "The equivalence corpus must be substantial; was ${corpus.size}")
+
+        for (key in corpus.distinct()) {
+            val doc = """{"$key":"$SC3_SENTINEL"}"""
+            val naiveRedacted = !naiveJsonRule.replace(doc, "$1\"[REDACTED]\"").contains(SC3_SENTINEL)
+            val shippedRedacted = !redactWith(doc, PrivacyMode.STRICT).contains(SC3_SENTINEL)
+            assertEquals(
+                naiveRedacted,
+                shippedRedacted,
+                "The factored vocabulary must classify '$key' exactly as the readable specification does",
+            )
+        }
+    }
+
+    // (PRIV-05) WR-01: the LIMIT of the narrowing, asserted rather than assumed.
+    //
+    // These five names were in the code review's measured over-redaction list and are still
+    // redacted, because they are driven by 'auth', 'session' and 'token' — words the ruling left
+    // alone. Asserting them as accepted is the same discipline the D-13 block below applies:
+    // silently accepting a name is not the same as deciding it. See wr01AcceptedOverRedactions for
+    // why token_type in particular cannot be freed without a separate maintainer decision.
+    @Test
+    fun wr01NonBroadWordOverRedactionsRemainAccepted() {
+        assertEquals(5, wr01AcceptedOverRedactions.size, "WR-01 accepted-residual corpus must stay at 5 keys")
+
+        for (key in wr01AcceptedOverRedactions) {
+            for ((context, output) in sc3Contexts(key, PrivacyMode.STRICT)) {
+                assertFalse(
+                    output.contains(SC3_SENTINEL),
+                    "STRICT / $context: '$key' is an ACCEPTED over-redaction WR-01 did not reach and must stay redacted",
+                )
+            }
+        }
+    }
+
     // (PRIV-05) SC3 / D-13: camelCase key matching.
     //
     // authToken, accessToken and userSessionId are extremely common modern JSON key names and are
@@ -586,12 +826,15 @@ class RedactionTest {
     // The camelCase boundary is written with Java's inline flag-off group (?-i:...) because under
     // the consumers' (?i) the class [A-Z] also matches lowercase.
     //
-    // ACCEPTED OVER-REDACTIONS: codeName, keyName and tokenCount are asserted as REDACTED on
-    // purpose. They are the exact, maintainer-confirmed price of D-13 — recorded here as deliberate
-    // behaviour rather than discovered in the field. They over-redact (the fail-safe direction) and
-    // are structurally identical to the already-accepted token_bucket_size case.
+    // ACCEPTED OVER-REDACTION: tokenCount is asserted as REDACTED on purpose. It is the price of
+    // D-13 — recorded here as deliberate behaviour rather than discovered in the field. It
+    // over-redacts (the fail-safe direction) and is structurally identical to the already-accepted
+    // token_bucket_size case. codeName and keyName were asserted alongside it until WR-01 narrowed
+    // the two broad words out of the containment rule; they now survive and are pinned in
+    // wr01BroadWordBenignKeys, so this block names one case rather than three.
     // REVERT POINT: deleting the (?-i:...) alternative from WORD_BEFORE and WORD_AFTER in
-    // Redaction.kt drops D-13 entirely — it loses nothing SC3 requires and removes these three.
+    // Redaction.kt drops D-13 entirely — it loses nothing SC3 requires and removes tokenCount here
+    // and tokenType in wr01AcceptedOverRedactions.
     //
     // keyboardLayout and monkeyBars must still survive: they are what distinguishes a camelCase
     // boundary from a plain substring match. SC3's literal all-lowercase codename is covered by
@@ -607,7 +850,7 @@ class RedactionTest {
             }
         }
 
-        for (key in listOf("codeName", "keyName", "tokenCount")) {
+        for (key in listOf("tokenCount")) {
             for ((context, output) in sc3Contexts(key, PrivacyMode.STRICT)) {
                 assertFalse(
                     output.contains(SC3_SENTINEL),

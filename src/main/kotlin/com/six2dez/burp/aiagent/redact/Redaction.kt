@@ -317,13 +317,101 @@ object Redaction {
 
     // Sensitive parameter/key name vocabulary — shared by urlTokenParamRegex, formBodyParamRegex,
     // and jsonSecretKeyRegex so query-string and body coverage stay consistent (PRIV-02).
-    // (PRIV-05) SC3 / D-11: the vocabulary is byte-identical to the v0.6.0 value and is
-    // deliberately NOT widened. The 31-key SC3 must-redact corpus is satisfied by the boundary
-    // rule below plus the vendor list, without adding a single word; every extra word multiplies
-    // the false-positive surface across all THREE consumer regexes at once (Pitfall 10). Add a
-    // word only with measured evidence in query-string, form-body and JSON contexts.
+    // (PRIV-05) SC3 / D-11: the vocabulary is deliberately NOT widened. The 31-key SC3 must-redact
+    // corpus is satisfied by the boundary rule below plus the vendor list, without adding a single
+    // word; every extra word multiplies the false-positive surface across all THREE consumer
+    // regexes at once (Pitfall 10). Add a word only with measured evidence in query-string,
+    // form-body and JSON contexts.
+    //
+    // (PRIV-05) WR-01: 'key' and 'code' were REMOVED from this list and moved to BROAD_WORDS below.
+    // That is the ONLY respect in which the vocabulary differs from the v0.6.0 value; every other
+    // word is byte-identical. Read BROAD_WORDS for the measured reason and the accepted cost before
+    // putting either word back.
+    //
+    // THE VOCABULARY IS COMPILED IN FIRST-LETTER-FACTORED FORM in SENSITIVE_KEY_WORDS below rather
+    // than as this flat list. This constant is the READABLE SPECIFICATION and is the one to edit
+    // when adding a word; RedactionTest.factoredKeyVocabularyMatchesItsReadableSpecification builds
+    // a naive expression from the same three lists and asserts it classifies the whole corpus
+    // identically, so a factoring slip fails a test instead of silently changing coverage.
     private const val SENSITIVE_WORDS =
-        "access_token|api_key|apikey|auth|token|key|secret|password|pwd|session|sid|code"
+        "access_token|api_key|apikey|auth|token|secret|password|pwd|session|sid"
+
+    // (PRIV-05) WR-01: the two BROADEST words of the v0.6.0 vocabulary. Under D-11's whole-token
+    // boundary they matched any key containing 'key' or 'code' as a token, which the Phase 21 code
+    // review measured over a 32-name corpus: status_code, error_code, response_code, http_code,
+    // statusCode, errorCode, zip_code, country_code, postal_code, currency_code, language_code,
+    // product_code, promo_code, coupon_code, area_code, qr_code, primary_key, foreign_key,
+    // sort_key, partition_key, cache_key, idempotency_key, row_key, public_key, sortKey, cacheKey
+    // and zipCode were ALL redacted. That is a far larger class than the ten over-redactions the
+    // tests recorded, and it is not cosmetic: {"statusCode": 401, "errorCode": "AUTH_FAILED"}
+    // reached the analysis prompt as two [REDACTED] tokens while the model was being asked to find
+    // an authentication flaw. For a passive vulnerability scanner that is a functional regression.
+    //
+    // They are therefore NOT part of the free-containment rule. They redact only when the key IS
+    // exactly 'key' or 'code' (whole-key equality, which is what keeps the bare SC3 corpus entries
+    // 'key' and 'code' red), or when a CREDENTIAL_PREFIXES token sits immediately in front of them.
+    //
+    // ACCEPTED COST, recorded rather than left implicit: a bespoke vendor-shaped name whose prefix
+    // is not in the list below — stripe_key, encrypted_key, myapi_key — no longer redacts on this
+    // path. Bespoke API-key names are already a documented accepted gap in
+    // .planning/codebase/CONCERNS.md, and the 17-entry KNOWN_SESSION_KEYS list plus the enumerated
+    // api_key / apikey / access_token literals still cover the enumerated ones. Dropping 'key' and
+    // 'code' ENTIRELY was rejected for exactly this reason: api_key and access_code would then
+    // depend wholly on enumeration, which is the brittleness the token-boundary rule exists to escape.
+    private const val BROAD_WORDS = "key|code"
+
+    // (PRIV-05) WR-01: the credential-bearing prefixes that qualify a BROAD_WORDS occurrence.
+    // Maintainer-confirmed set, recorded verbatim — do NOT extend it without the same evidence the
+    // narrowing itself required, because every added prefix re-widens all THREE consumers at once.
+    // 'public' is deliberately absent: a public key is publishable by definition, which is why
+    // public_key and publicKey are pinned in the must-not-redact corpus rather than here.
+    // Like SENSITIVE_WORDS this is the READABLE SPECIFICATION, folded into SENSITIVE_KEY_WORDS in
+    // factored form and held equivalent by the named test.
+    private const val CREDENTIAL_PREFIXES = "api|access|secret|auth|private|signing|enc"
+
+    // (PRIV-05) WR-01: the OPTIONAL single separator between the prefix and the broad word, so
+    // api_key, api-key, api.key, apiKey and apikey are one rule rather than five. It is a single
+    // optional character rather than a quantified class on purpose: '{0,64}' here would let an
+    // arbitrary token sit between the prefix and the word and re-admit access_control_key_layout.
+    private const val BROAD_WORD_SEP = "[_.\\-]?"
+
+    // (PRIV-05) WR-01 / T-21-38: SENSITIVE_WORDS and the CREDENTIAL_PREFIXES + BROAD_WORDS rule,
+    // compiled into ONE alternation factored by first letter. Read SENSITIVE_WORDS,
+    // CREDENTIAL_PREFIXES and BROAD_WORDS above for the vocabulary; this constant is the compiled
+    // form of exactly those three and adds no word of its own.
+    //
+    // WHY FACTORED — measured, not stylistic, and the measurement is why this shape is load-bearing.
+    // On a 1 MB maximum-key-density JSON body, best of five, driving the live jsonSecretKeyRegex:
+    //
+    //     pre-WR-01 vocabulary, flat          50 ms   (the cost this file shipped with)
+    //     WR-01 vocabulary, flat              58 ms   (+16%)
+    //     WR-01, only the 7 prefixes factored 53 ms   (+6%)
+    //     WR-01, factored by first letter     47 ms   (-6%)
+    //
+    // The flat forms lose because each branch is probed separately at every backtrack position of
+    // the {0,64} padding; factoring probes the shared 'a', 's' and 'p' heads once. The +16% and +6%
+    // shapes were both measured FAILING newlineFreeOversizeBodyIsScannedNotDestroyed — the 4 MB
+    // newline-free fixture already spends ~1.9 s of the body stage's 2 s MAX_REDACTION_BUDGET_MS, so
+    // a few per cent exhausts the budget and the window carrying the secret is dropped behind a
+    // marker. That is fail-closed and never a leak, but it is the capability regression ADR-14
+    // exists to prevent. Do NOT flatten this back out; add words to SENSITIVE_WORDS and re-factor.
+    //
+    // 'pi[_.\-]?(key|code)' subsumes the api_key and apikey literals, so they are not repeated here.
+    // Both remain in SENSITIVE_WORDS because they are v0.6.0 vocabulary, and the equivalence test is
+    // what licenses dropping the redundant branches from the compiled form.
+    private const val SENSITIVE_KEY_WORDS =
+        // a- : access_token, api_key, apikey, auth + api/access/auth prefixing a broad word.
+        "a(?:ccess_token|ccess$BROAD_WORD_SEP(?:$BROAD_WORDS)|pi$BROAD_WORD_SEP(?:$BROAD_WORDS)|" +
+            "uth$BROAD_WORD_SEP(?:$BROAD_WORDS)|uth)|" +
+            // t- : token.
+            "token|" +
+            // s- : secret, session, sid + secret/signing prefixing a broad word.
+            "s(?:ecret$BROAD_WORD_SEP(?:$BROAD_WORDS)|ecret|ession|id|" +
+            "igning$BROAD_WORD_SEP(?:$BROAD_WORDS))|" +
+            // p- : password, pwd + private prefixing a broad word.
+            "p(?:assword|wd|rivate$BROAD_WORD_SEP(?:$BROAD_WORDS))|" +
+            // e- : enc prefixing a broad word.
+            "enc$BROAD_WORD_SEP(?:$BROAD_WORDS)"
 
     // (PRIV-05) SC3 / D-11: vendor and framework session-cookie names that NO morphological rule
     // can catch, because the sensitive word is concatenated without a separator (JSESSIONID,
@@ -347,8 +435,10 @@ object Redaction {
     // boundary would degrade to a substring match. Java's inline flag-off group (?-i:...) is what
     // makes it work; verified on JDK 21.
     // REVERT POINT (one deletion each): removing the (?-i:...) alternative from WORD_BEFORE and
-    // WORD_AFTER reverts D-13 entirely. That loses nothing SC3 requires and removes the three
-    // accepted over-redactions recorded below (codeName, keyName, tokenCount).
+    // WORD_AFTER reverts D-13 entirely. That loses nothing SC3 requires and removes the accepted
+    // over-redactions recorded below that the camelCase rule drives — tokenCount and tokenType.
+    // It named codeName and keyName too until WR-01 narrowed the two broad words out of the
+    // containment rule; those two now survive on their own and no longer depend on this revert.
     private const val WORD_BEFORE = "(?:(?<![A-Za-z0-9])|(?-i:(?<=[a-z0-9])(?=[A-Z])))"
     private const val WORD_AFTER = "(?:(?![A-Za-z0-9])|(?-i:(?<=[a-z0-9])(?=[A-Z])))"
 
@@ -359,7 +449,7 @@ object Redaction {
     //
     // (a) A key is sensitive when it IS a known vendor name, or when it CONTAINS one of the words
     //     as a whole token, treating '_', '-', '.', '[', ']', the string boundaries and
-    //     lower-to-upper case transitions as delimiters. So auth_token, api-key, X-Session-Id and
+    //     lower-to-upper case transitions as delimiters. So auth_token, X-Session-Id and
     //     connect.sid match, while keyboard_layout, codename, sidebar and keychain do not.
     // (b) Prefix and suffix are BOUNDED at 64 characters: an unbounded '*' measured 2.3x slower on
     //     adversarial input (21 ms vs 9 ms on 1 MB) and reintroduces exactly the unbounded-
@@ -373,17 +463,62 @@ object Redaction {
     // boundary rule alone. Do not add one: every entry in such a list is a place where a real
     // credential could be accidentally allowlisted.
     //
+    // (d) (PRIV-05) WR-01: the two BROAD_WORDS do NOT take part in clause (a). They get their own
+    //     two alternatives instead — a bare one, which the consumers' own anchors ('[?&]…=', '^…=',
+    //     '"…":') turn into WHOLE-KEY EQUALITY with no code of its own, and a prefixed one that
+    //     requires a CREDENTIAL_PREFIXES token immediately in front. So api_key, api-key, api.key,
+    //     apiKey, access_code, private_key and signing_key still redact while status_code,
+    //     error_code, statusCode, errorCode, primary_key, sort_key, cache_key and zip_code survive.
+    //     The bare alternative carries NO KEY_CHARS padding, and that absence IS the whole-key
+    //     rule — adding padding to it would silently restore the pre-WR-01 breadth.
+    //
     // Two deliberate residuals:
     //   - PLURAL forms (codes, tokens, keys) are NOT handled. Adding 's?' to the vocabulary would
     //     catch them at the cost of a second widening axis; SC3 does not require it.
-    //   - ACCEPTED over-redactions, all fail-safe and all analytically low-value: under the
-    //     separator rule token_bucket_size, session_timeout_seconds, auth_provider, key_size,
-    //     code_version, secret_santa, password_hint_enabled; under the camelCase rule (D-13)
-    //     codeName, keyName, tokenCount. auth_provider is the only one with real analytic value
-    //     and redacting it is still the correct default for a key literally named auth_*.
+    //   - ACCEPTED over-redactions, all fail-safe and all analytically low-value. Under the
+    //     separator rule: token_bucket_size, session_timeout_seconds, auth_provider, secret_santa,
+    //     password_hint_enabled, and — measured by the Phase 21 code review and NOT closed by
+    //     WR-01 — auth_type, auth_url, session_count, token_type. Under the camelCase rule (D-13):
+    //     tokenCount, tokenType. Every one of these is driven by 'auth', 'session' or 'token', NOT
+    //     by the two broad words, so the WR-01 narrowing does not reach them: it narrowed 'key' and
+    //     'code' only. token_type / tokenType are the analytically painful pair — token_type:
+    //     "Bearer" is benign OAuth metadata — and making them survive needs either a suffix
+    //     denylist (which D-12 rejects on principle) or a narrowing of 'token' itself, which would
+    //     put access-token and XSRF-TOKEN at risk. Both are maintainer decisions, not executor
+    //     ones; the pair is asserted AS ACCEPTED in RedactionTest so it stays visible.
+    //     WR-01 removed four names from this list — key_size and code_version under the separator
+    //     rule, codeName and keyName under the camelCase rule — because all four are broad-word
+    //     driven. auth_provider remains the only accepted case with real analytic value besides
+    //     token_type, and redacting it is still the correct default for a key literally named auth_*.
+    // (e) (PRIV-05) WR-01 / T-21-38: the prefixed broad-word rule shares clause (a)'s
+    //     KEY_CHARS{0,64}...WORD_BEFORE / WORD_AFTER...KEY_CHARS{0,64} padding rather than being a
+    //     top-level alternative with padding of its own. That is a MEASURED requirement, not
+    //     tidiness. Written as its own padded alternative it doubled the leading {0,64} scan and
+    //     cost +67% on the JSON rule. It is folded into SENSITIVE_KEY_WORDS for the same reason —
+    //     see the measurement table there before changing either.
     private const val SENSITIVE_KEY_EXPR =
         "(?:(?:$KNOWN_SESSION_KEYS)|" +
-            "$KEY_CHARS{0,64}$WORD_BEFORE(?:$SENSITIVE_WORDS)$WORD_AFTER$KEY_CHARS{0,64})"
+            "$KEY_CHARS{0,64}$WORD_BEFORE(?:$SENSITIVE_KEY_WORDS)$WORD_AFTER$KEY_CHARS{0,64}|" +
+            "(?:$BROAD_WORDS))"
+
+    // Internal test seam — SENSITIVE_KEY_EXPR written in its READABLE, UNFACTORED form, built from
+    // the SENSITIVE_WORDS / CREDENTIAL_PREFIXES / BROAD_WORDS specification constants directly
+    // rather than from SENSITIVE_KEY_WORDS. Not part of the public API and reachable from no
+    // production path, in the style of testHkdfExtract and testSplitPoint.
+    //
+    // This exists so the hand-written first-letter factoring above is CHECKED rather than trusted.
+    // RedactionTest.factoredKeyVocabularyMatchesItsReadableSpecification drives this expression and
+    // the shipped one over the whole key corpus and asserts they classify every name identically.
+    // Building it here rather than restating the vocabulary in the test is the point: a word added
+    // to SENSITIVE_WORDS and forgotten in SENSITIVE_KEY_WORDS fails that test, which is exactly the
+    // mistake the factoring makes easy. Keep the two in sync by editing the readable constants
+    // first, then re-factoring.
+    internal const val NAIVE_KEY_EXPR_FOR_TEST =
+        "(?:(?:$KNOWN_SESSION_KEYS)|" +
+            "$KEY_CHARS{0,64}$WORD_BEFORE" +
+            "(?:(?:$SENSITIVE_WORDS)|(?:$CREDENTIAL_PREFIXES)$BROAD_WORD_SEP(?:$BROAD_WORDS))" +
+            "$WORD_AFTER$KEY_CHARS{0,64}|" +
+            "(?:$BROAD_WORDS))"
 
     // Tokens/secrets in URL query strings, e.g. ?access_token=xyz or &api_key=xyz
     // (PRIV-05) SC3: the key side is the shared key expression, so compound and vendor keys
