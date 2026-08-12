@@ -527,12 +527,47 @@ object Redaction {
     // ignores only -1/0/1/2 and QUAL-07 forbids growing detekt-baseline.xml.
     private const val NANOS_PER_MS = 1_000_000L
 
-    // (PRIV-06) D-01 / T-21-06: how many times a window that did not scan in time may be halved at
-    // a line boundary and retried before it is dropped. Measured headroom at the 1 MB window width
-    // is only ~2.2x on Apple Silicon (23 ms for dense form content against a 50 ms per-pattern
-    // deadline), so a 2-3x slower machine would drop content that ships today. Two levels turn the
+    // (PRIV-06) D-01 / CR-04 / T-21-06 / T-21-08: how many times a window that did not scan in time
+    // may be halved and retried before it is dropped. Measured headroom at the 1 MB window width is
+    // only ~2.2x on Apple Silicon (23 ms for dense form content against a 50 ms per-pattern
+    // deadline), so a 2-3x slower machine would drop content that ships today; the ladder turns the
     // deadline into a pacing mechanism instead of a cliff.
-    private const val WINDOW_RETRY_MAX_DEPTH = 2
+    //
+    // RAISED FROM 2 TO 4 BY CR-04, because two levels only reach quarters and that is not enough for
+    // the shape that made the ladder matter in the first place. A newline-free body is ONE window at
+    // any size — windowEnd gives an over-width line its own window, and such a body is a single line
+    // — and dense newline-free JSON costs ~31 ms/MB against a 50 ms deadline, so a 2 MiB window is
+    // still ~500 KB and ~15 ms over at quarters. Four levels reach sixteenths: 128 KB pieces at
+    // roughly 4 ms, which holds on hardware several times slower than the reference machine.
+    //
+    // BOTH BOUNDS, stated so neither is mistaken for the other:
+    //   - the real ceiling on retry WORK is Defaults.MAX_REDACTION_BUDGET_MS, not this depth. Every
+    //     retry runs under the same budget clock and every rule takes min(DEFAULT_TIMEOUT_MS,
+    //     remaining budget), so the ladder cannot outlive the total budget however deep it may go.
+    //   - the depth is capped at 4 rather than higher because of Pitfall 8: a wholly-unscannable
+    //     window emits up to 2^depth markers, so 16 per window is the deliberate ceiling on the
+    //     marker bloat that would otherwise inflate the very prompt this stage exists to bound.
+    private const val WINDOW_RETRY_MAX_DEPTH = 4
+
+    // (PRIV-06) CR-04 / T-21-34: how far past the midpoint [splitPoint] may look for a boundary that
+    // no built-in body rule's match can span, when a window has no line boundary at all.
+    //
+    // WHY IT IS BOUNDED. The search is a linear scan, so an unbounded one would make the fallback
+    // O(n) in the window length on content that happens to contain no terminator — a 4 MB window
+    // walked end to end before giving up. A fixed cap keeps it O(1) in the window size, and giving
+    // up costs almost nothing, because the fallback is the exact midpoint rather than the drop this
+    // whole branch exists to replace.
+    //
+    // WHY 1 024. The terminator set below appears every few characters in any minified JSON or
+    // form-encoded payload, which is the shape this branch serves. A whole kilobyte without one
+    // means the content is not that shape, and the midpoint is then as defensible a cut as any.
+    // detekt's MagicNumber ignore list stops at 2, so this is a named constant, not a literal.
+    private const val SAFE_CUT_SEARCH_CHARS = 1_024
+
+    // (PRIV-06) CR-04: the non-whitespace half of the value-terminating set. Kept as a string rather
+    // than a five-way boolean chain so the set reads as data and stays adjacent to its bound above.
+    // See [safeCutPoint] for the derivation of each character from a rule's own value class.
+    private const val SAFE_CUT_TERMINATORS = "&,}]"
 
     // (PRIV-06) CR-02 / T-21-08: how many following lines the JSON boundary-safety rule in
     // [windowEnd] may pull into a window. The extension exists because jsonSecretKeyRegex's \s* can
@@ -766,12 +801,24 @@ object Redaction {
         sink.append(current)
     }
 
-    // (PRIV-06) D-01 / T-21-06: halve-and-retry before dropping. A window that did not scan in time
-    // is split at a LINE boundary and each half retried, to WINDOW_RETRY_MAX_DEPTH levels, so a
-    // slower machine paces instead of losing content outright. When the budget is already spent, or
-    // the retry depth is exhausted, or the window has no interior line boundary to split on, the
-    // window is dropped behind exactly one marker — fail closed, so its unscanned bytes never reach
-    // a backend.
+    // (PRIV-06) D-01 / CR-04 / T-21-06: halve-and-retry before dropping. A window that did not scan
+    // in time is split — at a LINE boundary whenever it has one, and otherwise at a bounded safe cut
+    // (see [splitPoint]) — and each half is retried, to WINDOW_RETRY_MAX_DEPTH levels, so a slower
+    // machine paces instead of losing content outright.
+    //
+    // The window is dropped behind exactly one marker when the retry depth is exhausted, when the
+    // budget is already spent, or when the window is too short to split at all — fail closed, so its
+    // unscanned bytes never reach a backend.
+    //
+    // CR-04 — the third condition used to read "when the window has no interior line boundary to
+    // split on", and that made the drop the ONLY reachable outcome for a newline-free body of ANY
+    // size, which is the normal shape of a minified-JSON API response. It is now a window of one
+    // character or less, so the ladder engages on the payload shape it was always meant to pace.
+    //
+    // TERMINATION, stated because the recursion is not obviously finite: each half is strictly
+    // shorter than the window, because splitPoint returns either 0 or an index strictly inside it;
+    // depth is bounded by WINDOW_RETRY_MAX_DEPTH; and the total budget bounds the work regardless of
+    // both.
     private fun dropOrRetry(
         window: String,
         rules: List<Pair<Pattern, String>>,
@@ -790,16 +837,101 @@ object Redaction {
         scanWindow(window.substring(cut), rules, budgetDeadlineNanos, depth + 1, sink)
     }
 
-    // (PRIV-06) D-01: the line boundary nearest the middle of [window], or 0 when the window cannot
-    // be split without cutting a line. The returned index is just past a newline, so both halves
-    // stay line-aligned and (?m)^ keeps its meaning inside each of them.
+    // (PRIV-06) D-01 / CR-04: where to cut [window] in half so each half can be retried.
+    //
+    // A LINE BOUNDARY IS ALWAYS PREFERRED, and wherever one exists nothing here has changed: the
+    // returned index is just past a '\n', so both halves stay line-aligned and (?m)^ keeps its
+    // meaning inside each of them. splitPointStillCutsAtALineBoundaryWhenOneExists is the guard on
+    // that, and it is green before and after this change by design.
+    //
+    // CR-04 — THE ONE DOCUMENTED EXCEPTION. When the window contains no newline anywhere, this used
+    // to return 0, and dropOrRetry's `if (cut <= 0 …)` turned that into a total drop: the entire
+    // window replaced by a marker. That is the normal shape of an API response —
+    // McpToolContext.redactIfNeeded receives serialized tool output up to maxBodyBytes (2 MiB by
+    // default) and toolJson.encodeToString(...) emits MINIFIED, newline-free output — so the retry
+    // ladder was structurally inapplicable to the most common oversized payload there is, and a
+    // default-configuration 2 MiB tool response reached the model as one drop marker and nothing
+    // else.
+    //
+    // WHY THAT IS NOT THE (?m)^ TRAP REOPENED. Mid-line cutting is unsafe in general, and
+    // 21-RESEARCH.md "Decision 3" proved it in both directions: a cut can create a match at an
+    // artificial line start, and can truncate a match that spans it. Three properties of THIS BRANCH
+    // — not of good intentions — make the exception safe:
+    //   1. A window with no interior newline has no interior line anchors to corrupt. The only
+    //      artificial line start a cut can create is at the cut itself: one position in the whole
+    //      window, rather than one per line.
+    //   2. That artificial anchor can only OVER-redact, never leak. formBodyParamRegex's (^|[?&])
+    //      matching at the head of the second half yields a false positive, and a false positive
+    //      here is fail-safe — it removes content that did not need removing, which is the direction
+    //      this file errs in everywhere else too.
+    //   3. This branch is reachable ONLY from dropOrRetry — that is, only after a rule has already
+    //      exceeded its deadline and the alternative is discarding the whole window behind a marker.
+    //      A match truncated by the cut is a false negative, but the content it sits in is otherwise
+    //      not scanned AND NOT EMITTED AT ALL, so there is strictly nothing to lose.
+    //
+    // NOT A LICENCE TO CUT MID-LINE ANYWHERE ELSE. Point 3 is what makes points 1 and 2 acceptable,
+    // and it holds nowhere else in this file. Everywhere a line boundary exists this function still
+    // uses it, and windowEnd still gives an over-width line its own window rather than splitting it.
+    //
+    // NOT OVERLAP EITHER. The two halves are disjoint and no region is processed twice. D-01
+    // AMENDED's overlap clause stays dropped on its measured ground — single matches of the built-in
+    // rules reach 200 006 characters and user patterns are unbounded by construction, so no finite
+    // overlap constant is defensible. What the cut leaves is a bounded straddle residual, recorded
+    // in ADR-14 and in .planning/codebase/CONCERNS.md rather than pretended away.
     private fun splitPoint(window: String): Int {
         val mid = window.length / 2
         val backward = window.lastIndexOf('\n', mid)
         if (backward > 0) return backward + 1
         val forward = window.indexOf('\n', mid)
-        return if (forward >= 0 && forward + 1 < window.length) forward + 1 else 0
+        return if (forward >= 0 && forward + 1 < window.length) forward + 1 else safeCutPoint(window, mid)
     }
+
+    // (PRIV-06) CR-04 / T-21-34: the newline-free fallback used by [splitPoint], and only by it.
+    //
+    // From [mid], scan forward at most SAFE_CUT_SEARCH_CHARS characters for the first character that
+    // terminates every built-in body rule's match and cut just after it; fall back to the exact
+    // midpoint when none is found, and to 0 — which dropOrRetry reads as "drop" — when the window is
+    // too short to split at all, so the recursion always terminates.
+    //
+    // THE TERMINATOR SET IS DERIVED FROM THE RULES THEMSELVES, not asserted:
+    //   - formBodyParamRegex and urlTokenParamRegex both have the value class [^&\s"'<>]+, so
+    //     neither match can span an '&' or any whitespace character;
+    //   - jsonSecretKeyRegex's value is either a '"'-delimited string or an unquoted scalar, and in
+    //     well-formed JSON both are immediately followed by ',', '}' or ']'.
+    // Cutting just after one of ',', '}', ']', '&' or whitespace therefore lands OUTSIDE any
+    // built-in match for minified JSON and for form-encoded bodies, which is precisely the shape
+    // CR-04 is about. splitPointPrefersASafeCutBoundaryInMinifiedJson is the guard.
+    //
+    // RESIDUAL, unchanged and already recorded: a USER custom pattern can still span the cut. There
+    // is no principled bound on a user regex's match length, so no choice of cut position closes it.
+    private fun safeCutPoint(
+        window: String,
+        mid: Int,
+    ): Int {
+        if (window.length <= 1) return 0
+        // Never past window.length - 1, so the returned index is strictly inside the window and
+        // dropOrRetry cannot read it as "cannot split" on either limb of its guard.
+        val limit = minOf(mid + SAFE_CUT_SEARCH_CHARS, window.length - 1)
+        var i = mid
+        while (i < limit && !isSafeCutTerminator(window[i])) i++
+        return if (i < limit) i + 1 else mid
+    }
+
+    // (PRIV-06) CR-04: true for a character no built-in body rule's match can span. See
+    // [safeCutPoint] for the derivation from each rule's value class.
+    private fun isSafeCutTerminator(c: Char): Boolean = c in SAFE_CUT_TERMINATORS || c.isWhitespace()
+
+    // Internal test seam — [splitPoint] as the pure function it is. NOT part of the public API; only
+    // referenced from the test source set, in the style of resetTruncationWindowForTest and
+    // testRedactCookieSections above.
+    //
+    // It exists because the end-to-end path to splitPoint runs only once a rule has genuinely
+    // exceeded its deadline, which needs a multi-megabyte fixture and is sensitive to machine speed,
+    // JIT warm-up and JaCoCo's per-character instrumentation of DeadlineCharSequence.get(). The
+    // defect CR-04 records — splitPoint returning 0 on a newline-free window — is a pure function of
+    // one string, so it can be asserted deterministically and identically on any hardware. Same
+    // reasoning, and the same answer, as the injected budget on testRedactCookieSections.
+    internal fun testSplitPoint(window: String): Int = splitPoint(window)
 
     // (PRIV-06) D-01 AMENDED: the end of the window starting at [start] — the index just past the
     // last newline at or before [start] + [width]. A single line longer than [width] becomes its own
