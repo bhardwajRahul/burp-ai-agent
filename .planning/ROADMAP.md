@@ -107,7 +107,7 @@ interceptor still runs after the first responds), and `finish()` is not callable
 5. The interaction between user custom patterns and `PrivacyMode.OFF` is settled deliberately and documented in `DECISIONS.md` — whichever way it goes, it is a decision rather than a side effect of the `redactTokens` branch.
 6. The existing `RedactionTest` suite including the RFC 5869 HKDF vector stays green; the fix must not perturb host anonymization.
 
-**Plans**: 12 plans — 7 original in 4 waves, plus 5 gap-closure in 4 waves
+**Plans**: 18 plans — 7 original in 4 waves, 5 gap-closure in 4 waves, plus 6 second-round gap-closure in 5 waves
 Plans:
 **Wave 1**
 
@@ -151,6 +151,38 @@ to close, so the phase goal is not met and Phase 21 is not complete.
 **Gap Wave 4** *(blocked on Gap Wave 3; NOT autonomous — carries a blocking maintainer decision)*
 
 - [x] 21-12-PLAN.md — WR-01 decision gate: is `SENSITIVE_KEY_EXPR`'s breadth correct, given it redacts `status_code`, `errorCode` and `token_type`? Pins the answer in the SC3 corpus. Also carries the phase-wide deferral record for WR-02, WR-03, WR-04 and WR-07 (gap wave 4)
+
+**Second gap-closure round** *(planned 2026-08-12 from `21-REVIEW-2.md`; run with `/gsd-execute-phase 21 --gaps-only`)*
+
+The five plans above all executed and merged, and a **deep re-review** drove the compiled shipped classes
+from a JDK 21 harness rather than reading diffs. Three of the four original blockers are genuinely closed —
+but **CR-02 is not**: `isJsonPairBoundaryRisk` sees only a cut in the whitespace *around the colon*, never
+one inside an *open quoted value*, so a two-line JSON pair still leaks at 6 of 40 alignments of a 1 MB body
+with `dropMarker=false` — a leak, not a fail-closed drop, reachable by default through
+`McpToolContext.redactIfNeeded` at 2 MiB. Three records currently assert coverage that shape does not have.
+The re-review also found 8 warnings and 4 info items, several of them latent traps that can silently reopen
+a leak this phase just closed. PRIV-06 is not met while CR-01 (round 2) stands.
+
+**Gap-2 Wave 1** *(the two plans are file-disjoint and run in parallel)*
+
+- [ ] 21-13-PLAN.md — CR-01 (round 2): `endsInsideOpenQuotedValue` makes the boundary predicate model the state `[^"]*` is actually in; a third boundary sweep guards the shape the existing two cannot reach; the source comment, ADR-14 and `CONCERNS.md` stop claiming coverage they lack (gap-2 wave 1)
+- [ ] 21-14-PLAN.md — WR-02: the OFF privacy banner reads the persisted, validated pattern list instead of unsaved `JTextArea` text; the composer becomes a top-level pure function so the defective source is out of scope rather than merely unused (gap-2 wave 1)
+
+**Gap-2 Wave 2** *(blocked on Gap-2 Wave 1 — same file)*
+
+- [ ] 21-15-PLAN.md — the cookie-rule cluster: W-01 couples `COOKIES_MAX_COUNT` to `MAX_COOKIE_SECTION_LINES` so raising one cannot silently reopen PRIV-05; W-03 gives `sanitizeCookieSectionEntries` its first direct test; W-05 stops an expired budget destroying a prompt with no section left in it; W-02 and IN-04 dispositioned in source (gap-2 wave 2)
+
+**Gap-2 Wave 3** *(blocked on Gap-2 Wave 2 — same file)*
+
+- [ ] 21-16-PLAN.md — W-04: the CI flake removed by an injected-budget seam, NOT by changing `MAX_REDACTION_BUDGET_MS`; IN-03 asserts the lookahead cap through a `windowEnd` seam; IN-02 and W-07's test half corrected; every remaining wall-clock assertion gets a measured headroom (gap-2 wave 3)
+
+**Gap-2 Wave 4** *(blocked on Gap-2 Wave 3 — same file)*
+
+- [ ] 21-17-PLAN.md — W-06: the only guard on the hand-factored key vocabulary compares like with like across all three consumers and pins group counts (Pitfall 7); IN-01 stops shipping the naive expression as a public field (gap-2 wave 4)
+
+**Gap-2 Wave 5** *(blocked on Gap-2 Wave 4 — same file)*
+
+- [ ] 21-18-PLAN.md — WR-03 deletes the fail-open `replaceAllSafe` façade; WR-07 widens the ReDoS probe to a corpus and re-validates persisted patterns at startup; WR-04/W-08 make a throwing truncation sink harmless and unwire it in `App.shutdown()` (gap-2 wave 5)
 
 **SC6 note**: two existing `RedactionTest` assertions are *deliberately* inverted by locked decisions and are
 not regressions — `oversizeBodySkippedSafely` (rewritten by D-01, it currently asserts the fail-open as
