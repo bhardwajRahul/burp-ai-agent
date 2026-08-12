@@ -223,24 +223,28 @@ internal fun SettingsPanel.updateRiskWarnings() {
 }
 
 /**
- * Compose a single advisory for the Privacy & Logging tab. Replaces the previous trio of
- * stacked red `JLabel` banners (`privacyWarning` + `privacyActiveWarning` + `privacyRiskWarning`)
- * with one [SubtleNotice] whose level + message reflect the active risk combination.
+ * Pure composer for the Privacy & Logging advisory: maps a risk combination to a [SubtleNotice]
+ * level and message, or `null to null` when no notice should be shown.
+ *
+ * WR-02: deliberately **top-level**, not a `SettingsPanel` extension. An extension would have the
+ * Privacy tab's pattern editor in lexical scope and could silently regress to reading its unsaved
+ * text; a top-level function cannot reach any Swing component at all, so the defective source is
+ * unrepresentable here rather than merely unused.
+ *
+ * @param persistedCustomPatterns the saved, `isPatternSafe`-validated list from `AgentSettings` —
+ *   the very list handed to `Redaction.setCustomPatterns`. Never pass unsaved editor text: the OFF
+ *   clause claims the engine is applying these patterns, so that claim must be true when shown.
  */
-internal fun SettingsPanel.refreshPrivacyNotice() {
-    val selectedPrivacy = privacyMode.selectedItem as? PrivacyMode ?: PrivacyMode.STRICT
-    val auditOff = !auditEnabled.isSelected
-    val activeOn = activeAiEnabled.isSelected
-
+internal fun privacyNoticeFor(
+    selectedPrivacy: PrivacyMode,
+    auditOff: Boolean,
+    activeOn: Boolean,
+    persistedCustomPatterns: List<String>,
+): Pair<SubtleNotice.Level?, String?> {
     // D-07: OFF disables the built-in rules only — custom patterns are the user's "never send this,
-    // ever" list and apply in every mode (D-05). Read the live JTextArea, not the constructor-time
-    // settings snapshot: SettingsPanelSettingsIO rewrites customPatternsArea.text on save, and this
-    // composer already reads live component state (privacyMode/auditEnabled/activeAiEnabled). The
-    // cheap non-blank-line test deliberately does NOT call validateAndCollectCustomPatterns(), whose
-    // 50 ms per-pattern ReDoS probe must never run on the EDT during a notice refresh.
-    // Initialisation-safe: SettingsPanel's `init { initUiWiring() }` is the last member of the class,
-    // so customPatternsArea is assigned before any construction-time path can reach this function.
-    val customPatternsConfigured = customPatternsArea.text.split('\n').any { it.isNotBlank() }
+    // ever" list and apply in every mode (D-05), which is what makes this clause load-bearing: under
+    // OFF the persisted patterns are the only redaction there is.
+    val customPatternsConfigured = persistedCustomPatterns.isNotEmpty()
     // D-07: one shared clause for every OFF arm below. All four are reworded as a single unit —
     // rewording one and leaving the others would let the panel contradict itself.
     val offClause =
@@ -250,33 +254,61 @@ internal fun SettingsPanel.refreshPrivacyNotice() {
             "Built-in redaction is disabled; raw traffic may reach MCP and prompts."
         }
 
+    return when {
+        selectedPrivacy == PrivacyMode.OFF && auditOff && activeOn ->
+            SubtleNotice.Level.RISK to
+                "<b>Privacy OFF + Audit logging OFF + Active Scanner ON.</b> " +
+                offClause +
+                " There is no audit trail, and live payloads go to targets."
+        selectedPrivacy == PrivacyMode.OFF && auditOff ->
+            SubtleNotice.Level.RISK to
+                "<b>Privacy OFF + Audit logging OFF.</b> " +
+                offClause +
+                " Without audit logs, traceability and data-protection guarantees are reduced."
+        selectedPrivacy == PrivacyMode.OFF && activeOn ->
+            SubtleNotice.Level.RISK to
+                "<b>Privacy OFF + Active Scanner ON.</b> " +
+                offClause +
+                " The active scanner sends payloads to real targets."
+        selectedPrivacy == PrivacyMode.OFF ->
+            SubtleNotice.Level.WARN to
+                "<b>Privacy mode is OFF.</b> " +
+                offClause
+        selectedPrivacy == PrivacyMode.STRICT && activeOn ->
+            SubtleNotice.Level.INFO to
+                "STRICT anonymizes hosts in AI prompts but does not prevent the active scanner " +
+                "from sending real requests to targets."
+        else -> null to null
+    }
+}
+
+/**
+ * Compose a single advisory for the Privacy & Logging tab. Replaces the previous trio of
+ * stacked red `JLabel` banners (`privacyWarning` + `privacyActiveWarning` + `privacyRiskWarning`)
+ * with one [SubtleNotice] whose level + message reflect the active risk combination.
+ *
+ * Adapter only: it reads live component state and delegates every wording decision to
+ * [privacyNoticeFor].
+ */
+internal fun SettingsPanel.refreshPrivacyNotice() {
+    val selectedPrivacy = privacyMode.selectedItem as? PrivacyMode ?: PrivacyMode.STRICT
+    val auditOff = !auditEnabled.isSelected
+    val activeOn = activeAiEnabled.isSelected
+
+    // WR-02: the first three arguments are genuinely live UI state — a user can flip them without
+    // saving and the banner must follow immediately. The pattern list is not. It is *engine* state
+    // that only applyAndSaveSettings can change, and validateAndCollectCustomPatterns drops every
+    // line failing SafeRegex.isPatternSafe before it is stored, so unsaved or invalid text is not
+    // merely stale — it may never become active at all. Inferring "your custom patterns are applied"
+    // from the editor's text therefore downgrades a real risk warning on the strength of text that
+    // has no effect on anything. Passing the persisted list makes this banner agree with the two
+    // sibling claims that already read it: ChatPanel.privacySummary (ChatPanel.kt:1153) and the
+    // customPatternsConfigured parameter of ContextPreviewDialog.privacyModeHint.
+    // D-07: this deliberately does NOT call validateAndCollectCustomPatterns(), whose 50 ms
+    // per-pattern ReDoS probe must never run on the EDT during a notice refresh. No probe is needed
+    // here — the persisted list was already validated on the way in.
     val (level, htmlMessage) =
-        when {
-            selectedPrivacy == PrivacyMode.OFF && auditOff && activeOn ->
-                SubtleNotice.Level.RISK to
-                    "<b>Privacy OFF + Audit logging OFF + Active Scanner ON.</b> " +
-                    offClause +
-                    " There is no audit trail, and live payloads go to targets."
-            selectedPrivacy == PrivacyMode.OFF && auditOff ->
-                SubtleNotice.Level.RISK to
-                    "<b>Privacy OFF + Audit logging OFF.</b> " +
-                    offClause +
-                    " Without audit logs, traceability and data-protection guarantees are reduced."
-            selectedPrivacy == PrivacyMode.OFF && activeOn ->
-                SubtleNotice.Level.RISK to
-                    "<b>Privacy OFF + Active Scanner ON.</b> " +
-                    offClause +
-                    " The active scanner sends payloads to real targets."
-            selectedPrivacy == PrivacyMode.OFF ->
-                SubtleNotice.Level.WARN to
-                    "<b>Privacy mode is OFF.</b> " +
-                    offClause
-            selectedPrivacy == PrivacyMode.STRICT && activeOn ->
-                SubtleNotice.Level.INFO to
-                    "STRICT anonymizes hosts in AI prompts but does not prevent the active scanner " +
-                    "from sending real requests to targets."
-            else -> null to null
-        }
+        privacyNoticeFor(selectedPrivacy, auditOff, activeOn, settings.customRedactionPatterns)
     if (level != null && htmlMessage != null) {
         privacyNotice.setMessage(level, htmlMessage)
     } else {
