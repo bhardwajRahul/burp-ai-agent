@@ -165,8 +165,8 @@ a leak this phase just closed. PRIV-06 is not met while CR-01 (round 2) stands.
 
 **Gap-2 Wave 1** *(the two plans are file-disjoint and run in parallel)*
 
-- [ ] 21-13-PLAN.md — CR-01 (round 2): `endsInsideOpenQuotedValue` makes the boundary predicate model the state `[^"]*` is actually in; a third boundary sweep guards the shape the existing two cannot reach; the source comment, ADR-14 and `CONCERNS.md` stop claiming coverage they lack (gap-2 wave 1)
-- [ ] 21-14-PLAN.md — WR-02: the OFF privacy banner reads the persisted, validated pattern list instead of unsaved `JTextArea` text; the composer becomes a top-level pure function so the defective source is out of scope rather than merely unused (gap-2 wave 1)
+- [x] 21-13-PLAN.md — CR-01 (round 2): `endsInsideOpenQuotedValue` makes the boundary predicate model the state `[^"]*` is actually in; a third boundary sweep guards the shape the existing two cannot reach; the source comment, ADR-14 and `CONCERNS.md` stop claiming coverage they lack (gap-2 wave 1)
+- [x] 21-14-PLAN.md — WR-02: the OFF privacy banner reads the persisted, validated pattern list instead of unsaved `JTextArea` text; the composer becomes a top-level pure function so the defective source is out of scope rather than merely unused (gap-2 wave 1)
 
 **Gap-2 Wave 2** *(blocked on Gap-2 Wave 1 — same file)*
 
@@ -291,7 +291,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
-| 21. Redaction Completeness | 12/12 | Complete   | 2026-08-12 |
+| 21. Redaction Completeness | 14/18 | In Progress|  |
 | 22. Agent Tool-Call Trust Boundary | 0/? | Not started | — |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
