@@ -57,10 +57,14 @@ internal fun redactScanMetadata(
 internal fun cookieSectionLines(
     headerValues: List<String>,
     maxCount: Int,
-): List<String> =
-    headerValues
-        .flatMap { value -> value.split(";").map { it.trim() } }
-        .take(maxCount)
+): List<String> {
+    val entries = headerValues.flatMap { value -> value.split(";").map { it.trim() } }
+    // CR-01: sanitise BEFORE applying the bound, never after. A blank element left in place holds
+    // one of the maxCount display slots, so "Cookie: ;;JSESSIONID=..." would surface four real
+    // cookies to the model where six were available. Guard:
+    // PassiveAiScannerPromptRedactionTest.blankCookieElementsDoNotConsumeDisplaySlots.
+    return Redaction.sanitizeCookieSectionEntries(entries).take(maxCount)
+}
 
 // (PRIV-05) Assembles the scan metadata blob that doAnalysis hands to redactScanMetadata. Extracted
 // verbatim from doAnalysis so the emitted section shapes — in particular the cookie and parameter
@@ -120,8 +124,21 @@ internal fun buildScanMetadataText(
             // disabling of the section-scoped cookie rule that keys on it. The parameters section
             // below deliberately keeps its inline literal — the SC2 rule keys on the type suffix of
             // each line instead, so it is context-free and needs no coupling to this format.
+            //
+            // (PRIV-05) CR-01 / T-21-32: the ENTRIES are owned by the redactor for the same reason.
+            // The redactor's span bound reads the section framing back out of this text, so a cookie
+            // element beginning with "=== " terminates the span and EVERY cookie below it leaks
+            // unredacted to the AI backend. That is in-band signalling, and the redactor cannot
+            // close it from its own side — this is the only place a genuine section boundary and a
+            // planted one are distinguishable. sanitizeCookieSectionEntries drops blank entries,
+            // flattens embedded CR/LF, and space-prefixes a "==="-leading entry so the value is
+            // NEUTRALISED rather than lost. DELETING THIS CALL RE-OPENS PRIV-05; its named guard is
+            // PassiveAiScannerPromptRedactionTest.poisonedCookieHeaderCannotTerminateTheCookieSection,
+            // with cookieSectionEntriesAreSanitizedAtTheEmitter asserting the framing directly.
+            // The isNotEmpty() check stays keyed on the ORIGINAL list so the framing decision, and
+            // therefore the emitted blob's byte-identical shape, is unchanged.
             appendLine(Redaction.COOKIE_SECTION_HEADER)
-            cookies.forEach { appendLine(it) }
+            Redaction.sanitizeCookieSectionEntries(cookies).forEach { appendLine(it) }
             appendLine()
         }
         if (params.isNotEmpty()) {
