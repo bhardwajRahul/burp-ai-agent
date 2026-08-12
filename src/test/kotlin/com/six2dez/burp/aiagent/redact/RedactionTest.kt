@@ -237,6 +237,44 @@ private const val SAFE_CUT_TERMINATORS = "&,}]"
 // misalignment in the same terms the implementation uses, rather than by hand-picking a character.
 private fun isSafeCutTerminatorForTest(c: Char): Boolean = c in SAFE_CUT_TERMINATORS || c.isWhitespace()
 
+// (PRIV-06) CR-02 / IN-03: a MIRROR of Redaction.MAX_JSON_BOUNDARY_LOOKAHEAD_LINES, which is private
+// and STAYS private — needing to read a constant from a test is not a reason to widen a production
+// symbol's visibility. Mirrored exactly the way SAFE_CUT_TERMINATORS above is mirrored, and named
+// after its source so that source is findable from here.
+//
+// A mirror can go stale, so windowEndStopsAtTheJsonBoundaryLookaheadCap does not trust it: it asserts
+// the fixture supplies strictly MORE continuing lines than this value, and it compares the observed
+// boundary against an offset computed from it. If the real cap is raised, the offset assertion goes
+// red rather than the test silently ceasing to reach the cap at all.
+private const val LOOKAHEAD_CAP_MIRROR = 8
+
+// (PRIV-06) IN-03: geometry of the windowEnd lookahead-cap fixture, named so the expected boundary
+// below is ARITHMETIC over these values rather than a hard-coded index that a fixture edit would
+// silently invalidate. Every line is exactly LOOKAHEAD_LINE_CHARS long INCLUDING its newline, which
+// is the only reason the arithmetic is this simple.
+private const val LOOKAHEAD_LINE_CHARS = 20
+private const val LOOKAHEAD_LEAD_LINES = 5
+
+// Strictly greater than LOOKAHEAD_CAP_MIRROR, and asserted to be: the fixture must be able to supply
+// MORE continuing lines than the loop is allowed to take, or the test would be satisfied by a
+// windowEnd that simply ran out of input — which is a different behaviour with a different branch
+// (`if (following < 0) return s.length`).
+private const val LOOKAHEAD_CONTINUING_LINES = 9
+private const val LOOKAHEAD_TRAIL_LINES = 5
+
+// Two line shapes of identical length, differing only in whether they can carry a JSON pair across a
+// boundary. FILLER ends on an ordinary character and holds no quote at all, so it is neither a risk
+// (isJsonPairBoundaryRisk) nor an open quoted value (endsInsideOpenQuotedValue). RISKY ends on ':',
+// which is the newline-spanning whitespace state between a key and its value.
+//
+// DELIBERATELY NOT BLANK LINES, and that is load-bearing. A blank line also continues an extension
+// (isJsonPairBoundaryContinuation), so a fixture built from blank lines would be guarding the same
+// mechanism as jsonPairWithBlankLineBetweenKeyAndValueIsRedacted and both tests would go red on the
+// same mutation. Built from ':' lines, this fixture is orthogonal to that one — confirmed by mutation
+// M4, which removes the blank-line limb and fails only the blank-line test.
+private val LOOKAHEAD_FILLER_LINE = "y".repeat(LOOKAHEAD_LINE_CHARS - 1) + "\n"
+private val LOOKAHEAD_RISKY_LINE = "y".repeat(LOOKAHEAD_LINE_CHARS - 2) + ":\n"
+
 // (PRIV-06) CR-04: the minified-JSON fixture for splitPointPrefersASafeCutBoundaryInMinifiedJson.
 //
 // ITS LENGTH IS LOAD-BEARING, and that is not a theoretical worry — it is a defect this plan's own
@@ -2313,6 +2351,92 @@ class RedactionTest {
                 "shift=$shift: the key must survive, so the pair was redacted in place, not removed wholesale",
             )
         }
+    }
+
+    // (PRIV-06) CR-02 / IN-03 / T-21-54: reaching MAX_JSON_BOUNDARY_LOOKAHEAD_LINES had no test.
+    //
+    // The cap is documented as a deliberate residual and it behaves as documented, but NOTHING
+    // asserted either half of it: not that the loop stops at eight, and not that the window stays
+    // line-aligned once it does. A change to the cap, or to isJsonPairBoundaryContinuation, would move
+    // the boundary silently — and this round WIDENED that predicate (endsInsideOpenQuotedValue), which
+    // is what turns a theoretical gap into a live one.
+    //
+    // WHY A SEAM RATHER THAN AN END-TO-END FIXTURE. Reaching the cap through Redaction.apply takes a
+    // multi-megabyte body whose outcome then depends on machine speed and on JaCoCo's per-character
+    // instrumentation of DeadlineCharSequence.get() — the exact exposure W-04 spent this plan removing
+    // from newlineFreeOversizeBodyIsScannedNotDestroyed. Where the loop stops is a pure function, so
+    // it is asserted as one. Same reasoning, and the same answer, as testSplitPoint.
+    //
+    // THE FIXTURE'S ANTI-VACUITY PROPERTIES ARE ASSERTED, NOT DESCRIBED — plan 21-11 shipped two seam
+    // tests in this very file that were vacuous by numeric coincidence, so a comment claiming a
+    // fixture is sound is worth nothing here. Three guards, each closing a different way this test
+    // could pass while proving nothing:
+    //   1. the fixture supplies MORE continuing lines than the cap, so the loop is stopped by the CAP
+    //      and not by running out of continuing content (which is a different branch);
+    //   2. a CONTROL fixture, identical except that the line before the boundary is ordinary filler,
+    //      must return the natural cut EXACTLY. That simultaneously proves the natural-cut arithmetic
+    //      below is right and that an extension is genuinely required in the real fixture — without
+    //      it, a windowEnd that never extended at all would satisfy nothing here but would also not
+    //      be detected;
+    //   3. the returned index is asserted line-aligned, which is the half of the cap's contract that
+    //      says the window stays cuttable at a line boundary even when the lookahead is truncated.
+    // Verified by mutation M3 (cap lowered to 4: this test fails by exactly four lines) rather than by
+    // inspection.
+    @Test
+    fun windowEndStopsAtTheJsonBoundaryLookaheadCap() {
+        assertTrue(
+            LOOKAHEAD_CONTINUING_LINES > LOOKAHEAD_CAP_MIRROR,
+            "The fixture must offer MORE continuing lines ($LOOKAHEAD_CONTINUING_LINES) than the cap " +
+                "($LOOKAHEAD_CAP_MIRROR), or the loop could stop for lack of input instead of at the cap " +
+                "and this test would pin the wrong branch",
+        )
+
+        // Lead filler, then ONE risk-starting line, then more continuing lines than the cap allows,
+        // then plain filler so the loop always has a next line to consider.
+        val body =
+            LOOKAHEAD_FILLER_LINE.repeat(LOOKAHEAD_LEAD_LINES) +
+                LOOKAHEAD_RISKY_LINE +
+                LOOKAHEAD_RISKY_LINE.repeat(LOOKAHEAD_CONTINUING_LINES) +
+                LOOKAHEAD_FILLER_LINE.repeat(LOOKAHEAD_TRAIL_LINES)
+        // The same fixture with the risk-starting line replaced by ordinary filler. Everything after
+        // it is byte-identical, so the ONLY difference between the two results is whether an
+        // extension started at all.
+        val control =
+            LOOKAHEAD_FILLER_LINE.repeat(LOOKAHEAD_LEAD_LINES) +
+                LOOKAHEAD_FILLER_LINE +
+                LOOKAHEAD_RISKY_LINE.repeat(LOOKAHEAD_CONTINUING_LINES) +
+                LOOKAHEAD_FILLER_LINE.repeat(LOOKAHEAD_TRAIL_LINES)
+
+        // The boundary windowEnd would take with no extension: just past the newline that ends the
+        // risk-starting line. Computed from the fixture's own geometry rather than hard-coded.
+        val naturalCut = LOOKAHEAD_LINE_CHARS * (LOOKAHEAD_LEAD_LINES + 1)
+        // Half a line past that newline, so lastIndexOf('\n', start + width) lands on it. Any width
+        // from naturalCut - 1 to the next newline inclusive selects the same boundary.
+        val width = naturalCut + LOOKAHEAD_LINE_CHARS / 2
+
+        assertEquals(
+            naturalCut,
+            Redaction.testWindowEnd(control, 0, width),
+            "ANTI-VACUITY: with an ordinary line before the boundary, windowEnd must return the natural " +
+                "cut untouched. If this is wrong the natural-cut arithmetic below is wrong too, and the " +
+                "cap assertion would be measuring nothing",
+        )
+
+        val end = Redaction.testWindowEnd(body, 0, width)
+
+        assertEquals(
+            naturalCut + LOOKAHEAD_CAP_MIRROR * LOOKAHEAD_LINE_CHARS,
+            end,
+            "The lookahead must stop at exactly MAX_JSON_BOUNDARY_LOOKAHEAD_LINES ($LOOKAHEAD_CAP_MIRROR) " +
+                "lines past the natural cut — not one more, and not the end of the input, both of which " +
+                "are reachable branches of this loop",
+        )
+        assertEquals(
+            '\n',
+            body[end - 1],
+            "At the cap the window must still be LINE-ALIGNED: only the boundary moved. A mid-line " +
+                "boundary here would hand the next window an artificial (?m)^ anchor",
+        )
     }
 
     // (PRIV-06) CR-02 / WR-06: one oversize body whose JSON [pair] sits [shift] characters past the

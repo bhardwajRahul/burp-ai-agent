@@ -77,6 +77,27 @@ Requirements → Test Map".*
 
 ---
 
+## Named-Guard Selectors
+
+Added by **21-16 T2/T3** (`21-REVIEW-2.md` W-07, IN-03).
+
+This codebase uses "the named guard is X" comments in `Redaction.kt` and `RedactionTest.kt` as a
+load-bearing safety mechanism: several are the only thing telling a contributor that deleting a line
+reopens a leak. Two of them were found pointing at methods that do not exist, which devalues every
+other one. A method name inside a comment is invisible to the compiler, so the guards that carry the
+most weight are registered here — a rename that does not update the comment then shows up as a
+**failing selector** rather than as a comment quietly rotting.
+
+| Guarded behaviour | Guard test | Automated selector |
+|-------------------|-----------|--------------------|
+| A cookie element shaped like a section header cannot terminate the emitted cookie span (the residual is closed at the emitter, and only there) | `PassiveAiScannerPromptRedactionTest.poisonedCookieHeaderCannotTerminateTheCookieSection` | `./gradlew test --tests "*PassiveAiScannerPromptRedactionTest.poisonedCookieHeaderCannotTerminateTheCookieSection"` |
+| A `jsonSecretKeyRegex` pair whose QUOTED VALUE straddles a window cut is still redacted (21-REVIEW-2 CR-01 — a leak, not a fail-closed drop) | `RedactionTest.windowedScanRedactsJsonPairWhoseValueStraddlesTheCut` | `./gradlew test --tests "*RedactionTest.windowedScanRedactsJsonPairWhoseValueStraddlesTheCut"` |
+| `windowEnd`'s lookahead stops at exactly `MAX_JSON_BOUNDARY_LOOKAHEAD_LINES` and the window stays line-aligned there (IN-03) | `RedactionTest.windowEndStopsAtTheJsonBoundaryLookaheadCap` | `./gradlew test --tests "*RedactionTest.windowEndStopsAtTheJsonBoundaryLookaheadCap"` |
+
+All three require the JDK 21 prefix: `JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
+
+---
+
 ## Wave 0 Requirements
 
 Three mechanical, Montoya-free extractions from `PassiveAiScannerAnalysis` are what make SC1/SC2/D-06

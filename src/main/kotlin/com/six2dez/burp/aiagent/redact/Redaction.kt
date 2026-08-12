@@ -1275,6 +1275,30 @@ object Redaction {
     // reasoning, and the same answer, as the injected budget on testRedactCookieSections.
     internal fun testSplitPoint(window: String): Int = splitPoint(window)
 
+    // (PRIV-06) CR-02 / IN-03 / T-21-54 — internal test seam: [windowEnd] as the pure function it is.
+    // NOT part of the public API; referenced only from the test source set, in the style of
+    // testSplitPoint above.
+    //
+    // It exists for the same reason testSplitPoint does. Reaching MAX_JSON_BOUNDARY_LOOKAHEAD_LINES
+    // through Redaction.apply needs a multi-megabyte fixture whose outcome then depends on machine
+    // speed and on JaCoCo's per-character instrumentation of DeadlineCharSequence.get() — the exact
+    // exposure W-04 spent this plan removing from the sibling gate. The property under test is not
+    // timing at all: WHERE THE LOOKAHEAD LOOP STOPS is a pure function of one string, three integers
+    // and the cap, and it can be asserted identically on any hardware.
+    //
+    // The cap is the one part of the boundary machinery with no assertion on it. Its own comment
+    // records reaching it as a deliberate residual, and this round WIDENED the predicate it bounds
+    // (endsInsideOpenQuotedValue), so a change to either the cap or the continuation predicate would
+    // move the boundary silently. Guarded by windowEndStopsAtTheJsonBoundaryLookaheadCap.
+    //
+    // READ-ONLY: this seam observes windowEnd and changes nothing about it. Plan 21-13 owns the three
+    // predicates it consults.
+    internal fun testWindowEnd(
+        s: String,
+        start: Int,
+        width: Int,
+    ): Int = windowEnd(s, start, width)
+
     // (PRIV-06) D-01 AMENDED: the end of the window starting at [start] — the index just past the
     // last newline at or before [start] + [width]. A single line longer than [width] becomes its own
     // oversized window rather than being split; the per-pattern deadline already bounds what that
