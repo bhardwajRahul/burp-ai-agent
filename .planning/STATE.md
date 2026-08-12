@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: — Security Correctness & Agent Trust
 status: executing
-stopped_at: Phase 21 context gathered
-last_updated: "2026-08-11T13:03:03.733Z"
+stopped_at: Phase 21 executed (7/7 plans) but NOT complete — 21-REVIEW.md found 4 blockers incl. CR-01, a reproduced PRIV-05 cookie leak. Gap-closure planning next.
+last_updated: "2026-08-12T07:32:02.384Z"
 last_activity: 2026-08-11 -- Phase 21 execution started
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 17
-  completed_plans: 10
-  percent: 14
+  completed_plans: 17
+  percent: 29
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 Phase: 21 (redaction-completeness) — EXECUTING
 Plan: 1 of 7
 Status: Executing Phase 21
-Resume file: .planning/phases/21-redaction-completeness/21-CONTEXT.md
+Resume file: .planning/phases/21-redaction-completeness/21-REVIEW.md
 Last activity: 2026-08-11 -- Phase 21 execution started
 
 ## Milestone Origin
@@ -210,6 +210,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-11T07:59:02.932Z
-Stopped at: Phase 21 context gathered
+Last session: 2026-08-12T07:32:02.380Z
+Stopped at: Phase 21 executed (7/7 plans) but NOT complete — 21-REVIEW.md found 4 blockers incl. CR-01, a reproduced PRIV-05 cookie leak. Gap-closure planning next.
 Resume file: None
