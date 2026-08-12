@@ -169,6 +169,42 @@ private const val NEWLINE_FREE_SECRET_PAIR = """{"api_key":"SC4-NEWLINE-SECRET-9
 // below asserts that the shipped cut actually lands on it.
 private const val SAFE_CUT_TERMINATORS = "&,}]"
 
+// Mirrors Redaction.isSafeCutTerminator so the anti-vacuity guards below can state a fixture's
+// misalignment in the same terms the implementation uses, rather than by hand-picking a character.
+private fun isSafeCutTerminatorForTest(c: Char): Boolean = c in SAFE_CUT_TERMINATORS || c.isWhitespace()
+
+// (PRIV-06) CR-04: the minified-JSON fixture for splitPointPrefersASafeCutBoundaryInMinifiedJson.
+//
+// ITS LENGTH IS LOAD-BEARING, and that is not a theoretical worry — it is a defect this plan's own
+// mutation check caught. The first version repeated a 10-character fragment whose exact midpoint
+// landed immediately after a ',' by pure arithmetic coincidence. The test then passed against a
+// mutation that deleted the forward search entirely and always returned the midpoint: a vacuous test
+// of exactly the kind WR-05 exists to stamp out, very nearly shipped inside the plan that closes
+// WR-05. Twelve characters times 167 repetitions puts the midpoint of the 2 004-character window
+// after a ':' instead, which no terminator set contains, so only a real forward search can satisfy
+// the assertion. The guard in the test asserts that misalignment rather than trusting this comment.
+private const val SAFE_CUT_JSON_FRAGMENT = """{"kk":"vv"},"""
+private const val SAFE_CUT_JSON_REPEATS = 167
+
+// (PRIV-06) CR-04: the line-bearing fixture for splitPointStillCutsAtALineBoundaryWhenOneExists.
+//
+// THE SPACES AND THE COMMA ARE THE WHOLE POINT, and this too is a defect the mutation checks caught
+// rather than a precaution. The first version was a run of hyphenated words with no spaces and no
+// commas, so the ONLY safe-cut terminator anywhere in it was the newline itself — '\n' is
+// whitespace, and safeCutPoint treats whitespace as a terminator. The test therefore passed against
+// a mutation that deleted splitPoint's two line-boundary branches outright and always took the
+// character cut, because the forward search then found the newline anyway and the assertion could
+// not tell the two paths apart. That mutation is not benign: without the line branches, a window of
+// ordinary prose or HTML would be cut at the first SPACE past the midpoint, which is the (?m)^ trap
+// reopened in full.
+//
+// With spaces and a comma present, a naive forward search lands on one of THOSE first, so only the
+// backward line search can satisfy the assertion. 26 characters times 41 repetitions also puts the
+// midpoint (533) MID-LINE rather than on a line start, so the backward search is genuinely
+// exercised instead of being handed a boundary it did not have to look for.
+private const val SAFE_CUT_LINE_FIXTURE = "key value, more text here\n"
+private const val SAFE_CUT_LINE_REPEATS = 41
+
 // detekt LargeClass, suppressed on the declaration rather than baselined: QUAL-07 forbids growing
 // detekt-baseline.xml, and the existing LargeClass entries there are all main-source classes. This
 // is the single regression suite for redact/, and its size is the point — the CR-01/CR-03 guards
@@ -1274,7 +1310,17 @@ class RedactionTest {
     // escaped its branch and the fix has traded the protection away rather than extending it.
     @Test
     fun splitPointStillCutsAtALineBoundaryWhenOneExists() {
-        val window = ("pad-line-content\n").repeat(40)
+        val window = SAFE_CUT_LINE_FIXTURE.repeat(SAFE_CUT_LINE_REPEATS)
+        // ANTI-VACUITY GUARD — see SAFE_CUT_LINE_FIXTURE. Unless a NON-newline terminator sits
+        // between the midpoint and the next line break, this test cannot tell a line-boundary cut
+        // from a character cut that happened to land on a newline, and it would stay green against a
+        // splitPoint whose line branches had been deleted outright.
+        val firstTerminatorAtOrAfterMid =
+            (window.length / 2 until window.length).first { isSafeCutTerminatorForTest(window[it]) }
+        assertFalse(
+            window[firstTerminatorAtOrAfterMid] == '\n',
+            "The fixture must carry a non-newline terminator between its midpoint and the next line break",
+        )
 
         val cut = Redaction.testSplitPoint(window)
 
@@ -1298,10 +1344,17 @@ class RedactionTest {
     // those therefore lands OUTSIDE any built-in match for exactly the payload shape CR-04 is about.
     @Test
     fun splitPointPrefersASafeCutBoundaryInMinifiedJson() {
-        val window = """{"k":"v"},""".repeat(200)
+        val window = SAFE_CUT_JSON_FRAGMENT.repeat(SAFE_CUT_JSON_REPEATS)
         assertFalse(
             window.contains('\n'),
             "The fixture must have no line boundary, or splitPoint never reaches the safe-cut branch",
+        )
+        // ANTI-VACUITY GUARD — see SAFE_CUT_JSON_FRAGMENT. If the exact midpoint were itself already
+        // a safe cut, this test would pass against a splitPoint that never searched at all, which is
+        // precisely what the first version of this fixture did.
+        assertFalse(
+            isSafeCutTerminatorForTest(window[window.length / 2 - 1]),
+            "The fixture must be MISALIGNED with the midpoint, or the assertion below proves nothing",
         )
 
         val cut = Redaction.testSplitPoint(window)
