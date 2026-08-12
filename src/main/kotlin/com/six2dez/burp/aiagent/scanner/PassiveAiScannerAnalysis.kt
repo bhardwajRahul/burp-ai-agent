@@ -242,13 +242,16 @@ internal fun PassiveAiScanner.doAnalysis(requestResponse: HttpRequestResponse) {
         val requestHeaders = sanitizeHeadersForPrompt(request.headers(), isRequest = true)
         val responseHeaders = sanitizeHeadersForPrompt(response?.headers().orEmpty(), isRequest = false)
 
-        // Extract cookies separately for auth analysis
-        val cookies =
+        // Extract cookies separately for auth analysis. The split/trim/bound chain lives in
+        // cookieSectionLines (PassiveAiScannerPrompts.kt) so it is assertable without a MontoyaApi,
+        // the Wave 0 seam pattern from plan 21-01. Only the Cookie: name filter stays here, because
+        // HttpHeader is a Montoya type and that file is deliberately Montoya-free.
+        val cookieHeaderValues =
             request
                 .headers()
                 .filter { it.name().equals("Cookie", ignoreCase = true) }
-                .flatMap { it.value().split(";").map { c -> c.trim() } }
-                .take(COOKIES_MAX_COUNT)
+                .map { it.value() }
+        val cookies = cookieSectionLines(cookieHeaderValues, COOKIES_MAX_COUNT)
 
         // Check for auth headers
         val authHeaders =
