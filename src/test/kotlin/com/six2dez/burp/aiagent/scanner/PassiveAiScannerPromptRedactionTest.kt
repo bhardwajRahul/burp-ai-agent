@@ -26,6 +26,11 @@ import org.mockito.kotlin.whenever
 private const val PARAM_VALUE_MAX_CHARS = 200
 private const val HOST_SALT = "phase-21-wave-0-salt"
 
+// Mirrors COOKIES_MAX_COUNT, private in PassiveAiScannerAnalysis.kt:26, for the same reason
+// PARAM_VALUE_MAX_CHARS is mirrored above: the bound is applied at the call site, so the test must
+// pass exactly the value doAnalysis passes.
+private const val COOKIES_MAX_COUNT = 6
+
 class PassiveAiScannerPromptRedactionTest {
     @BeforeEach
     fun clearCustomPatterns() {
@@ -240,6 +245,155 @@ class PassiveAiScannerPromptRedactionTest {
         assertTrue(
             redacted.contains("[REDACTED]"),
             "OFF: the custom-pattern replacement must appear in the emitted blob",
+        )
+    }
+
+    // (PRIV-05) CR-01, SECOND TRIGGER / T-21-32, end to end. A cookie element that is itself shaped
+    // like a section header terminates the redactor's cookie span, and every cookie below it leaks.
+    // The redactor provably cannot close this on its own: the span terminator is derived from
+    // content INSIDE the region the rule protects, which is in-band signalling, and simply refusing
+    // to terminate on "=== " would let the cookie span swallow "=== PARAMETERS ===" and everything
+    // after it. So it is closed at the emitter, via the redact/-owned
+    // Redaction.sanitizeCookieSectionEntries. RedactionTest's
+    // cookieSectionHeaderShapedEntryTerminatesSpan_documentedResidual pins the redactor-level
+    // behaviour and stays green before and after; THIS test is the one that proves the combined
+    // pipeline is closed, so it is the named guard for the sanitizer call.
+    //
+    // abtest_bucket=OPAQUE_VALUE_XYZ is the load-bearing sentinel and MUST NOT be swapped for a
+    // more obviously sensitive name. Reachability, in the style of the note at RedactionTest:670:
+    // the tokens 'abtest' and 'bucket' belong to neither SENSITIVE_WORDS nor KNOWN_SESSION_KEYS, so
+    // SENSITIVE_KEY_EXPR and its three consumers (urlTokenParamRegex, formBodyParamRegex,
+    // jsonSecretKeyRegex) cannot reach the line; it carries no " (COOKIE)" suffix, so
+    // cookieTypedParamRegex cannot; it has no Cookie:/Set-Cookie:/Host:/auth-header prefix, no
+    // Bearer or Basic prefix, no eyJ JWT shape and no '?' or '&' before the key, so no other
+    // header-stage rule can either; the value contains no '=' and sits in no JSON pair; and
+    // @BeforeEach clears the custom patterns. ONLY the section-scoped rule can redact it.
+    //
+    // Swapping the sentinel for a name the key expression already covers would make this test pass
+    // with the defect fully present. JSESSIONID is exactly such a name — it is asserted here as a
+    // deliberately NON-decisive companion, because formBodyParamRegex redacts it from the leading
+    // field position even with the section rule completely broken. That substitution is the mistake
+    // two earlier tests in this phase made, and it is why a live cookie leak shipped underneath 628
+    // green tests.
+    @Test
+    fun poisonedCookieHeaderCannotTerminateTheCookieSection() {
+        val blob =
+            metadataBlob(
+                cookies =
+                    listOf(
+                        "",
+                        "JSESSIONID=REALSECRET",
+                        "=== FOO ===",
+                        "abtest_bucket=OPAQUE_VALUE_XYZ",
+                    ),
+            )
+
+        // Asserted before the behaviour so a future emitter change that drops the section entirely
+        // cannot silently defuse the assertions below into vacuous truths.
+        assertTrue(
+            blob.lines().contains(Redaction.COOKIE_SECTION_HEADER),
+            "Fixture: the blob under test must really carry a cookie section",
+        )
+
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+            val redacted = redactScanMetadata(blob, mode, HOST_SALT)
+
+            assertFalse(
+                redacted.contains("OPAQUE_VALUE_XYZ"),
+                "$mode: a cookie element shaped like a section header must not let the value of " +
+                    "'abtest_bucket' reach the backend",
+            )
+            assertFalse(
+                redacted.contains("REALSECRET"),
+                "$mode: the cookie above the planted header must stay redacted too",
+            )
+            assertTrue(
+                redacted.lines().contains("abtest_bucket=[REDACTED]"),
+                "$mode: the cookie NAME must survive — the section rule redacts values, not lines",
+            )
+        }
+    }
+
+    // (PRIV-05) CR-01 / T-21-20: the STRUCTURAL half, asserted on the UNREDACTED emitter output.
+    // poisonedCookieHeaderCannotTerminateTheCookieSection could in principle be satisfied by some
+    // unrelated redaction change; this one can only be satisfied by the section framing itself being
+    // unforgeable, which is the actual control. It also pins "neutralised" rather than "dropped": a
+    // future change that silently discarded a section-shaped entry would lose analytic content and
+    // fails here.
+    @Test
+    fun cookieSectionEntriesAreSanitizedAtTheEmitter() {
+        val blob =
+            metadataBlob(
+                cookies =
+                    listOf(
+                        "",
+                        "JSESSIONID=REALSECRET",
+                        "=== FOO ===",
+                        "abtest_bucket=OPAQUE_VALUE_XYZ",
+                    ),
+                // A following section makes the span's real terminator explicit, and is the content
+                // that the poisoned entry would otherwise pull inside the cookie span.
+                params = listOf("q=red running shoes (URL)"),
+            )
+
+        val lines = blob.lines()
+        val headerIndex = lines.indexOf(Redaction.COOKIE_SECTION_HEADER)
+        assertTrue(headerIndex >= 0, "Fixture: the cookie section header must be emitted on its own line")
+
+        // Sliced with the SAME predicate the redactor's span walk uses — a raw startsWith on the
+        // NEXT_SECTION_PREFIX "=== " at a line start, never a trimmed one — so this test and
+        // Redaction.cookieSectionEnd agree byte for byte on what a section boundary is.
+        val body = lines.drop(headerIndex + 1)
+        val nextSection = body.indexOfFirst { it.startsWith("=== ") }
+        val section = if (nextSection >= 0) body.take(nextSection) else body
+
+        // The emitter closes the section with one appendLine(); that trailing blank is FRAMING, not
+        // an entry, and its byte-identical shape is contractual. Everything before it is the entry
+        // list. Split this way rather than "slice to the first blank line" so that a blank sitting
+        // BETWEEN two entries still surfaces as a failure instead of silently ending the slice.
+        val entries = section.dropLastWhile { it.isBlank() }
+        val framingBlanks = section.size - entries.size
+
+        assertFalse(
+            entries.any { it.isBlank() },
+            "No blank line may sit between cookie entries: a blank consumes a display slot and used " +
+                "to collapse the redaction span",
+        )
+        assertFalse(
+            entries.any { it.startsWith("===") },
+            "No cookie entry may be shaped like a section header — that is the forged framing " +
+                "T-21-32 is about",
+        )
+        assertTrue(
+            entries.any { it.contains("=== FOO ===") },
+            "The section-shaped entry must be NEUTRALISED, not dropped: a leading space is the " +
+                "expected shape, so the value still reaches the analysis and is still redacted",
+        )
+        assertEquals(
+            1,
+            framingBlanks,
+            "The cookie section must close with exactly one framing blank line before the next section",
+        )
+    }
+
+    // (PRIV-05) CR-01 / T-21-06: the PRODUCER. Asserts cookieSectionLines, the real chain doAnalysis
+    // calls, rather than a copy of it pasted into the test — a copy would have to include the
+    // sanitize call in order to be written at all, and would therefore stay green no matter what the
+    // production code did. That is the vacuity trap this phase keeps walking into.
+    //
+    // ORDERING IS THE WHOLE POINT: sanitising must happen BEFORE take(maxCount). Sanitising after
+    // would leave the two blank elements holding display slots, so "Cookie: ;;a=1; b=2; ..." would
+    // surface four real cookies to the model where six were available.
+    @Test
+    fun blankCookieElementsDoNotConsumeDisplaySlots() {
+        val lines = cookieSectionLines(listOf(";;a=1; b=2; c=3; d=4; e=5; f=6; g=7"), COOKIES_MAX_COUNT)
+
+        assertEquals(COOKIES_MAX_COUNT, lines.size, "The producer must still surface a full six cookie lines")
+        assertFalse(lines.any { it.isBlank() }, "A blank element must not consume one of the six display slots")
+        assertEquals(
+            listOf("a=1", "b=2", "c=3", "d=4", "e=5", "f=6"),
+            lines,
+            "The six surfaced cookies must be the first six REAL elements, in order",
         )
     }
 
