@@ -1156,9 +1156,20 @@ object Redaction {
     // 21-RESEARCH.md "Decision 3" proved it in both directions: a cut can create a match at an
     // artificial line start, and can truncate a match that spans it. Three properties of THIS BRANCH
     // — not of good intentions — make the exception safe:
-    //   1. A window with no interior newline has no interior line anchors to corrupt. The only
-    //      artificial line start a cut can create is at the cut itself: one position in the whole
-    //      window, rather than one per line.
+    //   1. This branch is reached only where there is no USABLE INTERIOR newline, and the cut
+    //      position is therefore the only artificial line start it can create — one position in the
+    //      whole window, rather than one per line.
+    //      IN-02 — the premise is stated about the CUT rather than about the window's line count,
+    //      because the earlier wording ("a window with no interior newline has no interior line
+    //      anchors to corrupt") is FALSE of the branch it justifies. The branch is taken whenever
+    //      `backward <= 0 && (forward < 0 || forward + 1 >= window.length)`, which admits windows
+    //      that do contain a newline, at index 0 or at the final position. Measured against the
+    //      shipped testSplitPoint seam rather than argued: splitPoint("\n" + "x".repeat(10))
+    //      returns 5, cutting mid-line in an 11-character window that has TWO lines, and the
+    //      trailing-newline case splitPoint("x".repeat(10) + "\n") returns 5 as well. The
+    //      CONCLUSION is unchanged and points 2 and 3 below still carry the argument — but this is
+    //      the premise licensing an artificial (?m)^ anchor, so a false statement inside it is not
+    //      cosmetic.
     //   2. That artificial anchor can only OVER-redact, never leak. formBodyParamRegex's (^|[?&])
     //      matching at the head of the second half yields a false positive, and a false positive
     //      here is fail-safe — it removes content that did not need removing, which is the direction

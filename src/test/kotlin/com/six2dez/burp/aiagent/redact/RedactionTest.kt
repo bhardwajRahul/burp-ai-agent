@@ -1325,10 +1325,20 @@ class RedactionTest {
     //
     // The class is therefore closed at the EMITTER and only at the emitter, by
     // Redaction.sanitizeCookieSectionEntries — exported from redact/ by this plan and wired into
-    // PassiveAiScannerPrompts.buildScanMetadataText by plan 21-10, whose end-to-end guard is
-    // PassiveAiScannerPromptRedactionTest.emittedSectionShapedCookieCannotTerminateSpan. If that
-    // sanitizer is ever removed this test keeps passing while the end-to-end guard fails, which is
-    // the correct division of labour between the two.
+    // PassiveAiScannerPrompts.buildScanMetadataText by plan 21-10. Its end-to-end guard is
+    // poisonedCookieHeaderCannotTerminateTheCookieSection, in
+    // src/test/kotlin/com/six2dez/burp/aiagent/scanner/PassiveAiScannerPromptRedactionTest.kt. If
+    // that sanitizer is ever removed this test keeps passing while the end-to-end guard fails, which
+    // is the correct division of labour between the two.
+    //
+    // W-07 — this reference named a method that DOES NOT EXIST until 21-16 corrected it, and the
+    // correction is recorded rather than made silently, because the failure mode is the point: a
+    // reader who followed the old name found nothing and would reasonably conclude the guard had
+    // been deleted. That devalues every other "the named guard is X" comment in this codebase, and
+    // several of those are the only thing telling a contributor that removing a line reopens a leak.
+    // The reference now names the FILE as well as the method, so it can be found by path even if the
+    // method is renamed, and the selector is registered in 21-VALIDATION.md §"Named-Guard Selectors"
+    // so a rename fails a runnable check instead of quietly rotting a comment.
     //
     // FIXTURE REACHABILITY: abtest_bucket=OPAQUE_VALUE_XYZ again, for the reason given in full on
     // cookieSectionBlankEntriesDoNotCollapseSpan — nothing but the section rule can redact it, so
