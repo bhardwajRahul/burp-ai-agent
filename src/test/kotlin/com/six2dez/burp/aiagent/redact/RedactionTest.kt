@@ -123,6 +123,21 @@ private const val T0 = 1_000_000L
 private const val T_INSIDE_WINDOW = 1_005_000L
 private const val T_AFTER_WINDOW = 1_011_000L
 
+// (PRIV-06) CR-02 / WR-06: parameters of the shifted-fixture sweep below. Named rather than inlined
+// so the relationship between them is the argument, not a coincidence of three literals.
+//
+// PAD_LINE_CHARS is the length of one filler line, and therefore the PERIOD of the pair's alignment
+// against the deterministic window cut: shifting the pair by PAD_LINE_CHARS characters reproduces
+// the same alignment one line later. BOUNDARY_SWEEP_SHIFTS is one full period plus slack, so every
+// possible alignment is exercised at least once rather than an arbitrary number of them. The
+// reviewer's reproduced counterexample sits at shift 7, well inside the first period.
+private const val PAD_LINE_CHARS = 20
+private const val BOUNDARY_SWEEP_SHIFTS = 24
+
+// How far past the window width the fixture runs, so the pair is followed by a genuine second
+// window rather than sitting at the very end of the input.
+private const val SWEEP_TAIL_CHARS = 800
+
 // detekt LargeClass, suppressed on the declaration rather than baselined: QUAL-07 forbids growing
 // detekt-baseline.xml, and the existing LargeClass entries there are all main-source classes. This
 // is the single regression suite for redact/, and its size is the point — the CR-01/CR-03 guards
@@ -1158,4 +1173,125 @@ class RedactionTest {
         // Bounds the documented composition: one single-pass sweep plus one full windowed budget.
         assertTrue(elapsed < 30_000, "The single-pass fallthrough must stay bounded; took ${elapsed}ms")
     }
+
+    // (PRIV-06) CR-02 / WR-06 / D-01 AMENDED: the windowing invariant D-01 always CLAIMED and never
+    // asserted.
+    //
+    // D-01's central claim was that line-boundary cutting is equivalent to whole-document
+    // processing. Nothing in the committed suite ever swept a fixture across a window cut, and that
+    // is precisely the gap CR-02 fell through: windowEnd mitigated its own documented hazard by
+    // pulling in exactly ONE following line and never re-checking, so a key/colon/value pair spread
+    // over three lines was cut in half. The reviewer reproduced it at shift 7 —
+    // "windowedLeak=true singlePassLeak=false", a secret the single-pass path redacts surviving the
+    // windowed path. Response bodies are attacker-controlled and window boundaries are deterministic
+    // given a known prefix length, so the alignment is craftable rather than accidental.
+    //
+    // THE ANTI-VACUITY ASSERTION IS LOAD-BEARING, not decoration. A DROPPED window also removes the
+    // secret, so "the secret is absent" on its own would be satisfied by the fail-closed path and
+    // this sweep would degrade into a second oversizeBodyFailsClosed — passing for entirely the
+    // wrong reason while proving nothing about equivalence. Asserting that no drop marker was
+    // emitted is what forces the pair to have been REDACTED. The surviving key is the third leg: it
+    // proves the region was redacted in place rather than removed wholesale.
+    //
+    // FIXTURE STRENGTH (the 21-05 lesson: a test that some OTHER rule also satisfies is vacuous).
+    // BOUNDARY-SECRET-7 is reachable by jsonSecretKeyRegex and by nothing else in either stage:
+    //   - it contains no '=', so formBodyParamRegex cannot reach it, and urlTokenParamRegex — which
+    //     runs unbounded in the header stage and would otherwise mask the defect — additionally
+    //     requires a leading '?' or '&';
+    //   - the value is not Bearer- or Basic-prefixed and does not begin "eyJ", so bearerRegex,
+    //     basicAuthRegex and jwtRegex cannot match it;
+    //   - there is no "Cookie:" or "Set-Cookie:" header, no "=== COOKIES ===" section and no
+    //     " (COOKIE)" type suffix, so neither cookie rule can reach it;
+    //   - no custom pattern is registered, and @AfterEach resetCustomPatterns guarantees no bleed
+    //     from a sibling test.
+    // If the JSON rule does not match across the cut, the value survives verbatim. Established by
+    // mutation, not by inspection.
+    @Test
+    fun windowedScanRedactsJsonPairAcrossEveryBoundaryAlignment() {
+        // Key, colon and value on three separate lines — the exact shape windowEnd's own comment
+        // cited as the hazard and then failed to handle.
+        val pair = "  \"token\"\n  :\n  \"BOUNDARY-SECRET-7\"\n"
+
+        for (shift in 0 until BOUNDARY_SWEEP_SHIFTS) {
+            val body = boundarySweepBody(shift, pair)
+            assertTrue(
+                body.length > Defaults.MAX_REDACTION_BODY_CHARS,
+                "shift=$shift: the fixture must exceed the window width, or this sweeps the single-pass path",
+            )
+
+            val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
+            val output = Redaction.apply(body, policy, stableHostSalt = "salt")
+
+            assertFalse(
+                output.contains("BOUNDARY-SECRET-7"),
+                "shift=$shift: a JSON pair straddling a window boundary must still be redacted",
+            )
+            assertFalse(
+                output.contains("REDACTION INCOMPLETE") || output.contains("REDACTION BUDGET EXCEEDED"),
+                "shift=$shift: the sweep must prove the pair was REDACTED, not that the window was DROPPED",
+            )
+            assertTrue(
+                output.contains("\"token\""),
+                "shift=$shift: the key must survive, so the pair was redacted in place, not removed wholesale",
+            )
+        }
+    }
+
+    // (PRIV-06) CR-02, second half: a whitespace-only line between the colon and the value must not
+    // let the pair slip through.
+    //
+    // jsonSecretKeyRegex's \s* spans newlines, so "key" / ':' / blank / "value" is a single match on
+    // the single-pass path — confirmed against the real pattern before this test was written, so it
+    // asserts a property the engine genuinely has rather than one contorted into existence for it.
+    // A loop that stops extending the window the moment it meets a blank line therefore still cuts
+    // this shape in half, which is why isJsonPairBoundaryContinuation treats a blank line as a
+    // continuation of risk while isJsonPairBoundaryRisk does not START one on it.
+    //
+    // Same three assertions and the same fixture-strength argument as the sibling above:
+    // BLANK-GAP-SECRET-3 carries no '=', no bearer/basic prefix, no "eyJ" and no cookie context, so
+    // only the JSON rule can reach it.
+    @Test
+    fun jsonPairWithBlankLineBetweenKeyAndValueIsRedacted() {
+        val pair = "  \"token\"\n  :\n\n  \"BLANK-GAP-SECRET-3\"\n"
+
+        for (shift in 0 until BOUNDARY_SWEEP_SHIFTS) {
+            val body = boundarySweepBody(shift, pair)
+            assertTrue(
+                body.length > Defaults.MAX_REDACTION_BODY_CHARS,
+                "shift=$shift: the fixture must exceed the window width, or this sweeps the single-pass path",
+            )
+
+            val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
+            val output = Redaction.apply(body, policy, stableHostSalt = "salt")
+
+            assertFalse(
+                output.contains("BLANK-GAP-SECRET-3"),
+                "shift=$shift: a blank line between key and value must not carry the pair past a window cut",
+            )
+            assertFalse(
+                output.contains("REDACTION INCOMPLETE") || output.contains("REDACTION BUDGET EXCEEDED"),
+                "shift=$shift: the sweep must prove the pair was REDACTED, not that the window was DROPPED",
+            )
+            assertTrue(
+                output.contains("\"token\""),
+                "shift=$shift: the key must survive, so the pair was redacted in place, not removed wholesale",
+            )
+        }
+    }
+
+    // (PRIV-06) CR-02 / WR-06: one oversize body whose JSON [pair] sits [shift] characters past the
+    // natural PAD_LINE_CHARS alignment. Sweeping [shift] walks the pair across the deterministic
+    // window cut one character at a time, which is the whole technique: the defect is invisible at
+    // most alignments and only appears when the cut lands between the key and its value.
+    private fun boundarySweepBody(
+        shift: Int,
+        pair: String,
+    ): String =
+        buildString {
+            val pad = "y".repeat(PAD_LINE_CHARS - 1) + "\n"
+            while (length < Defaults.MAX_REDACTION_BODY_CHARS - PAD_LINE_CHARS - shift) append(pad)
+            append("z".repeat(shift)).append('\n')
+            append(pair)
+            while (length < Defaults.MAX_REDACTION_BODY_CHARS + SWEEP_TAIL_CHARS) append(pad)
+        }
 }
