@@ -952,20 +952,7 @@ object Redaction {
         input: String,
         builtinsEnabled: Boolean,
     ): String {
-        val rules =
-            buildList {
-                if (builtinsEnabled) {
-                    // The $n replacement strings are byte-for-byte equivalent to the Kotlin lambdas
-                    // they replace (verified); SafeRegex takes a String replacement, not a lambda.
-                    add(formBodyParamRegex.toPattern() to "\$1\$2=[REDACTED]")
-                    add(jsonSecretKeyRegex.toPattern() to "\$1\"[REDACTED]\"")
-                }
-                // PRIV-06 / D-05: the custom-pattern loop sits OUTSIDE the redactTokens branch and
-                // therefore applies in EVERY privacy mode, including OFF. A user's custom list is a
-                // "never send this, ever" list and is independent of the privacy mode; OFF now
-                // means "no built-in redaction", not "no redaction at all".
-                compiledCustomPatterns.forEach { add(it to "[REDACTED]") }
-            }
+        val rules = bodyRules(builtinsEnabled)
 
         // OFF with no custom patterns must be a byte-identical passthrough, so this check comes
         // BEFORE any windowing. Any marker, normalisation or trailing-newline difference introduced
@@ -1014,17 +1001,49 @@ object Redaction {
         return windowedScan(input, rules)
     }
 
+    // (PRIV-06) D-05 / W-04: the ordered rule list [bodyStage] applies, extracted so that stage and
+    // the testWindowedBodyStage seam below build the IDENTICAL list from ONE place. A seam that
+    // assembled its own list would be free to drift from the shipped one, and an assertion carried
+    // by a drifted seam proves nothing about what ships — which is the whole reason the seam is
+    // allowed to exist at all.
+    //
+    // D-05 — THE CUSTOM-PATTERN LOOP SITS OUTSIDE THE redactTokens BRANCH, deliberately, and that is
+    // what this list's shape encodes: a user's custom list applies in EVERY privacy mode, including
+    // OFF, because it is a "never send this, ever" list and is independent of the privacy mode. OFF
+    // means "no built-in redaction", not "no redaction at all". The comment travels with the list
+    // rather than with its caller, because it explains the list.
+    private fun bodyRules(builtinsEnabled: Boolean): List<Pair<Pattern, String>> =
+        buildList {
+            if (builtinsEnabled) {
+                // The $n replacement strings are byte-for-byte equivalent to the Kotlin lambdas
+                // they replace (verified); SafeRegex takes a String replacement, not a lambda.
+                add(formBodyParamRegex.toPattern() to "\$1\$2=[REDACTED]")
+                add(jsonSecretKeyRegex.toPattern() to "\$1\"[REDACTED]\"")
+            }
+            compiledCustomPatterns.forEach { add(it to "[REDACTED]") }
+        }
+
     // (PRIV-06) D-01 AMENDED / D-02: the windowed loop used above the window width. Windows are
     // processed IN ORDER, and each one is either fully scanned and appended or dropped behind a
     // marker. Once the total budget is spent, ALL remaining characters are coalesced into exactly
     // one tail marker and the loop breaks. Every piece of loop state is a local: apply() runs
     // concurrently on scanner threads and MCP tool threads, so object-level window state would
     // corrupt output across them (T-21-23).
+    //
+    // (PRIV-06) W-04 / T-21-56 — [budgetMs] IS A TEST SEAM AND ITS DEFAULT IS LOAD-BEARING. It
+    // defaults to Defaults.MAX_REDACTION_BUDGET_MS, which is the value this function read inline
+    // before the parameter existed, so EVERY production call site is byte-identical in behaviour:
+    // bodyStage's two calls pass no budget and therefore still get the shipped 2 s. That is stated
+    // here rather than left to be inferred, because a default parameter that silently changes
+    // production behaviour is exactly the kind of seam that turns a test aid into a defect. The
+    // shipped constant is NOT a dial: it is a product decision (see Defaults.MAX_REDACTION_BUDGET_MS)
+    // and nothing in the test source set may change it.
     private fun windowedScan(
         input: String,
         rules: List<Pair<Pattern, String>>,
+        budgetMs: Long = Defaults.MAX_REDACTION_BUDGET_MS,
     ): String {
-        val budgetDeadlineNanos = System.nanoTime() + Defaults.MAX_REDACTION_BUDGET_MS * NANOS_PER_MS
+        val budgetDeadlineNanos = System.nanoTime() + budgetMs * NANOS_PER_MS
         val sink = StringBuilder(input.length)
         var index = 0
         while (index < input.length) {
@@ -1137,9 +1156,20 @@ object Redaction {
     // 21-RESEARCH.md "Decision 3" proved it in both directions: a cut can create a match at an
     // artificial line start, and can truncate a match that spans it. Three properties of THIS BRANCH
     // — not of good intentions — make the exception safe:
-    //   1. A window with no interior newline has no interior line anchors to corrupt. The only
-    //      artificial line start a cut can create is at the cut itself: one position in the whole
-    //      window, rather than one per line.
+    //   1. This branch is reached only where there is no USABLE INTERIOR newline, and the cut
+    //      position is therefore the only artificial line start it can create — one position in the
+    //      whole window, rather than one per line.
+    //      IN-02 — the premise is stated about the CUT rather than about the window's line count,
+    //      because the earlier wording ("a window with no interior newline has no interior line
+    //      anchors to corrupt") is FALSE of the branch it justifies. The branch is taken whenever
+    //      `backward <= 0 && (forward < 0 || forward + 1 >= window.length)`, which admits windows
+    //      that do contain a newline, at index 0 or at the final position. Measured against the
+    //      shipped testSplitPoint seam rather than argued: splitPoint("\n" + "x".repeat(10))
+    //      returns 5, cutting mid-line in an 11-character window that has TWO lines, and the
+    //      trailing-newline case splitPoint("x".repeat(10) + "\n") returns 5 as well. The
+    //      CONCLUSION is unchanged and points 2 and 3 below still carry the argument — but this is
+    //      the premise licensing an artificial (?m)^ anchor, so a false statement inside it is not
+    //      cosmetic.
     //   2. That artificial anchor can only OVER-redact, never leak. formBodyParamRegex's (^|[?&])
     //      matching at the head of the second half yields a false positive, and a false positive
     //      here is fail-safe — it removes content that did not need removing, which is the direction
@@ -1201,6 +1231,49 @@ object Redaction {
     // [safeCutPoint] for the derivation from each rule's value class.
     private fun isSafeCutTerminator(c: Char): Boolean = c in SAFE_CUT_TERMINATORS || c.isWhitespace()
 
+    // (PRIV-06) W-04 / T-21-52 — internal test seam: the WINDOWED BODY STAGE under an INJECTED
+    // budget. NOT part of the public API; referenced only from the test source set, in the style of
+    // resetTruncationWindowForTest, testRedactCookieSections and testSplitPoint.
+    //
+    // WHY IT EXISTS, with this round's evidence rather than a general appeal to flakiness. The
+    // end-to-end path to the behaviour it carries — a newline-free body above the window width being
+    // scanned in pieces instead of destroyed — spends 97-101 % of the shipped 2 s budget on the
+    // reference machine (measured 2.19-2.35 s in isolation with the JaCoCo agent attached), and the
+    // reviewer bisected the break point at roughly a 1 000 ms effective budget, i.e. a runner about
+    // twice as slow as an M-series Mac. That is the ordinary speed of a GitHub-hosted runner for
+    // single-threaded regex work. An assertion sitting on that margin is a RACE, not a proof, and a
+    // security test that flakes invites the next contributor to disable it.
+    //
+    // WHAT THIS SEAM DOES NOT FIX, stated so the next person does not reach for a bigger budget. The
+    // total budget was only ONE of two causes of that test going red. The other is the per-pattern
+    // deadline against the size of the deepest piece dropOrRetry can produce — fixture divided by
+    // 2^WINDOW_RETRY_MAX_DEPTH — and no value of budgetMs moves it. That one is a property of the
+    // FIXTURE, is bounded by the ladder's capability ceiling, and is addressed where it belongs, in
+    // RedactionTest's NEWLINE_FREE_WINDOW_MULTIPLIER sizing comment. The ceiling itself is recorded
+    // as a product residual in .planning/phases/21-redaction-completeness/deferred-items.md (D-21-02).
+    //
+    // WHAT IS AND IS NOT INJECTED, because the distinction is the whole design:
+    //   - the TOTAL budget is injected. The mechanism under test is the WIRING — windowEnd making a
+    //     newline-free body exactly one window, scanWindow timing out on it, dropOrRetry reaching
+    //     splitPoint, and the retry ladder producing pieces that do scan. None of that needs the
+    //     total budget to be tight; a tight total budget only decides how much of the body is
+    //     reached before the tail is dropped, which is a different property with its own tests.
+    //   - the 50 ms PER-PATTERN deadline (SafeRegex.DEFAULT_TIMEOUT_MS, taken through the minOf in
+    //     scanWindow) is deliberately NOT injected. That deadline is the PRECONDITION the defect
+    //     needs: without a rule genuinely overrunning it, scanWindow never calls dropOrRetry, the
+    //     ladder never engages, and the fixture stops reproducing the defect entirely.
+    //
+    // The deterministic ARITHMETIC half of CR-04 — splitPoint returning 0 on a newline-free window —
+    // is asserted separately and hardware-independently by
+    // splitPointCutsNewlineFreeWindowsInsteadOfRefusing. This seam covers the half that arithmetic
+    // cannot: that the pieces are actually wired back through the rules and appended.
+    //
+    // Same reasoning, and the same answer, as the injected budget on testRedactCookieSections.
+    internal fun testWindowedBodyStage(
+        input: String,
+        budgetMs: Long,
+    ): String = windowedScan(input, bodyRules(builtinsEnabled = true), budgetMs)
+
     // Internal test seam — [splitPoint] as the pure function it is. NOT part of the public API; only
     // referenced from the test source set, in the style of resetTruncationWindowForTest and
     // testRedactCookieSections above.
@@ -1212,6 +1285,30 @@ object Redaction {
     // one string, so it can be asserted deterministically and identically on any hardware. Same
     // reasoning, and the same answer, as the injected budget on testRedactCookieSections.
     internal fun testSplitPoint(window: String): Int = splitPoint(window)
+
+    // (PRIV-06) CR-02 / IN-03 / T-21-54 — internal test seam: [windowEnd] as the pure function it is.
+    // NOT part of the public API; referenced only from the test source set, in the style of
+    // testSplitPoint above.
+    //
+    // It exists for the same reason testSplitPoint does. Reaching MAX_JSON_BOUNDARY_LOOKAHEAD_LINES
+    // through Redaction.apply needs a multi-megabyte fixture whose outcome then depends on machine
+    // speed and on JaCoCo's per-character instrumentation of DeadlineCharSequence.get() — the exact
+    // exposure W-04 spent this plan removing from the sibling gate. The property under test is not
+    // timing at all: WHERE THE LOOKAHEAD LOOP STOPS is a pure function of one string, three integers
+    // and the cap, and it can be asserted identically on any hardware.
+    //
+    // The cap is the one part of the boundary machinery with no assertion on it. Its own comment
+    // records reaching it as a deliberate residual, and this round WIDENED the predicate it bounds
+    // (endsInsideOpenQuotedValue), so a change to either the cap or the continuation predicate would
+    // move the boundary silently. Guarded by windowEndStopsAtTheJsonBoundaryLookaheadCap.
+    //
+    // READ-ONLY: this seam observes windowEnd and changes nothing about it. Plan 21-13 owns the three
+    // predicates it consults.
+    internal fun testWindowEnd(
+        s: String,
+        start: Int,
+        width: Int,
+    ): Int = windowEnd(s, start, width)
 
     // (PRIV-06) D-01 AMENDED: the end of the window starting at [start] — the index just past the
     // last newline at or before [start] + [width]. A single line longer than [width] becomes its own

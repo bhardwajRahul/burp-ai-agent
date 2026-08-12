@@ -140,17 +140,79 @@ private const val BOUNDARY_SWEEP_SHIFTS = 24
 // window rather than sitting at the very end of the input.
 private const val SWEEP_TAIL_CHARS = 800
 
-// (PRIV-06) CR-04 / T-21-33: parameters of the newline-free oversize fixture below.
+// (PRIV-06) CR-04 / T-21-33 / W-04: parameters of the newline-free oversize fixture below.
 //
-// SIZING IS THE ARGUMENT, not a round number. A newline-free body becomes exactly ONE window at any
-// size, because windowEnd gives an over-width line its own window and a body with no '\n' is a
-// single line. The multiplier therefore does not control how many windows there are — it controls
-// the cost of the ONE jsonSecretKeyRegex pass that has to exceed the 50 ms per-pattern deadline for
-// the defect's precondition to be met at all. Dense newline-free JSON measures ~31 ms/MB on Apple
-// Silicon / JDK 21, so 2x the window width is 62-66 ms: over the deadline, but only by 25%, and a
-// margin that thin is how a fixture silently stops reproducing on faster hardware. 4x is ~124 ms,
-// roughly 2.5x over, which holds on hardware materially faster than the reference machine.
-private const val NEWLINE_FREE_WINDOW_MULTIPLIER = 4
+// SIZING IS THE ARGUMENT, not a round number — and it is a TWO-SIDED argument, which is the part the
+// original version of this comment was missing. A newline-free body becomes exactly ONE window at any
+// size, because windowEnd gives an over-width line its own window and a body with no '\n' is a single
+// line. The multiplier therefore does not control how many windows there are; it controls where the
+// fixture sits between two bounds that both have to hold:
+//
+//   LOWER BOUND — the ladder must ENGAGE. The single top-level pass has to EXCEED the 50 ms
+//   per-pattern deadline, or scanWindow never calls dropOrRetry, splitPoint is never reached and the
+//   fixture reproduces nothing. Measured on this content: ~187 ms per MB per rule on Apple Silicon /
+//   JDK 21 with the JaCoCo agent attached, so 1x the window width is ~187 ms — 3.7x over the
+//   deadline.
+//
+//   UPPER BOUND — the ladder must REACH A SCANNABLE PIECE. dropOrRetry halves at most
+//   WINDOW_RETRY_MAX_DEPTH (4) times, so the smallest piece the ladder can ever produce is
+//   fixture/16; if THAT still exceeds the 50 ms deadline, every piece is dropped behind a marker and
+//   the body is destroyed anyway. At ~187 ms/MB the deadline scans roughly 200 KB, so the fixture
+//   must stay under ~3.2 MB. At 1x, fixture/16 is 62 501 characters (~12 ms, 4.3x under the
+//   deadline), and depth 3 at 125 002 characters (~23 ms) already succeeds — so there is a whole
+//   spare ladder level, which is what makes the outcome deterministic rather than marginal.
+//   Measured: 20 consecutive runs, 20 clean, minimum output 1 000 011 characters of a 1 000 021
+//   character input (input minus exactly the 10 characters the one redaction removes), 779 ms worst
+//   case.
+//
+// WHY THIS IS 1 AND NOT 4 (W-04, and this is a CORRECTION to a previously-stated argument, recorded
+// as one rather than quietly applied). The value was 4 on the strength of a measured ~31 ms/MB, which
+// put fixture/16 at 250 000 characters and ~47 ms — inside the 50 ms deadline by about 6 %. Plan
+// 21-12 then factored SENSITIVE_KEY_EXPR and raised jsonSecretKeyRegex's cost by roughly half (its
+// own commit message records 47 ms vs 58 ms on a 1 MB body), which pushed fixture/16 past the
+// deadline. Since then a 4x fixture has been destroyed rather than scanned, on every run: 15-16 of
+// its 16 depth-4 pieces dropped behind markers, output 928 characters of a 4 000 005 character
+// input, measured identically WITH and WITHOUT the JaCoCo agent. That is not a flake and no budget
+// can fix it — the failure is the per-pattern deadline against the piece size, and it reproduces at
+// a 60 000 ms injected budget exactly as it does at the shipped 2 000 ms one.
+//
+// THE 4 MB CASE IS A REAL PRODUCT LIMIT, NOT A TEST ARTEFACT, and it is recorded in
+// .planning/phases/21-redaction-completeness/deferred-items.md as D-21-02 rather than absorbed here:
+// the retry ladder's capability ceiling is 2^WINDOW_RETRY_MAX_DEPTH times whatever the per-pattern
+// deadline can scan, so CR-04 is closed only up to roughly 3 MB of newline-free minified JSON. The
+// MCP default maxBodyBytes is 2 MiB, which is inside that ceiling, so the defect CR-04 actually
+// describes is covered — but the ceiling exists, it moved when a rule got more expensive, and
+// nothing but this fixture was watching it.
+//
+// WHAT THE INJECTED BUDGET FIXES AND WHAT IT DOES NOT. It removes the TOTAL-budget race: at 1x the
+// stage takes up to 779 ms of the shipped 2 000 ms budget — 2.6x headroom, under this phase's own 3x
+// bar — so the assertion below would still be a race against MAX_REDACTION_BUDGET_MS without
+// NEWLINE_FREE_INJECTED_BUDGET_MS. It does NOT and cannot move the per-pattern deadline, which is
+// what the two bounds above are about. Both changes were needed; neither is sufficient alone.
+private const val NEWLINE_FREE_WINDOW_MULTIPLIER = 1
+
+// (PRIV-06) W-04 / T-21-52: the total body-stage budget injected into Redaction.testWindowedBodyStage
+// by newlineFreeOversizeBodyIsScannedNotDestroyed.
+//
+// THE ARITHMETIC, so this is a derivation rather than a round number. Driven through the seam — which
+// bypasses the header stage entirely — the fixture's windowed body stage measures 591-779 ms over 20
+// consecutive runs on Apple Silicon / JDK 21 with the JaCoCo agent attached. 60 000 ms is therefore
+// 77x the WORST measured run, nearly two orders of magnitude of headroom: the budget cannot be
+// reached on any machine this project targets, including a CI runner an order of magnitude slower
+// than the reference one and instrumented on top of that.
+//
+// WHY AN INJECTED BUDGET IS NEEDED AT ALL AT THIS FIXTURE SIZE, since the fixture is now much smaller
+// than the one that first flaked: 779 ms against the shipped 2 000 ms budget is 2.6x headroom, which
+// is UNDER this phase's own 3x bar for a wall-clock-dependent assertion. Left on the shipped budget
+// this test would still be a race, just a slower-burning one — and that is precisely how it presented
+// the first time, passing for months before a rule got more expensive.
+//
+// IT IS NOT Defaults.MAX_REDACTION_BUDGET_MS AND MUST NEVER BE SET FROM IT. The shipped 2 s budget is
+// a product decision (2 s covers tens of megabytes on a background scanner thread) and is untouched by
+// this test; this number exists so the assertions below measure SCANNING BEHAVIOUR rather than machine
+// speed. Raising the shipped constant to make an assertion pass is the move this seam exists to make
+// unnecessary.
+private const val NEWLINE_FREE_INJECTED_BUDGET_MS = 60_000L
 
 // The repeating minified-JSON fragment. No '=', no whitespace, no newline — the exact shape
 // toolJson.encodeToString(...) emits into McpToolContext.redactIfNeeded, which is what makes CR-04
@@ -174,6 +236,44 @@ private const val SAFE_CUT_TERMINATORS = "&,}]"
 // Mirrors Redaction.isSafeCutTerminator so the anti-vacuity guards below can state a fixture's
 // misalignment in the same terms the implementation uses, rather than by hand-picking a character.
 private fun isSafeCutTerminatorForTest(c: Char): Boolean = c in SAFE_CUT_TERMINATORS || c.isWhitespace()
+
+// (PRIV-06) CR-02 / IN-03: a MIRROR of Redaction.MAX_JSON_BOUNDARY_LOOKAHEAD_LINES, which is private
+// and STAYS private — needing to read a constant from a test is not a reason to widen a production
+// symbol's visibility. Mirrored exactly the way SAFE_CUT_TERMINATORS above is mirrored, and named
+// after its source so that source is findable from here.
+//
+// A mirror can go stale, so windowEndStopsAtTheJsonBoundaryLookaheadCap does not trust it: it asserts
+// the fixture supplies strictly MORE continuing lines than this value, and it compares the observed
+// boundary against an offset computed from it. If the real cap is raised, the offset assertion goes
+// red rather than the test silently ceasing to reach the cap at all.
+private const val LOOKAHEAD_CAP_MIRROR = 8
+
+// (PRIV-06) IN-03: geometry of the windowEnd lookahead-cap fixture, named so the expected boundary
+// below is ARITHMETIC over these values rather than a hard-coded index that a fixture edit would
+// silently invalidate. Every line is exactly LOOKAHEAD_LINE_CHARS long INCLUDING its newline, which
+// is the only reason the arithmetic is this simple.
+private const val LOOKAHEAD_LINE_CHARS = 20
+private const val LOOKAHEAD_LEAD_LINES = 5
+
+// Strictly greater than LOOKAHEAD_CAP_MIRROR, and asserted to be: the fixture must be able to supply
+// MORE continuing lines than the loop is allowed to take, or the test would be satisfied by a
+// windowEnd that simply ran out of input — which is a different behaviour with a different branch
+// (`if (following < 0) return s.length`).
+private const val LOOKAHEAD_CONTINUING_LINES = 9
+private const val LOOKAHEAD_TRAIL_LINES = 5
+
+// Two line shapes of identical length, differing only in whether they can carry a JSON pair across a
+// boundary. FILLER ends on an ordinary character and holds no quote at all, so it is neither a risk
+// (isJsonPairBoundaryRisk) nor an open quoted value (endsInsideOpenQuotedValue). RISKY ends on ':',
+// which is the newline-spanning whitespace state between a key and its value.
+//
+// DELIBERATELY NOT BLANK LINES, and that is load-bearing. A blank line also continues an extension
+// (isJsonPairBoundaryContinuation), so a fixture built from blank lines would be guarding the same
+// mechanism as jsonPairWithBlankLineBetweenKeyAndValueIsRedacted and both tests would go red on the
+// same mutation. Built from ':' lines, this fixture is orthogonal to that one — confirmed by mutation
+// M4, which removes the blank-line limb and fails only the blank-line test.
+private val LOOKAHEAD_FILLER_LINE = "y".repeat(LOOKAHEAD_LINE_CHARS - 1) + "\n"
+private val LOOKAHEAD_RISKY_LINE = "y".repeat(LOOKAHEAD_LINE_CHARS - 2) + ":\n"
 
 // (PRIV-06) CR-04: the minified-JSON fixture for splitPointPrefersASafeCutBoundaryInMinifiedJson.
 //
@@ -1225,10 +1325,20 @@ class RedactionTest {
     //
     // The class is therefore closed at the EMITTER and only at the emitter, by
     // Redaction.sanitizeCookieSectionEntries — exported from redact/ by this plan and wired into
-    // PassiveAiScannerPrompts.buildScanMetadataText by plan 21-10, whose end-to-end guard is
-    // PassiveAiScannerPromptRedactionTest.emittedSectionShapedCookieCannotTerminateSpan. If that
-    // sanitizer is ever removed this test keeps passing while the end-to-end guard fails, which is
-    // the correct division of labour between the two.
+    // PassiveAiScannerPrompts.buildScanMetadataText by plan 21-10. Its end-to-end guard is
+    // poisonedCookieHeaderCannotTerminateTheCookieSection, in
+    // src/test/kotlin/com/six2dez/burp/aiagent/scanner/PassiveAiScannerPromptRedactionTest.kt. If
+    // that sanitizer is ever removed this test keeps passing while the end-to-end guard fails, which
+    // is the correct division of labour between the two.
+    //
+    // W-07 — this reference named a method that DOES NOT EXIST until 21-16 corrected it, and the
+    // correction is recorded rather than made silently, because the failure mode is the point: a
+    // reader who followed the old name found nothing and would reasonably conclude the guard had
+    // been deleted. That devalues every other "the named guard is X" comment in this codebase, and
+    // several of those are the only thing telling a contributor that removing a line reopens a leak.
+    // The reference now names the FILE as well as the method, so it can be found by path even if the
+    // method is renamed, and the selector is registered in 21-VALIDATION.md §"Named-Guard Selectors"
+    // so a rename fails a runnable check instead of quietly rotting a comment.
     //
     // FIXTURE REACHABILITY: abtest_bucket=OPAQUE_VALUE_XYZ again, for the reason given in full on
     // cookieSectionBlankEntriesDoNotCollapseSpan — nothing but the section rule can redact it, so
@@ -1912,31 +2022,81 @@ class RedactionTest {
     // WHICH ASSERTION IS THE GATE. Secret-absence alone would be VACUOUS here, and in the most
     // deceptive way available: the pre-fix behaviour removes the secret too, by destroying the
     // entire body. A test asserting only that the secret is gone would have passed against the
-    // defect it exists to catch. The length bound is what separates "scanned" from "dropped behind
-    // a marker", and the surviving-key assertion is what proves the pair was redacted in place
-    // rather than removed wholesale — the same three-legged shape as the CR-02 sweeps below.
+    // defect it exists to catch. The two marker-absence assertions are what separate "scanned" from
+    // "dropped behind a marker", the length bound is what states that failure in bytes, and the
+    // surviving-key assertion is what proves the pair was redacted in place rather than removed
+    // wholesale — the same shape as the CR-02 sweeps below, one leg stronger.
     //
     // FIXTURE REACHABILITY (the 21-05 lesson: a test some OTHER rule also satisfies proves nothing).
-    // SC4-NEWLINE-SECRET-9 is reachable by jsonSecretKeyRegex and by nothing else in either stage:
-    //   - the fixture contains no '=' anywhere, so formBodyParamRegex cannot reach it, and
-    //     urlTokenParamRegex — which runs UNBOUNDED in the header stage and would otherwise mask the
-    //     defect entirely — additionally requires a leading '?' or '&';
-    //   - the value is not Bearer- or Basic-prefixed and does not begin "eyJ", so bearerRegex,
-    //     basicAuthRegex and jwtRegex cannot match it;
-    //   - there is no "Cookie:"/"Set-Cookie:" header, no "=== COOKIES ===" section and no
-    //     " (COOKIE)" type suffix, so neither cookie rule can reach it;
+    // SC4-NEWLINE-SECRET-9 is reachable by jsonSecretKeyRegex and by nothing else, and the seam makes
+    // that AIRTIGHT rather than merely argued — the same strengthening testRedactCookieSections gave
+    // cookieSectionDeadlineFailsClosed:
+    //   - Redaction.testWindowedBodyStage bypasses Redaction.apply entirely, so the HEADER STAGE
+    //     never runs at all. urlTokenParamRegex, bearerRegex, basicAuthRegex, jwtRegex, the two
+    //     header rules, the cookie-section rule and the typed-parameter rule are all structurally
+    //     out of reach, rather than merely unable to match this fixture. Only bodyRules runs;
+    //   - within bodyRules, the fixture contains no '=' anywhere, so formBodyParamRegex cannot reach
+    //     the pair either, leaving jsonSecretKeyRegex as the sole rule that can;
     //   - no custom pattern is registered, and @AfterEach resetCustomPatterns guarantees no bleed
     //     from oversizeBodyFailsClosed / subWindowBodyFailsClosed, which both install "(a+)+$".
+    //     A leaked "(a+)+$" would matter here: bodyRules would carry a third, pathological rule.
     // Established by mutation, not by inspection.
     //
-    // TIMING EXPOSURE, declared rather than discovered later. This assertion proves SUCCESSFUL
-    // redaction on a multi-megabyte fixture, so it sits on the same wall-clock deadline that plan
-    // 21-09 saw trip once under full-suite load: SafeRegex enforces its deadline in
-    // DeadlineCharSequence.get(), which JaCoCo instruments once per character. The deterministic
-    // half of CR-04 is therefore asserted separately and machine-independently by
-    // splitPointCutsNewlineFreeWindowsInsteadOfRefusing. If this test ever goes red in CI while that
-    // one stays green, the diagnosis is deadline pressure under instrumentation, not a CR-04
-    // regression.
+    // WHY THIS DRIVES A SEAM RATHER THAN Redaction.apply (W-04 / T-21-52), recorded because it is a
+    // deliberate weakening of one dimension to remove a race in another.
+    //
+    // Through Redaction.apply this test was RED on every isolated run: measured 2.196 / 2.290 / 2.345
+    // / 2.246 s against a 2 000 ms budget on Apple Silicon / JDK 21 with the JaCoCo agent attached,
+    // and green in a full-suite run only because 600+ preceding tests had warmed the JIT. The failure
+    // presented as the capability assertion below going red while the secret-absence assertion stayed
+    // green — the window was dropped fail-closed, so it was never a leak, but it was an indefinitely
+    // red security test, and a red security test is one contributor away from being @Disabled.
+    //
+    // TWO INDEPENDENT CAUSES, and the second was NOT the one originally diagnosed. Recorded in full
+    // because a fix aimed at only the first would have left this test red:
+    //   1. a TOTAL-BUDGET race. The stage ran at 97-101 % of MAX_REDACTION_BUDGET_MS, and the
+    //      reviewer bisected the break point at roughly a 1 000 ms effective budget — the ordinary
+    //      speed of a GitHub-hosted runner for single-threaded regex work before instrumentation.
+    //      That is what NEWLINE_FREE_INJECTED_BUDGET_MS removes.
+    //   2. a PER-PATTERN DEADLINE cliff, which no budget can remove. The fixture was 4x the window
+    //      width, so the deepest piece the ladder can produce was fixture/2^WINDOW_RETRY_MAX_DEPTH =
+    //      250 000 characters, and after plan 21-12 made jsonSecretKeyRegex about half as fast again
+    //      that no longer scans inside SafeRegex.DEFAULT_TIMEOUT_MS. All 16 pieces were dropped, at a
+    //      60 000 ms injected budget exactly as at 2 000 ms, with the JaCoCo agent and without it.
+    //      That is what the corrected NEWLINE_FREE_WINDOW_MULTIPLIER sizing removes, and its comment
+    //      carries the measurements and the two-sided bound.
+    //
+    // The shipped 2 s budget stays exactly as it is: it is a product decision, not a dial, and
+    // raising it to make an assertion pass would be tuning the product to the test — and against
+    // cause 2 it would not have worked anyway. What is injected instead is a generous budget through
+    // Redaction.testWindowedBodyStage, so this assertion measures SCANNING BEHAVIOUR rather than
+    // machine speed. See Redaction.testWindowedBodyStage for why the 50 ms PER-PATTERN deadline is
+    // deliberately NOT injected — that deadline is the precondition the defect needs, and injecting
+    // it would make this fixture stop reproducing anything at all.
+    //
+    // WHAT IS GIVEN UP, stated plainly: this test no longer exercises Redaction.apply -> bodyStage ->
+    // windowedScan end to end. That wiring is still covered, by five tests that all drive
+    // Redaction.apply on a body above the window width and were all verified green alongside this
+    // change:
+    //   - oversizeBodySecretDoesNotSurvive (1 000 100 chars, secret past the old cut-off, redacted);
+    //   - oversizeBodyFailsClosed (1 201 200 chars, every window dropped behind a marker);
+    //   - subWindowBodyFailsClosed (800 800 chars — BELOW the window width, so it additionally covers
+    //     the single-pass timeout FALLTHROUGH into windowedScan, which none of the others reach);
+    //   - windowedScanRedactsJsonPairAcrossEveryBoundaryAlignment,
+    //     jsonPairWithBlankLineBetweenKeyAndValueIsRedacted and
+    //     windowedScanRedactsJsonPairWhoseValueStraddlesTheCut (24 alignments each, > 1 MB per
+    //     alignment, asserting successful redaction AND the absence of both markers).
+    // So bodyStage's dispatch into windowedScan is asserted six ways over; what this test uniquely
+    // carries is the newline-free RETRY LADDER, and that is what the seam preserves.
+    //
+    // TIMING EXPOSURE, rewritten to describe what ships. There is none left in this test: the total
+    // budget is injected at 77x the worst measured run of the stage, and no assertion below reads a
+    // clock. A RED RUN HERE IS A GENUINE CR-04 REGRESSION, not deadline pressure under
+    // instrumentation — that diagnosis applied to the previous form of this test and no longer
+    // applies to this one. Check splitPointCutsNewlineFreeWindowsInsteadOfRefusing first: it asserts
+    // the same defect as pure arithmetic in 0 ms, so if it is red too, splitPoint itself has
+    // regressed; if it is green while this is red, the ladder's wiring has broken downstream of
+    // splitPoint — in dropOrRetry, scanWindow or windowedScan's append path.
     @Test
     fun newlineFreeOversizeBodyIsScannedNotDestroyed() {
         val target = Defaults.MAX_REDACTION_BODY_CHARS * NEWLINE_FREE_WINDOW_MULTIPLIER
@@ -1947,37 +2107,74 @@ class RedactionTest {
                 while (length < target) append(NEWLINE_FREE_FRAGMENT)
             }
         // Both fixture properties are load-bearing and are asserted so a later edit cannot defuse
-        // this test silently: below the window width there is no windowing at all, and one '\n'
-        // anywhere would hand splitPoint the line boundary whose ABSENCE is the whole defect.
+        // this test silently. The '\n' guard is unchanged in force: one newline anywhere would hand
+        // splitPoint the line boundary whose ABSENCE is the whole defect. The width guard's ROLE has
+        // changed and is stated rather than left stale — the seam calls windowedScan directly, so
+        // this guard no longer CAUSES the windowing; it pins that the fixture is one production
+        // bodyStage would route to windowedScan rather than through its single-pass branch, which is
+        // what keeps the seam's input representative of the shipped path.
         assertTrue(
             body.length > Defaults.MAX_REDACTION_BODY_CHARS,
-            "The fixture must exceed the window width or no windowing happens",
+            "The fixture must exceed the window width, or bodyStage would take its single-pass branch " +
+                "in production and this seam would no longer stand in for the shipped path",
         )
         assertFalse(
             body.contains('\n'),
             "The fixture must contain NO newline, or splitPoint takes its line-boundary branch and CR-04 is not exercised",
         )
 
-        val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
         val start = System.currentTimeMillis()
-        val output = Redaction.apply(body, policy, stableHostSalt = "salt")
+        val output = Redaction.testWindowedBodyStage(body, budgetMs = NEWLINE_FREE_INJECTED_BUDGET_MS)
+        // MEASURED, NEVER ASSERTED ON. The previous form of this test carried an
+        // `assertTrue(elapsed < 30_000)` crash guard, and it is deliberately gone rather than
+        // retightened, for two independent reasons. First, it could not do the job it was named for:
+        // it runs AFTER the call returns, so it cannot catch a hang — only a slow-but-correct run,
+        // which is precisely the flake being removed here. Second, the injected budget already bounds
+        // this stage far more tightly and more informatively than any millisecond literal could: if
+        // the budget were ever reached, windowedScan emits a marker and breaks, and the marker
+        // assertion below then fails with the exact shape and character count rather than with a
+        // stopwatch reading. The number is still captured and still reported in the failure messages,
+        // because a red run is much easier to diagnose with it than without it.
         val elapsed = System.currentTimeMillis() - start
 
+        // "BUILT-INS ENABLED" rather than "STRICT", deliberately: the seam pins
+        // bodyRules(builtinsEnabled = true), which is the rule list BOTH STRICT and BALANCED produce,
+        // and no RedactionPolicy is consulted on this path. Saying STRICT here would name a mode the
+        // call does not read.
         assertFalse(
             output.contains("SC4-NEWLINE-SECRET-9"),
-            "STRICT: a secret in a newline-free oversize body must not survive the body stage",
+            "BUILT-INS ENABLED: a secret in a newline-free oversize body must not survive the body stage",
         )
         assertTrue(
             output.contains("\"api_key\":\"[REDACTED]\""),
-            "STRICT: the pair must be redacted IN PLACE, keeping its key — not removed wholesale",
+            "BUILT-INS ENABLED: the pair must be redacted IN PLACE, keeping its key — not removed wholesale " +
+                "(stage took ${elapsed}ms of a ${NEWLINE_FREE_INJECTED_BUDGET_MS}ms injected budget)",
         )
+        // STRENGTHENED under the injected budget, and only affordable because of it. Under the
+        // shipped 2 s budget a marker was a legitimate outcome on a slow machine, so the strongest
+        // available statement was the half-length bound below. With budget exhaustion unreachable,
+        // NEITHER marker shape may appear ANYWHERE: every one of the ~4 MB must be scanned and
+        // appended, so any marker at all means the ladder failed to produce a scannable piece.
+        assertFalse(
+            output.contains("REDACTION INCOMPLETE"),
+            "No window may be dropped when the budget cannot be exhausted; a drop marker here means the " +
+                "retry ladder failed to produce a scannable piece (stage took ${elapsed}ms of " +
+                "${NEWLINE_FREE_INJECTED_BUDGET_MS}ms)",
+        )
+        assertFalse(
+            output.contains("REDACTION BUDGET EXCEEDED"),
+            "The injected budget is ~150x the measured cost of this stage; a budget marker here means " +
+                "the seam is not honouring its budgetMs parameter (stage took ${elapsed}ms of " +
+                "${NEWLINE_FREE_INJECTED_BUDGET_MS}ms)",
+        )
+        // KEPT alongside the two marker assertions, not replaced by them: this is the assertion that
+        // names the failure IN BYTES when it goes red. CR-04's pre-fix output was 59 characters
+        // against a 4 000 005-character input, and that number is what made the defect legible.
         assertTrue(
             output.length > body.length / 2,
             "A newline-free body must be SCANNED, not collapsed behind a drop marker; " +
                 "output was ${output.length} chars against a ${body.length}-char input",
         )
-        // Same idiom and the same generosity as the two fail-closed siblings above.
-        assertTrue(elapsed < 30_000, "The windowed body stage must stay bounded; took ${elapsed}ms")
     }
 
     // (PRIV-06) CR-02 / WR-06 / D-01 AMENDED: the windowing invariant D-01 always CLAIMED and never
@@ -2164,6 +2361,92 @@ class RedactionTest {
                 "shift=$shift: the key must survive, so the pair was redacted in place, not removed wholesale",
             )
         }
+    }
+
+    // (PRIV-06) CR-02 / IN-03 / T-21-54: reaching MAX_JSON_BOUNDARY_LOOKAHEAD_LINES had no test.
+    //
+    // The cap is documented as a deliberate residual and it behaves as documented, but NOTHING
+    // asserted either half of it: not that the loop stops at eight, and not that the window stays
+    // line-aligned once it does. A change to the cap, or to isJsonPairBoundaryContinuation, would move
+    // the boundary silently — and this round WIDENED that predicate (endsInsideOpenQuotedValue), which
+    // is what turns a theoretical gap into a live one.
+    //
+    // WHY A SEAM RATHER THAN AN END-TO-END FIXTURE. Reaching the cap through Redaction.apply takes a
+    // multi-megabyte body whose outcome then depends on machine speed and on JaCoCo's per-character
+    // instrumentation of DeadlineCharSequence.get() — the exact exposure W-04 spent this plan removing
+    // from newlineFreeOversizeBodyIsScannedNotDestroyed. Where the loop stops is a pure function, so
+    // it is asserted as one. Same reasoning, and the same answer, as testSplitPoint.
+    //
+    // THE FIXTURE'S ANTI-VACUITY PROPERTIES ARE ASSERTED, NOT DESCRIBED — plan 21-11 shipped two seam
+    // tests in this very file that were vacuous by numeric coincidence, so a comment claiming a
+    // fixture is sound is worth nothing here. Three guards, each closing a different way this test
+    // could pass while proving nothing:
+    //   1. the fixture supplies MORE continuing lines than the cap, so the loop is stopped by the CAP
+    //      and not by running out of continuing content (which is a different branch);
+    //   2. a CONTROL fixture, identical except that the line before the boundary is ordinary filler,
+    //      must return the natural cut EXACTLY. That simultaneously proves the natural-cut arithmetic
+    //      below is right and that an extension is genuinely required in the real fixture — without
+    //      it, a windowEnd that never extended at all would satisfy nothing here but would also not
+    //      be detected;
+    //   3. the returned index is asserted line-aligned, which is the half of the cap's contract that
+    //      says the window stays cuttable at a line boundary even when the lookahead is truncated.
+    // Verified by mutation M3 (cap lowered to 4: this test fails by exactly four lines) rather than by
+    // inspection.
+    @Test
+    fun windowEndStopsAtTheJsonBoundaryLookaheadCap() {
+        assertTrue(
+            LOOKAHEAD_CONTINUING_LINES > LOOKAHEAD_CAP_MIRROR,
+            "The fixture must offer MORE continuing lines ($LOOKAHEAD_CONTINUING_LINES) than the cap " +
+                "($LOOKAHEAD_CAP_MIRROR), or the loop could stop for lack of input instead of at the cap " +
+                "and this test would pin the wrong branch",
+        )
+
+        // Lead filler, then ONE risk-starting line, then more continuing lines than the cap allows,
+        // then plain filler so the loop always has a next line to consider.
+        val body =
+            LOOKAHEAD_FILLER_LINE.repeat(LOOKAHEAD_LEAD_LINES) +
+                LOOKAHEAD_RISKY_LINE +
+                LOOKAHEAD_RISKY_LINE.repeat(LOOKAHEAD_CONTINUING_LINES) +
+                LOOKAHEAD_FILLER_LINE.repeat(LOOKAHEAD_TRAIL_LINES)
+        // The same fixture with the risk-starting line replaced by ordinary filler. Everything after
+        // it is byte-identical, so the ONLY difference between the two results is whether an
+        // extension started at all.
+        val control =
+            LOOKAHEAD_FILLER_LINE.repeat(LOOKAHEAD_LEAD_LINES) +
+                LOOKAHEAD_FILLER_LINE +
+                LOOKAHEAD_RISKY_LINE.repeat(LOOKAHEAD_CONTINUING_LINES) +
+                LOOKAHEAD_FILLER_LINE.repeat(LOOKAHEAD_TRAIL_LINES)
+
+        // The boundary windowEnd would take with no extension: just past the newline that ends the
+        // risk-starting line. Computed from the fixture's own geometry rather than hard-coded.
+        val naturalCut = LOOKAHEAD_LINE_CHARS * (LOOKAHEAD_LEAD_LINES + 1)
+        // Half a line past that newline, so lastIndexOf('\n', start + width) lands on it. Any width
+        // from naturalCut - 1 to the next newline inclusive selects the same boundary.
+        val width = naturalCut + LOOKAHEAD_LINE_CHARS / 2
+
+        assertEquals(
+            naturalCut,
+            Redaction.testWindowEnd(control, 0, width),
+            "ANTI-VACUITY: with an ordinary line before the boundary, windowEnd must return the natural " +
+                "cut untouched. If this is wrong the natural-cut arithmetic below is wrong too, and the " +
+                "cap assertion would be measuring nothing",
+        )
+
+        val end = Redaction.testWindowEnd(body, 0, width)
+
+        assertEquals(
+            naturalCut + LOOKAHEAD_CAP_MIRROR * LOOKAHEAD_LINE_CHARS,
+            end,
+            "The lookahead must stop at exactly MAX_JSON_BOUNDARY_LOOKAHEAD_LINES ($LOOKAHEAD_CAP_MIRROR) " +
+                "lines past the natural cut — not one more, and not the end of the input, both of which " +
+                "are reachable branches of this loop",
+        )
+        assertEquals(
+            '\n',
+            body[end - 1],
+            "At the cap the window must still be LINE-ALIGNED: only the boundary moved. A mid-line " +
+                "boundary here would hand the next window an artificial (?m)^ anchor",
+        )
     }
 
     // (PRIV-06) CR-02 / WR-06: one oversize body whose JSON [pair] sits [shift] characters past the
