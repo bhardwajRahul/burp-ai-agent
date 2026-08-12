@@ -628,12 +628,39 @@ object Redaction {
     // to SENSITIVE_WORDS and forgotten in SENSITIVE_KEY_WORDS fails that test, which is exactly the
     // mistake the factoring makes easy. Keep the two in sync by editing the readable constants
     // first, then re-factoring.
-    internal const val NAIVE_KEY_EXPR_FOR_TEST =
+    //
+    // (PRIV-05) IN-01 — WHY THIS IS A FUNCTION AND NOT A const val. It was
+    // `internal const val NAIVE_KEY_EXPR_FOR_TEST`, and Kotlin compiles an internal const val in an
+    // object to a PUBLIC STATIC FINAL FIELD: `javap -p Redaction.class` listed
+    // `public static final java.lang.String NAIVE_KEY_EXPR_FOR_TEST`, so a 495-character test seam
+    // was an API-surface field of the shipped Custom-AI-Agent JAR, reachable by any code on the
+    // classpath. An internal fun is name-mangled instead (testSplitPoint ships as
+    // `testSplitPoint$burp_ai_agent`) and emits no field at all, which is how the file's other four
+    // seams already behave. It is inert either way; the BApp Store review surface is why it was
+    // worth spending two lines on.
+    //
+    // THE PROPERTY THAT MATTERS IS *WHERE THE REFERENCE IS BUILT*, NOT WHETHER IT IS A CONSTANT.
+    // Restating the vocabulary in the test source set would also have removed the field and would
+    // have destroyed the whole point: the reference has to be assembled HERE, in production, from
+    // the same readable constants the factored form claims to compile, so that a word added to
+    // SENSITIVE_WORDS and forgotten in SENSITIVE_KEY_WORDS still fails the equivalence test. The
+    // conversion preserves the value byte for byte (SHA-256 f67e9b1d078a4ae42dc2f521e4ad69024e10368d
+    // 9ef9d3502cf94bdf03feaff3, length 495, measured before and after).
+    internal fun naiveKeyExprForTest(): String =
         "(?:(?:$KNOWN_SESSION_KEYS)|" +
             "$KEY_CHARS{0,64}$WORD_BEFORE" +
             "(?:(?:$SENSITIVE_WORDS)|(?:$CREDENTIAL_PREFIXES)$BROAD_WORD_SEP(?:$BROAD_WORDS))" +
             "$WORD_AFTER$KEY_CHARS{0,64}|" +
             "(?:$BROAD_WORDS))"
+
+    // (PRIV-05) W-06: the ONE definition of the replacement string apply() pairs with
+    // urlTokenParamRegex in the header stage. Its value is byte-identical to the literal that used
+    // to sit at that call site; naming it is what lets testKeyRules() below report the replacement
+    // the pipeline ACTUALLY applies instead of a retyped copy of it. The two body rules already had
+    // a single home for their replacements in bodyRules(); this is the header stage's equivalent,
+    // and the same argument applies — a seam that reported a string the pipeline does not use would
+    // turn the Pitfall 7 group-count assertion into a statement about the seam.
+    private const val URL_TOKEN_REPLACEMENT = "\$1[REDACTED]"
 
     // Tokens/secrets in URL query strings, e.g. ?access_token=xyz or &api_key=xyz
     // (PRIV-05) SC3: the key side is the shared key expression, so compound and vendor keys
@@ -671,6 +698,46 @@ object Redaction {
         Regex(
             "(?i)(\"$SENSITIVE_KEY_EXPR\"\\s*:\\s*)(\"[^\"]*\"|true|false|null|-?\\d+(?:\\.\\d+)?)",
         )
+
+    // (PRIV-05) W-06 / T-21-57 / T-21-58 — internal test seam: the THREE shipped consumers of
+    // SENSITIVE_KEY_EXPR, each paired with the replacement string the pipeline actually applies to
+    // it. NOT part of the public API; referenced only from the test source set, in the style of
+    // testWindowedBodyStage and testSplitPoint below.
+    //
+    // WHY IT EXISTS — this round's finding, not a generality. Before it,
+    // RedactionTest.factoredKeyVocabularyMatchesItsReadableSpecification compared ONE naive rule
+    // against redactWith(doc, STRICT), i.e. against the WHOLE pipeline. authHeaderRegex,
+    // bearerRegex, basicAuthRegex, jwtRegex, the other two key consumers, both cookie rules and any
+    // custom pattern all run in there, and ANY of them firing marks the input "redacted" and MASKS
+    // an under-match in the factored form: eight other rules could answer for the one under test.
+    // The only way to compare like with like is for the test to reach the shipped rule itself, and
+    // that is what this seam hands it. The old test also exercised ONE consumer — the same
+    // expression is embedded behind three different anchors, so a factoring error can be invisible
+    // in the JSON rule and live in the form rule.
+    //
+    // THE REPLACEMENT STRINGS ARE READ FROM THE SHIPPED CALL SITES, NOT RETYPED. The two body rules
+    // come out of bodyRules(builtinsEnabled = true) — the one list bodyStage applies, looked up by
+    // pattern, for the same reason testWindowedBodyStage reads it rather than assembling its own —
+    // and the URL rule's replacement is the single URL_TOKEN_REPLACEMENT constant apply() passes.
+    //
+    // The compiled Regex is returned rather than a Pattern or a bare pattern string so the test can
+    // also pin each consumer's capturing-group count (Pitfall 7) without needing a second seam.
+    //
+    // READ-ONLY: this seam observes the three consumers and changes nothing about them.
+    internal fun testKeyRules(): List<Triple<String, Regex, String>> {
+        val shippedBodyRules = bodyRules(builtinsEnabled = true)
+
+        // first {} rather than firstOrNull {} with a fallback: a lookup that silently substituted a
+        // replacement when it missed would be a vacuity hazard dressed up as a convenience. If the
+        // body rule list ever stops carrying one of these, this seam must fail loudly.
+        fun replacementFor(rule: Regex): String = shippedBodyRules.first { it.first.pattern() == rule.pattern }.second
+
+        return listOf(
+            Triple("urlTokenParamRegex", urlTokenParamRegex, URL_TOKEN_REPLACEMENT),
+            Triple("formBodyParamRegex", formBodyParamRegex, replacementFor(formBodyParamRegex)),
+            Triple("jsonSecretKeyRegex", jsonSecretKeyRegex, replacementFor(jsonSecretKeyRegex)),
+        )
+    }
 
     // (PRIV-02) Custom user patterns compiled by setCustomPatterns. Volatile so writes from the
     // EDT (save) are immediately visible to the redaction thread (apply) without full synchronization.
@@ -1621,7 +1688,7 @@ object Redaction {
             out = out.replace(bearerRegex, "Bearer [REDACTED]")
             out = out.replace(basicAuthRegex, "Basic [REDACTED]")
             out = out.replace(jwtRegex, "[JWT_REDACTED]")
-            out = out.replace(urlTokenParamRegex, "$1[REDACTED]")
+            out = out.replace(urlTokenParamRegex, URL_TOKEN_REPLACEMENT)
         }
 
         // (PRIV-06) D-01 AMENDED / D-02 / D-05: body-level redaction (form + JSON + custom

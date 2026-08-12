@@ -851,7 +851,7 @@ class RedactionTest {
     // newline-free fixture). Hand-factoring a security-critical alternation is exactly the kind of
     // change that looks right and is subtly wrong, so it is CHECKED here rather than trusted.
     //
-    // Redaction.NAIVE_KEY_EXPR_FOR_TEST is the same expression built straight from the readable
+    // Redaction.naiveKeyExprForTest() is the same expression built straight from the readable
     // SENSITIVE_WORDS / CREDENTIAL_PREFIXES / BROAD_WORDS constants. This test drives both over
     // every key name any corpus in this file mentions and asserts they agree on all of them. A word
     // added to the readable spec but forgotten in the factored form fails here — which is the whole
@@ -860,7 +860,7 @@ class RedactionTest {
     fun factoredKeyVocabularyMatchesItsReadableSpecification() {
         val naiveJsonRule =
             Regex(
-                "(?i)(\"${Redaction.NAIVE_KEY_EXPR_FOR_TEST}\"\\s*:\\s*)" +
+                "(?i)(\"${Redaction.naiveKeyExprForTest()}\"\\s*:\\s*)" +
                     "(\"[^\"]*\"|true|false|null|-?\\d+(?:\\.\\d+)?)",
             )
         val corpus =
