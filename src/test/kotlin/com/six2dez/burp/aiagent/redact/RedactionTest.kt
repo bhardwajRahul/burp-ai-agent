@@ -1,6 +1,8 @@
 package com.six2dez.burp.aiagent.redact
 
 import com.six2dez.burp.aiagent.config.Defaults
+import com.six2dez.burp.aiagent.scanner.COOKIES_MAX_COUNT
+import com.six2dez.burp.aiagent.scanner.COOKIES_MAX_COUNT_INTENDED
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -1029,6 +1031,100 @@ class RedactionTest {
         assertTrue(
             output.lines().contains("abtest_bucket=[REDACTED]"),
             "STRICT: the real cookie section is redacted in place, with its names preserved",
+        )
+    }
+
+    // (PRIV-05) W-01: EVERY entry of a section that is exactly MAX_COOKIE_SECTION_LINES long is
+    // redacted — the walk covers the whole budget it claims, with no off-by-one at either end.
+    //
+    // THIS IS A LATENT-TRAP CLOSURE, NOT A LIVE LEAK, and saying so is the point. The test is GREEN
+    // before this plan and GREEN after it, because COOKIES_MAX_COUNT is 6 today and a 16-entry
+    // section is unreachable through the emitter. Presenting it as a red-before-green gate would be
+    // the vacuity this phase keeps paying for. Its honest gate is MUTATION: an off-by-one in
+    // cookieSectionEnd's walk (lines < MAX_COOKIE_SECTION_LINES - 1) makes it fail naming ck15.
+    // Note it CANNOT catch a shrink of MAX_COOKIE_SECTION_LINES itself — the fixture size is derived
+    // from that constant, so both sides move together; that hazard is
+    // cookieEmitterBoundStaysWithinTheRedactorBound's headroom assertion below, and the two tests
+    // are deliberately not merged.
+    //
+    // FIXTURE REACHABILITY, as a rule-by-rule elimination. The names ckN are tokens that are members
+    // of none of SENSITIVE_WORDS, BROAD_WORDS, CREDENTIAL_PREFIXES or KNOWN_SESSION_KEYS, so
+    // SENSITIVE_KEY_EXPR and its three consumers (urlTokenParamRegex, formBodyParamRegex,
+    // jsonSecretKeyRegex) cannot reach them. The values contain no '=', sit behind no '?' or '&',
+    // carry no "Bearer " or "Basic " prefix, do not begin with "eyJ", sit inside no JSON pair and
+    // carry no " (COOKIE)" type suffix — so redactCookieSections is the ONLY rule in Redaction.apply
+    // that can touch them. Swapping in a name like session0 or key0 would make this test pass with
+    // the defect fully present, which is exactly how the pre-CR-01 suite stayed green on a live leak.
+    // Do not "improve" the names.
+    @Test
+    fun everyEntryOfAMaximalCookieSectionIsRedacted() {
+        val entryCount = Redaction.MAX_COOKIE_SECTION_LINES
+        val entries = (0 until entryCount).map { "ck$it=OPAQUE_ZZ${it}_END" }
+        val blob = Redaction.COOKIE_SECTION_HEADER + "\n" + entries.joinToString("\n") + "\n"
+
+        // Anti-vacuity: assert the fixture really is a MAXIMAL section before asserting behaviour,
+        // so a future edit cannot quietly shrink it into a duplicate of cookieSectionValuesRedactedPerName.
+        assertEquals(
+            entryCount,
+            blob.lines().count { it.startsWith("ck") },
+            "The fixture must carry exactly MAX_COOKIE_SECTION_LINES entry lines",
+        )
+
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+            val output = redactWith(blob, mode)
+            // Asserted PER INDEX, in the style of cookieSectionValuesRedactedPerName: a single
+            // aggregate assertion would report "some value survived" where the useful fact is WHICH
+            // entry the span stopped covering.
+            for (i in 0 until entryCount) {
+                assertFalse(
+                    output.contains("OPAQUE_ZZ${i}_END"),
+                    "$mode: cookie entry ck$i sits inside the $entryCount-line section bound and must be " +
+                        "redacted — this index is the FIRST entry the span stops covering",
+                )
+                assertTrue(
+                    output.lines().contains("ck$i=[REDACTED]"),
+                    "$mode: cookie ck$i must keep its name and lose only its value",
+                )
+            }
+        }
+    }
+
+    // (PRIV-05) W-01: the emitter's cookie bound may never exceed the redactor's section bound.
+    //
+    // THE DEFECT THIS EXISTS FOR. MAX_COOKIE_SECTION_LINES lives in redact/ and COOKIES_MAX_COUNT in
+    // scanner/ — a different file, a different package, and a name that gives no hint the redactor
+    // depends on it. Measured on the shipped rule: a 20-entry section leaks ck16..ck19. So raising
+    // the emitter's literal past the redactor's bound reopens PRIV-05 for every entry past the
+    // sixteenth, and nothing in the suite went red. COOKIES_MAX_COUNT is now clamped at compile time
+    // so the leak cannot actually reopen; this test is what stops the clamp absorbing the drift
+    // silently, because a silent clamp is just a second unasserted coupling.
+    //
+    // This test needs no fixture and therefore has no fixture-reachability argument: it reads the two
+    // shipped constants directly, which is precisely why it cannot be defused by an input change.
+    @Test
+    fun cookieEmitterBoundStaysWithinTheRedactorBound() {
+        assertTrue(
+            COOKIES_MAX_COUNT_INTENDED <= Redaction.MAX_COOKIE_SECTION_LINES,
+            "PRIV-05: PassiveAiScannerAnalysis intends to emit $COOKIES_MAX_COUNT_INTENDED cookie entries but " +
+                "Redaction redacts a cookie section only ${Redaction.MAX_COOKIE_SECTION_LINES} lines deep. " +
+                "Every entry past that bound reaches the AI backend UNREDACTED. Raise " +
+                "Redaction.MAX_COOKIE_SECTION_LINES first; never raise COOKIES_MAX_COUNT_INTENDED alone.",
+        )
+        assertTrue(
+            COOKIES_MAX_COUNT_INTENDED * 2 <= Redaction.MAX_COOKIE_SECTION_LINES,
+            "PRIV-05: MAX_COOKIE_SECTION_LINES counts LINES, not entries, and cookieSectionEnd skips blank " +
+                "lines without terminating, so one blank line per entry doubles the lines a " +
+                "$COOKIES_MAX_COUNT_INTENDED-entry section occupies. Measured at the shipped 16-line bound: " +
+                "12 entries interleaved with blanks leak ck8..ck11. The redactor's bound must therefore stay " +
+                "at or above ${COOKIES_MAX_COUNT_INTENDED * 2} — which is also why shrinking it to " +
+                "COOKIES_MAX_COUNT + 2, the alternative 21-REVIEW-2 W-02 proposes, was rejected.",
+        )
+        assertEquals(
+            COOKIES_MAX_COUNT_INTENDED,
+            COOKIES_MAX_COUNT,
+            "The compile-time clamp is a FAIL-SAFE, not a silent absorber. If it is currently reducing the " +
+                "emitter's bound then the model is being shown fewer cookies than intended and nothing else " +
+                "in the build would say so. Raise Redaction.MAX_COOKIE_SECTION_LINES to match.",
         )
     }
 

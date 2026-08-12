@@ -105,15 +105,37 @@ object Redaction {
     // startsWith at an already-known line start is O(1) and cannot.
     private const val NEXT_SECTION_PREFIX = "=== "
 
-    // (PRIV-05) CR-01 / T-21-21: the maximum number of lines one cookie section may span.
-    // PassiveAiScannerAnalysis emits at most COOKIES_MAX_COUNT = 6 entry lines, so 16 is roughly
-    // 2.5x slack. It is a BOUND, not a contract: redactCookieSections also runs over arbitrary MCP
-    // tool output through McpToolContext.redactIfNeeded, where ANY occurrence of the header is
+    // (PRIV-05) CR-01 / T-21-21 / W-01: the maximum number of LINES one cookie section may span.
+    //
+    // UNDER-REDACTION FIRST, because that is the dangerous direction and the one the previous
+    // wording omitted entirely. A section longer than this is redacted only up to line
+    // MAX_COOKIE_SECTION_LINES and EVERY entry below it reaches the AI backend verbatim. Measured
+    // on the shipped rule with a 20-entry section: ck0..ck15 come back [REDACTED] and
+    // ck16, ck17, ck18, ck19 come back untouched. The emitter is bounded to COOKIES_MAX_COUNT
+    // entries (scanner/PassiveAiScannerAnalysis.kt), which MUST stay at or below this value; it is
+    // now derived from this constant and clamped to it, so raising the emitter's literal alone
+    // cannot reopen the leak, and RedactionTest.cookieEmitterBoundStaysWithinTheRedactorBound goes
+    // red the moment the two drift. The walk itself is guarded by
+    // RedactionTest.everyEntryOfAMaximalCookieSectionIsRedacted.
+    //
+    // IT IS A LINE COUNT, NOT AN ENTRY COUNT, and the two differ whenever the input is not
+    // emitter-shaped: cookieSectionEnd deliberately SKIPS blank lines without terminating (that is
+    // the CR-01 fix), so a blank line inside a section consumes one of the budgeted lines. Measured:
+    // 12 entries with one blank line between each leaves only ck0..ck7 inside the span and leaks
+    // ck8..ck11 at this 16-line bound. That is why the emitter's bound must stay at or below HALF of
+    // this one — one blank per entry is the worst shape the redactor still has to cover.
+    //
+    // OVER-REDACTION, the other direction: redactCookieSections also runs over arbitrary MCP tool
+    // output through McpToolContext.redactIfNeeded, where ANY occurrence of the header is
     // attacker-planted, and this constant is what bounds the over-redaction blast radius of such a
-    // plant to 16 lines where the rule previously ran on "to the next blank line". Named rather
-    // than inline because detekt's MagicNumber ignore list stops at 2 and QUAL-07 forbids growing
-    // detekt-baseline.xml.
-    private const val MAX_COOKIE_SECTION_LINES = 16
+    // plant to 16 lines where the rule previously ran on "to the next blank line". That trade is
+    // NOT a pure tightening — see the ACCEPTED RESIDUAL note on redactCookieSections for the case
+    // where it is a widening, and for why shrinking this constant was rejected.
+    //
+    // Named rather than inline because detekt's MagicNumber ignore list stops at 2 and QUAL-07
+    // forbids growing detekt-baseline.xml. internal rather than private so the scanner package can
+    // clamp its own bound to this one instead of restating the number in another file.
+    internal const val MAX_COOKIE_SECTION_LINES = 16
 
     // (PRIV-06) CR-03 / D-02 / T-21-29: the wall-clock ceiling for redactCookieSections across ALL
     // occurrences within a single call. Sized so it is unreachable by any realistic input now that

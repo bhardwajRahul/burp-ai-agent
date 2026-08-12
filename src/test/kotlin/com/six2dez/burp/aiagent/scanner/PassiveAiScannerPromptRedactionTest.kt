@@ -26,10 +26,12 @@ import org.mockito.kotlin.whenever
 private const val PARAM_VALUE_MAX_CHARS = 200
 private const val HOST_SALT = "phase-21-wave-0-salt"
 
-// Mirrors COOKIES_MAX_COUNT, private in PassiveAiScannerAnalysis.kt:26, for the same reason
-// PARAM_VALUE_MAX_CHARS is mirrored above: the bound is applied at the call site, so the test must
-// pass exactly the value doAnalysis passes.
-private const val COOKIES_MAX_COUNT = 6
+// (PRIV-05) W-01: COOKIES_MAX_COUNT is NOT mirrored here. It used to be — a file-private copy of the
+// literal 6 with a comment saying the real one was private — which made this the FOURTH copy of a
+// number whose drift silently reopens PRIV-05. It is now internal in PassiveAiScannerAnalysis.kt and
+// referenced directly from the same package, so a change to the shipped bound reaches this test
+// instead of being shadowed by a stale duplicate. PARAM_VALUE_MAX_CHARS above is still mirrored
+// because truncation genuinely stays at the call site and no redactor rule depends on it.
 
 class PassiveAiScannerPromptRedactionTest {
     @BeforeEach
