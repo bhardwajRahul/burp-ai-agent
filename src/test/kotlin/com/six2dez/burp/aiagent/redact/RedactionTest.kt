@@ -123,6 +123,12 @@ private const val T0 = 1_000_000L
 private const val T_INSIDE_WINDOW = 1_005_000L
 private const val T_AFTER_WINDOW = 1_011_000L
 
+// detekt LargeClass, suppressed on the declaration rather than baselined: QUAL-07 forbids growing
+// detekt-baseline.xml, and the existing LargeClass entries there are all main-source classes. This
+// is the single regression suite for redact/, and its size is the point — the CR-01/CR-03 guards
+// added here are only meaningful sitting beside the SC1..SC6 corpus they must not regress. Splitting
+// it would scatter the monotonicity canaries across files and make that relationship invisible.
+@Suppress("LargeClass")
 class RedactionTest {
     @AfterEach
     fun resetCustomPatterns() {
