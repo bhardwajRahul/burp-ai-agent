@@ -48,6 +48,20 @@ internal fun redactScanMetadata(
     hostSalt: String,
 ): String = Redaction.apply(metadataText, RedactionPolicy.fromMode(mode), stableHostSalt = hostSalt)
 
+// (PRIV-05) CR-01: builds the cookie entry lines that buildScanMetadataText emits inside the
+// COOKIE_SECTION_HEADER section. [headerValues] are the raw values of the request's Cookie: headers;
+// the name filter that selects them stays in doAnalysis because HttpHeader is a Montoya type and
+// this file is deliberately Montoya-free. Extracted here for the Wave 0 reason plan 21-01
+// established: this split/trim/bound chain is the producer half of the cookie leak, and it is only
+// assertable without a live Burp once it is out of doAnalysis.
+internal fun cookieSectionLines(
+    headerValues: List<String>,
+    maxCount: Int,
+): List<String> =
+    headerValues
+        .flatMap { value -> value.split(";").map { it.trim() } }
+        .take(maxCount)
+
 // (PRIV-05) Assembles the scan metadata blob that doAnalysis hands to redactScanMetadata. Extracted
 // verbatim from doAnalysis so the emitted section shapes — in particular the cookie and parameter
 // section headers — are assertable against the real blob without a MontoyaApi. Byte-identical output
