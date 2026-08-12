@@ -138,6 +138,37 @@ private const val BOUNDARY_SWEEP_SHIFTS = 24
 // window rather than sitting at the very end of the input.
 private const val SWEEP_TAIL_CHARS = 800
 
+// (PRIV-06) CR-04 / T-21-33: parameters of the newline-free oversize fixture below.
+//
+// SIZING IS THE ARGUMENT, not a round number. A newline-free body becomes exactly ONE window at any
+// size, because windowEnd gives an over-width line its own window and a body with no '\n' is a
+// single line. The multiplier therefore does not control how many windows there are — it controls
+// the cost of the ONE jsonSecretKeyRegex pass that has to exceed the 50 ms per-pattern deadline for
+// the defect's precondition to be met at all. Dense newline-free JSON measures ~31 ms/MB on Apple
+// Silicon / JDK 21, so 2x the window width is 62-66 ms: over the deadline, but only by 25%, and a
+// margin that thin is how a fixture silently stops reproducing on faster hardware. 4x is ~124 ms,
+// roughly 2.5x over, which holds on hardware materially faster than the reference machine.
+private const val NEWLINE_FREE_WINDOW_MULTIPLIER = 4
+
+// The repeating minified-JSON fragment. No '=', no whitespace, no newline — the exact shape
+// toolJson.encodeToString(...) emits into McpToolContext.redactIfNeeded, which is what makes CR-04
+// a default-configuration defect rather than a pathological one. Neither "id" nor "name" is in
+// SENSITIVE_WORDS or KNOWN_SESSION_KEYS, so the filler cannot itself produce a "[REDACTED]" and
+// create a false positive on the assertions below.
+private const val NEWLINE_FREE_FRAGMENT = """{"id":123,"name":"alice"},"""
+
+// The planted pair. "api_key" is in SENSITIVE_WORDS, so jsonSecretKeyRegex reaches it — and nothing
+// else in either stage can (see the fixture-reachability note on the test itself).
+private const val NEWLINE_FREE_SECRET_PAIR = """{"api_key":"SC4-NEWLINE-SECRET-9"},"""
+
+// (PRIV-06) CR-04: the non-whitespace half of the value-terminating set splitPoint prefers to cut
+// just after when a window has no line boundary at all. Mirrored here rather than reached into,
+// because the source constant is private to Redaction; the comment on SAFE_CUT_SEARCH_CHARS derives
+// this set from the value classes of the three built-in body rules ([^&\s"'<>]+ for the form and
+// URL rules, and a '"'-delimited string or a scalar followed by ','/'}'/']' for JSON), and the test
+// below asserts that the shipped cut actually lands on it.
+private const val SAFE_CUT_TERMINATORS = "&,}]"
+
 // detekt LargeClass, suppressed on the declaration rather than baselined: QUAL-07 forbids growing
 // detekt-baseline.xml, and the existing LargeClass entries there are all main-source classes. This
 // is the single regression suite for redact/, and its size is the point — the CR-01/CR-03 guards
@@ -1117,9 +1148,27 @@ class RedactionTest {
             output.contains("REDACTION INCOMPLETE") || output.contains("REDACTION BUDGET EXCEEDED"),
             "A window that could not be fully scanned must be dropped behind a marker, not passed through",
         )
+        // (PRIV-06) WR-05 — WHY THE PREVIOUS ASSERTION WAS REPLACED, recorded so the strengthening
+        // reads as deliberate rather than as churn. This test used to assert only that the WHOLE
+        // body did not survive verbatim beside the marker. That form is satisfied by *any*
+        // single-character modification to the input: inserting one marker anywhere already makes
+        // a whole-body containment check false, so it proved nothing at all about the property under
+        // test. A mutation that emitted three windows unscanned and marked only the fourth would
+        // have kept this test green while the fail-OPEN this phase exists to kill was back in place.
+        //
+        // The two replacements are EXACT rather than approximate, and that is a property of this
+        // fixture specifically: it consists of nothing but 2 000-character 'a' runs and '!', every
+        // window in it must be dropped, and a 2 000-'a' run can therefore appear in the output only
+        // if some window was emitted UNSCANNED. The length bound is the second half of the same
+        // statement — a body that collapsed to markers is orders of magnitude shorter than half its
+        // input, while a body that passed through is longer than it.
         assertFalse(
-            output.contains(oversizeBody),
-            "The unscanned input must not survive verbatim alongside the marker",
+            output.contains("a".repeat(2_000)),
+            "No unscanned window may reach the output; only markers may remain",
+        )
+        assertTrue(
+            output.length < oversizeBody.length / 2,
+            "A wholly-unscannable body must collapse to markers, not pass through",
         )
         // Generous so a slow machine cannot make this flaky, tight enough to fail if it hangs.
         assertTrue(elapsed < 30_000, "The total budget must bound a pathological pattern; took ${elapsed}ms")
@@ -1166,12 +1215,194 @@ class RedactionTest {
             output.contains("REDACTION INCOMPLETE") || output.contains("REDACTION BUDGET EXCEEDED"),
             "A sub-window body whose rule timed out must be dropped behind a marker, never passed through",
         )
+        // (PRIV-06) WR-05 — the same strengthening as the sibling above, for the same reason. The
+        // previous assertion checked only that the WHOLE body did not survive verbatim, which any
+        // single-character modification satisfies, so a mutation emitting most of the input
+        // unscanned and marking only the tail would have left this test green. This fixture is also
+        // nothing but 2 000-character 'a' runs and '!', so the run-absence check below is exact:
+        // there is no window in it that can legitimately be emitted.
         assertFalse(
-            output.contains(body),
-            "The unscanned input must not survive verbatim on the single-pass path either",
+            output.contains("a".repeat(2_000)),
+            "No unscanned window may reach the output; only markers may remain",
+        )
+        assertTrue(
+            output.length < body.length / 2,
+            "A wholly-unscannable body must collapse to markers, not pass through",
         )
         // Bounds the documented composition: one single-pass sweep plus one full windowed budget.
         assertTrue(elapsed < 30_000, "The single-pass fallthrough must stay bounded; took ${elapsed}ms")
+    }
+
+    // (PRIV-06) CR-04 / T-21-33: splitPoint must be able to cut a window that has no newline in it
+    // at all. THIS is the defect, reduced to a pure function.
+    //
+    // Returning 0 here is not a neutral "cannot split" answer: dropOrRetry's guard is
+    // `if (cut <= 0 || cut >= window.length)`, so 0 routes straight into the total drop and the
+    // whole window is replaced by a marker. A newline-free body is one window at any size, so that
+    // single return value is what destroys a minified-JSON payload in its entirety.
+    //
+    // WHY A SEAM RATHER THAN ONLY THE END-TO-END TEST. Reaching this branch through
+    // Redaction.apply requires a rule to genuinely exceed its 50 ms deadline, which needs a
+    // multi-megabyte fixture and depends on machine speed, JIT warm-up and JaCoCo instrumentation.
+    // The defect itself is a pure function of one string. Asserting it directly makes the core of
+    // CR-04 deterministic and hardware-independent, and leaves the end-to-end sibling below to prove
+    // the wiring rather than the arithmetic.
+    @Test
+    fun splitPointCutsNewlineFreeWindowsInsteadOfRefusing() {
+        val window = "x".repeat(1_000)
+
+        val cut = Redaction.testSplitPoint(window)
+
+        assertTrue(
+            cut > 0,
+            "A newline-free window must be splittable; a 0 here is what makes dropOrRetry discard the whole window",
+        )
+        assertTrue(
+            cut < window.length,
+            "The cut must leave a non-empty second half, or dropOrRetry drops on its `cut >= window.length` limb",
+        )
+    }
+
+    // (PRIV-06) CR-04: the line-boundary rule is UNCHANGED wherever a line boundary exists.
+    //
+    // GREEN BEFORE AND AFTER, BY DESIGN — this is a regression guard on the (?m)^ protection, not a
+    // test of new behaviour, and Pitfall 1 says such a test must say so out loud. Its purpose is to
+    // prove the character cut was added as a FALLBACK rather than as a replacement: the trap
+    // 21-RESEARCH.md "Decision 3" proved in both directions — a mid-line cut can create a match at
+    // an artificial line start and can truncate a match spanning the cut — is still avoided
+    // everywhere a '\n' is available to cut on. If this test ever goes red, the fallback has
+    // escaped its branch and the fix has traded the protection away rather than extending it.
+    @Test
+    fun splitPointStillCutsAtALineBoundaryWhenOneExists() {
+        val window = ("pad-line-content\n").repeat(40)
+
+        val cut = Redaction.testSplitPoint(window)
+
+        assertTrue(cut > 0, "A window full of line boundaries must be splittable")
+        assertEquals(
+            '\n',
+            window[cut - 1],
+            "The cut must land immediately after a newline, so both halves stay line-aligned and (?m)^ keeps its meaning",
+        )
+    }
+
+    // (PRIV-06) CR-04 / T-21-34: on the dominant oversized shape, the character cut lands where no
+    // built-in body rule's match can span it.
+    //
+    // The straddle residual is real and is recorded in ADR-14 rather than solved — D-01 AMENDED's
+    // overlap clause stays dropped, because measured single matches of the built-in rules reach
+    // 200 006 characters and no finite overlap constant is therefore sound. What CAN be done, and is
+    // what this test pins, is to prefer a cut position that the built-in value classes cannot cross:
+    // [^&\s"'<>]+ cannot span '&' or whitespace, and a JSON value is either '"'-delimited or a
+    // scalar immediately followed by ',', '}' or ']' in minified JSON. Cutting just after one of
+    // those therefore lands OUTSIDE any built-in match for exactly the payload shape CR-04 is about.
+    @Test
+    fun splitPointPrefersASafeCutBoundaryInMinifiedJson() {
+        val window = """{"k":"v"},""".repeat(200)
+        assertFalse(
+            window.contains('\n'),
+            "The fixture must have no line boundary, or splitPoint never reaches the safe-cut branch",
+        )
+
+        val cut = Redaction.testSplitPoint(window)
+
+        assertTrue(cut > 0, "A newline-free minified-JSON window must be splittable")
+        assertTrue(cut < window.length, "The cut must leave a non-empty second half")
+        val cutAfter = window[cut - 1]
+        assertTrue(
+            cutAfter in SAFE_CUT_TERMINATORS || cutAfter.isWhitespace(),
+            "The cut must land just after a value-terminating character so it cannot fall inside a " +
+                "built-in match; it landed after '$cutAfter'",
+        )
+    }
+
+    // (PRIV-06) CR-04 / T-21-33: a newline-free body above the window width must be SCANNED in
+    // pieces, not replaced in its entirety by a drop marker.
+    //
+    // THE DEFECT. windowEnd deliberately makes an over-width line its own window, so a body with no
+    // '\n' is one window whatever its size. splitPoint then returned 0 for any window with no
+    // interior newline, and dropOrRetry's `if (cut <= 0 …)` turned that into a total drop — so the
+    // WINDOW_RETRY_MAX_DEPTH ladder, justified in source as existing so a 2-3x slower machine would
+    // not lose content that ships today, was structurally inapplicable to the single most common
+    // oversized payload shape there is.
+    //
+    // WHY THAT SHAPE IS THE COMMON ONE, not a corner case: McpToolContext.redactIfNeeded receives
+    // serialized tool output capped at maxBodyBytes (default 2 MiB) and toolJson.encodeToString(...)
+    // emits MINIFIED, newline-free JSON. A default-configuration 2 MiB tool response therefore
+    // reached the model as "[REDACTION INCOMPLETE - 2097156 CHARS DROPPED AND NOT SENT]" and
+    // nothing else. That is fail-CLOSED, so it is a capability regression rather than a leak — but
+    // it is one this phase introduced, and an empty analysis for a default input is incorrect
+    // behaviour, not a safe one.
+    //
+    // WHICH ASSERTION IS THE GATE. Secret-absence alone would be VACUOUS here, and in the most
+    // deceptive way available: the pre-fix behaviour removes the secret too, by destroying the
+    // entire body. A test asserting only that the secret is gone would have passed against the
+    // defect it exists to catch. The length bound is what separates "scanned" from "dropped behind
+    // a marker", and the surviving-key assertion is what proves the pair was redacted in place
+    // rather than removed wholesale — the same three-legged shape as the CR-02 sweeps below.
+    //
+    // FIXTURE REACHABILITY (the 21-05 lesson: a test some OTHER rule also satisfies proves nothing).
+    // SC4-NEWLINE-SECRET-9 is reachable by jsonSecretKeyRegex and by nothing else in either stage:
+    //   - the fixture contains no '=' anywhere, so formBodyParamRegex cannot reach it, and
+    //     urlTokenParamRegex — which runs UNBOUNDED in the header stage and would otherwise mask the
+    //     defect entirely — additionally requires a leading '?' or '&';
+    //   - the value is not Bearer- or Basic-prefixed and does not begin "eyJ", so bearerRegex,
+    //     basicAuthRegex and jwtRegex cannot match it;
+    //   - there is no "Cookie:"/"Set-Cookie:" header, no "=== COOKIES ===" section and no
+    //     " (COOKIE)" type suffix, so neither cookie rule can reach it;
+    //   - no custom pattern is registered, and @AfterEach resetCustomPatterns guarantees no bleed
+    //     from oversizeBodyFailsClosed / subWindowBodyFailsClosed, which both install "(a+)+$".
+    // Established by mutation, not by inspection.
+    //
+    // TIMING EXPOSURE, declared rather than discovered later. This assertion proves SUCCESSFUL
+    // redaction on a multi-megabyte fixture, so it sits on the same wall-clock deadline that plan
+    // 21-09 saw trip once under full-suite load: SafeRegex enforces its deadline in
+    // DeadlineCharSequence.get(), which JaCoCo instruments once per character. The deterministic
+    // half of CR-04 is therefore asserted separately and machine-independently by
+    // splitPointCutsNewlineFreeWindowsInsteadOfRefusing. If this test ever goes red in CI while that
+    // one stays green, the diagnosis is deadline pressure under instrumentation, not a CR-04
+    // regression.
+    @Test
+    fun newlineFreeOversizeBodyIsScannedNotDestroyed() {
+        val target = Defaults.MAX_REDACTION_BODY_CHARS * NEWLINE_FREE_WINDOW_MULTIPLIER
+        val body =
+            buildString {
+                while (length < target / 2) append(NEWLINE_FREE_FRAGMENT)
+                append(NEWLINE_FREE_SECRET_PAIR)
+                while (length < target) append(NEWLINE_FREE_FRAGMENT)
+            }
+        // Both fixture properties are load-bearing and are asserted so a later edit cannot defuse
+        // this test silently: below the window width there is no windowing at all, and one '\n'
+        // anywhere would hand splitPoint the line boundary whose ABSENCE is the whole defect.
+        assertTrue(
+            body.length > Defaults.MAX_REDACTION_BODY_CHARS,
+            "The fixture must exceed the window width or no windowing happens",
+        )
+        assertFalse(
+            body.contains('\n'),
+            "The fixture must contain NO newline, or splitPoint takes its line-boundary branch and CR-04 is not exercised",
+        )
+
+        val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
+        val start = System.currentTimeMillis()
+        val output = Redaction.apply(body, policy, stableHostSalt = "salt")
+        val elapsed = System.currentTimeMillis() - start
+
+        assertFalse(
+            output.contains("SC4-NEWLINE-SECRET-9"),
+            "STRICT: a secret in a newline-free oversize body must not survive the body stage",
+        )
+        assertTrue(
+            output.contains("\"api_key\":\"[REDACTED]\""),
+            "STRICT: the pair must be redacted IN PLACE, keeping its key — not removed wholesale",
+        )
+        assertTrue(
+            output.length > body.length / 2,
+            "A newline-free body must be SCANNED, not collapsed behind a drop marker; " +
+                "output was ${output.length} chars against a ${body.length}-char input",
+        )
+        // Same idiom and the same generosity as the two fail-closed siblings above.
+        assertTrue(elapsed < 30_000, "The windowed body stage must stay bounded; took ${elapsed}ms")
     }
 
     // (PRIV-06) CR-02 / WR-06 / D-01 AMENDED: the windowing invariant D-01 always CLAIMED and never
