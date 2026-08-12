@@ -137,12 +137,37 @@ object Redaction {
     // clamp its own bound to this one instead of restating the number in another file.
     internal const val MAX_COOKIE_SECTION_LINES = 16
 
-    // (PRIV-06) CR-03 / D-02 / T-21-29: the wall-clock ceiling for redactCookieSections across ALL
-    // occurrences within a single call. Sized so it is unreachable by any realistic input now that
-    // the rule is O(n) — reaching it takes tens of megabytes, at which size bodyStage's own
-    // MAX_REDACTION_BUDGET_MS is already dropping the tail — while still bounding the worst case on
-    // a pathological input. Before CR-03 this was the ONLY rule this phase added that bypassed both
-    // SafeRegex and MAX_REDACTION_BUDGET_MS entirely: no budget, no marker, no seam.
+    // (PRIV-06) CR-03 / D-02 / T-21-29 / W-05: the wall-clock budget for redactCookieSections.
+    //
+    // WHAT IT ACTUALLY BOUNDS, stated exactly, because the previous wording claimed a ceiling
+    // "across ALL occurrences within a single call" and the code has never provided one. It is
+    // SAMPLED ONCE PER OCCURRENCE, immediately after the next section header is found and before
+    // that section is rewritten. A single occurrence's String.replace(cookieSectionPairRegex) is
+    // therefore bounded by that section's own length, not by this budget: the last occurrence to
+    // start before expiry runs to completion however long its section is. Overstating a guarantee
+    // is the exact class of defect that let CR-02 ship twice, so D-08 REFINED applies to comments on
+    // security controls as much as to the controls themselves — this one now claims only what it
+    // does.
+    //
+    // WHY THAT IS NOT A DENIAL OF SERVICE. cookieSectionPairRegex is (?m)^([^=\r\n]+)=(.*)$ — one
+    // negated character class, one dot-star, no alternation, no nested quantifier and no
+    // backreference, and '.' excludes newline without DOTALL so every match is line-bounded. Its
+    // worst case is linear in the section length, so an unbounded single occurrence costs
+    // milliseconds per megabyte rather than the exponential blow-up SafeRegex exists to stop.
+    //
+    // DELIBERATELY NOT ROUTED THROUGH SafeRegex, and this is a decision rather than an oversight.
+    // SafeRegex.replaceAllSafe returns the ORIGINAL input on timeout, which for THIS rule means the
+    // unredacted cookie section passed straight through — fail OPEN, in direct contradiction of
+    // D-02. Using replaceAllSafeReporting and branching on timedOut would be the correct adoption,
+    // and it is a behaviour change (what to drop, and how much) outside this plan's surface.
+    // RECORDED AS A RESIDUAL rather than claimed closed: a single cookie section is currently
+    // rewritten with no per-match deadline at all, accepted on the linearity argument above.
+    //
+    // Sized so it is unreachable by any realistic input now that the rule is O(n) — reaching it
+    // takes tens of megabytes, at which size bodyStage's own MAX_REDACTION_BUDGET_MS is already
+    // dropping the tail — while still bounding the worst case on a pathological input. Before CR-03
+    // this rule bypassed both SafeRegex and MAX_REDACTION_BUDGET_MS entirely: no budget, no marker,
+    // no seam.
     private const val COOKIE_SECTION_BUDGET_MS = 250L
 
     // (PRIV-05) SC1 / D-09 / D-10: redacts the VALUE of every name=value pair inside EVERY
@@ -206,6 +231,18 @@ object Redaction {
         val deadline = System.nanoTime() + budgetMs * NANOS_PER_MS
         var cursor = 0
         while (true) {
+            // (PRIV-06) W-05: the search runs BEFORE the deadline check, deliberately. With the
+            // check first, an expired budget replaced the ENTIRE remaining prompt — up to the MCP
+            // default maxBodyBytes of 2 MiB — with one drop marker even when no further cookie
+            // section existed anywhere in it. That fails closed, so it was never a leak; it was a
+            // silent total loss of analytic context on a well-behaved input, triggered by nothing
+            // the user did. The fail-closed price is now paid only when a section is genuinely
+            // pending. D-10 is unchanged: this is still indexOf(COOKIE_SECTION_HEADER, cursor) in a
+            // while loop with a monotonically advancing cursor, so EVERY occurrence is still
+            // iterated. Guard: RedactionTest.cookieSectionBudgetExpiryWithNoSectionRemainingPreservesTheText,
+            // with cookieSectionDeadlineFailsClosed pinning the opposite half of the same branch.
+            val h = text.indexOf(COOKIE_SECTION_HEADER, cursor)
+            if (h < 0) break
             // Subtraction rather than a direct comparison, so the check is immune to nanoTime
             // wraparound; ">= 0" rather than "> 0" so an injected budget of 0 ms is deterministically
             // expired on the first iteration even on a coarse clock. That determinism is what makes
@@ -217,8 +254,6 @@ object Redaction {
                 // Returns WITHOUT the remainder: the tail is dropped, never passed through.
                 return sb.toString()
             }
-            val h = text.indexOf(COOKIE_SECTION_HEADER, cursor)
-            if (h < 0) break
             val bodyStart = h + COOKIE_SECTION_HEADER.length
             val end = cookieSectionEnd(text, bodyStart)
             sb.append(text, cursor, bodyStart)
@@ -309,8 +344,29 @@ object Redaction {
      * rather than dropped, so nothing analytically useful is lost.
      *
      * Removing the call in `PassiveAiScannerPrompts.buildScanMetadataText` re-opens PRIV-05; the
-     * named guard is the end-to-end test plan 21-10 adds. Nothing in plan 21-08 calls this yet,
-     * which is deliberate — it keeps the two `Redaction.kt` edits in separate waves.
+     * named guard is
+     * `PassiveAiScannerPromptRedactionTest.poisonedCookieHeaderCannotTerminateTheCookieSection`.
+     *
+     * (W-07) SHIPPED CALL SITES — two of them, on the production path, in this order:
+     *  1. `PassiveAiScannerPrompts.cookieSectionLines`, the PRODUCER, before `take(maxCount)`, so a
+     *     blank element cannot consume one of the display slots. Guard:
+     *     `PassiveAiScannerPromptRedactionTest.blankCookieElementsDoNotConsumeDisplaySlots`.
+     *  2. `PassiveAiScannerPrompts.buildScanMetadataText`, the EMITTER, defence in depth and the only
+     *     place a genuine `=== PARAMETERS ===` and a planted `=== FOO ===` are distinguishable.
+     *     Guard: `PassiveAiScannerPromptRedactionTest.cookieSectionEntriesAreSanitizedAtTheEmitter`.
+     *
+     * Each site is mutation-guarded by a DIFFERENT named test, so removing either because the other
+     * exists reopens a different half. Running twice is harmless because the operation is
+     * idempotent: a space-prefixed `" === FOO ==="` no longer satisfies `startsWith("===")`. This
+     * paragraph replaces the sentence "Nothing in plan 21-08 calls this yet", which plan 21-10 made
+     * false at two call sites — a KDoc on a security control asserting that the control is unused is
+     * actively misleading, and this codebase uses "the named guard is X" comments as a load-bearing
+     * safety mechanism, so one wrong reference devalues every other.
+     *
+     * The function itself is guarded directly by
+     * `RedactionTest.sanitizeCookieSectionEntriesNeutralisesEveryFramingPrimitive`, which is the only
+     * test in the suite that reaches the CR/LF limb: both end-to-end guards above use the literal
+     * `=== FOO ===` with no embedded newline.
      */
     fun sanitizeCookieSectionEntries(entries: List<String>): List<String> =
         entries
