@@ -23,13 +23,28 @@ private const val GEMINI_CAPACITY_BACKOFF_MS = 60_000L
 private const val BACKOFF_LOG_INTERVAL_MS = 10_000L
 private const val POTENTIAL_IDS_MAX_COUNT = 10
 private const val PARAM_VALUE_MAX_CHARS = 200
-private const val COOKIES_MAX_COUNT = 6
 private const val REQUEST_BODY_LOCAL_CHECK_MAX_CHARS = 3_000
 private const val RESPONSE_BODY_LOCAL_CHECK_MAX_CHARS = 6_000
 
 // JS discovery limits (companion-private; redeclared for extension use)
 private const val JS_MIN_BODY_FOR_EXTRACTION = 100
 private const val JS_ENDPOINTS_LOG_MAX = 10
+
+// (PRIV-05) W-01: how many cookie entries the prompt surfaces. SIX is the INTENDED value; the
+// SHIPPED value is that literal clamped to Redaction.MAX_COOKIE_SECTION_LINES, because the redactor
+// only redacts a cookie section that many LINES deep and every entry past the bound reaches the AI
+// backend unredacted. That is PRIV-05 — the requirement this phase exists for — and before the clamp
+// it was reopened by editing one innocuous-looking literal in this file, in a different package from
+// the rule that depends on it, with the whole test suite staying green.
+//
+// The clamp is a FAIL-SAFE, not a licence to raise the literal. Raising COOKIES_MAX_COUNT_INTENDED
+// past the redactor's bound now silently costs the model entries instead of leaking them, and
+// RedactionTest.cookieEmitterBoundStaysWithinTheRedactorBound goes red so the drift is visible
+// rather than absorbed. To surface more cookies, raise Redaction.MAX_COOKIE_SECTION_LINES FIRST —
+// and note that bound counts lines, not entries, so the headroom that test asserts is 2x, not 1x.
+internal const val COOKIES_MAX_COUNT_INTENDED = 6
+
+internal val COOKIES_MAX_COUNT: Int = minOf(COOKIES_MAX_COUNT_INTENDED, Redaction.MAX_COOKIE_SECTION_LINES)
 
 private val POTENTIAL_IDS_REGEX = Regex("\\b([0-9]+|[a-f0-9-]{36}|[a-f0-9]{24})\\b", RegexOption.IGNORE_CASE)
 private val SENSITIVE_KEY_REGEX = Regex("(token|key|auth|session|jwt|cookie|password|secret)", RegexOption.IGNORE_CASE)
