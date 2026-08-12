@@ -1335,6 +1335,118 @@ class RedactionTest {
         )
     }
 
+    // (PRIV-06) W-05 / T-21-48: an expired cookie-section budget with NO cookie section left in the
+    // text must preserve the text, not replace it with one drop marker.
+    //
+    // THE DEFECT. The deadline check sat at the top of the loop, ABOVE indexOf. So a stop-the-world
+    // pause anywhere in the loop — or simply a text long enough that the previous occurrence used up
+    // the budget — caused the ENTIRE remaining prompt, up to the MCP default maxBodyBytes of 2 MiB,
+    // to be replaced by one windowDroppedMarker even when no further cookie section existed. That
+    // fails CLOSED, so it is not a leak; it is a silent total loss of analytic context on a
+    // well-behaved input, triggered by nothing the user did. Hoisting indexOf above the check makes
+    // the fail-closed price payable only when a section is genuinely still pending.
+    //
+    // This one IS a genuine red-before-green, unlike the two W-01 tests and the sanitizer test below.
+    //
+    // FIXTURE REACHABILITY is exact, and the seam is what makes it exact: testRedactCookieSections
+    // bypasses Redaction.apply entirely, so NO other rule runs at all — not the two header rules, not
+    // the typed-parameter rule, not the body stage. Byte-identity of the output can therefore only
+    // come from the loop breaking on "no section found". The fixture deliberately carries
+    // name=value-shaped lines that the cookie pair regex WOULD rewrite if a section were ever opened,
+    // so passing by accident is not available either: the only ways to satisfy assertEquals are the
+    // correct break, or never entering the section body at all.
+    @Test
+    fun cookieSectionBudgetExpiryWithNoSectionRemainingPreservesTheText() {
+        // Analytically valuable, cookie-section-free content: the debug/sql/internal shaped lines a
+        // passive scanner most needs, and exactly what the drop marker would have destroyed.
+        val text =
+            """
+            === RESPONSE BODY ===
+            <html><body>
+            debug=verbose_stack_trace_here
+            sql=SELECT * FROM users WHERE id=1
+            internal=10.0.0.5
+            version=4.2.1-rc3
+            </body></html>
+            """.trimIndent()
+
+        // Anti-vacuity: the fixture must genuinely contain NO cookie section header, or the test
+        // would be asserting the wrong branch.
+        assertFalse(
+            text.contains(Redaction.COOKIE_SECTION_HEADER),
+            "The fixture must contain no cookie section header at all — that is the branch under test",
+        )
+
+        val output = Redaction.testRedactCookieSections(text, budgetMs = 0L)
+
+        assertEquals(
+            text,
+            output,
+            "W-05: an expired budget with NO cookie section pending must return the text BYTE-IDENTICALLY. " +
+                "Dropping it behind a marker destroys up to 2 MiB of prompt for a hazard that is not present.",
+        )
+        assertFalse(
+            output.contains("REDACTION INCOMPLETE"),
+            "No drop marker may be emitted when there was no cookie section to fail closed on",
+        )
+        assertFalse(
+            output.contains("REDACTION BUDGET EXCEEDED"),
+            "No budget marker of any shape may be emitted when there was no cookie section to fail closed on",
+        )
+    }
+
+    // (PRIV-05) W-03 / T-21-47: a DIRECT unit test on Redaction.sanitizeCookieSectionEntries.
+    //
+    // WHY A DIRECT TEST IS REQUIRED RATHER THAN REDUNDANT. The function has three limbs and its own
+    // KDoc calls the middle one load-bearing: every CR and LF inside an entry becomes a single space,
+    // so one entry can never become two emitted lines. The two named end-to-end guards
+    // (PassiveAiScannerPromptRedactionTest.poisonedCookieHeaderCannotTerminateTheCookieSection and
+    // .cookieSectionEntriesAreSanitizedAtTheEmitter) both use the literal "=== FOO ===" with NO
+    // embedded newline, so neither can reach the CR/LF limb. Asked the standing question — what else
+    // in the pipeline would catch this input? — the answer for that limb was NOTHING: deleting
+    // .replace('\r', ' ').replace('\n', ' ') left the entire suite green while CR-01's second trigger
+    // was reopened in full. Mutation M3 in the 21-15 summary is that measurement.
+    //
+    // INPUT REACHABILITY. cookieSectionLines splits the raw Cookie: header value on ';' and trims
+    // each element; it does not remove interior newlines. A hand-edited Repeater or Intruder request
+    // carrying an embedded newline in a Cookie: header is ordinary Burp usage, so an entry of the
+    // shape "a=1\n=== FOO ===" reaches the emitter, where appendLine writes it as TWO lines — the
+    // second sitting at a line start and terminating the cookie span, leaking every cookie below it.
+    //
+    // LATENT-TRAP CLOSURE, stated plainly: this test is green before and after, because the limb
+    // ships today. Its gate is mutation, not a red-before-green.
+    //
+    // The test is cheap precisely because the function is pure — no pipeline, no policy, no seam.
+    @Test
+    fun sanitizeCookieSectionEntriesNeutralisesEveryFramingPrimitive() {
+        val out =
+            Redaction.sanitizeCookieSectionEntries(
+                listOf("a=1\n=== FOO ===", "b=2\r=== BAR ===", "   ", "", "=== BAZ ===", "c=3"),
+            )
+
+        assertEquals(
+            listOf("a=1 === FOO ===", "b=2 === BAR ===", " === BAZ ===", "c=3"),
+            out,
+            "All three limbs, asserted as one exact list: blank-after-trim entries dropped, CR and LF " +
+                "flattened to a single space, and a still-===-leading entry space-prefixed rather than lost",
+        )
+        assertTrue(
+            out.none { it.contains('\n') || it.contains('\r') },
+            "The load-bearing limb: one entry must NEVER become two emitted lines, because the second " +
+                "would sit at a line start and terminate the cookie span (CR-01's second trigger)",
+        )
+        assertTrue(
+            out.none { it.startsWith("===") },
+            "No entry may forge a section boundary — cookieSectionEnd terminates on a RAW, untrimmed " +
+                "startsWith(NEXT_SECTION_PREFIX) at a line start, so the raw predicate is the one that matters",
+        )
+        assertTrue(
+            out.contains(" === BAZ ==="),
+            "The ===-leading entry is NEUTRALISED, not dropped: its value is preserved so nothing " +
+                "analytically useful is lost, which is the point of the space prefix over deletion",
+        )
+    }
+
     // PRIV-02: OFF mode must leave bodies completely untouched — no form-body or JSON redaction.
     @Test
     fun offModePreservesBodies() {
