@@ -1806,6 +1806,87 @@ class RedactionTest {
         }
     }
 
+    // (PRIV-06) CR-02, third shape / 21-REVIEW-2 CR-01: the cut landing INSIDE AN OPEN QUOTED VALUE.
+    //
+    // The two sweeps above cover cuts that land in the whitespace AROUND THE COLON, and that is the
+    // only state the original two-clause isJsonPairBoundaryRisk could see: it asked whether the
+    // window's last line ends with ':' or '"'. jsonSecretKeyRegex's value alternative is "[^"]*",
+    // and [^"] matches a newline, so the pair has a SECOND in-flight state — the value's opening
+    // quote on one line and its closing quote on the next. There the window's last line ends with an
+    // ordinary value character ('K' below), the risk check returns false, no extension is started,
+    // MAX_JSON_BOUNDARY_LOOKAHEAD_LINES is never consulted, and the pair is cut in half. Neither
+    // half matches, so the value is emitted VERBATIM — a leak, not a fail-closed drop.
+    //
+    // WHY THE TWO SIBLING SWEEPS STRUCTURALLY CANNOT REACH IT: in both of their fixtures every line
+    // of the pair ends on ':' or '"', which is precisely the state the old predicate already
+    // detected. No shift of either fixture can produce a line ending mid-value. This is one fixture
+    // family covering one of two states, which is why CR-02 was reported closed while still leaking.
+    //
+    // FIXTURE GEOMETRY IS LOAD-BEARING AND WAS MEASURED, NOT ASSUMED. boundarySweepBody places the
+    // pair at a position that is PERIODIC in PAD_LINE_CHARS: across every shift the pair starts in
+    // [999981, 1000000], so the cut can only fall after the pair's FIRST line when that line is at
+    // most 19 characters. The first line here is 16. A longer first line does not weaken the test,
+    // it VACATES it: 21-REVIEW-2's literally-suggested fixture, whose first line is 31 characters,
+    // was driven through this builder over 40 alignments and leaked 0 times pre-fix, because the cut
+    // always landed at the pair's start and handed the whole pair to the next window. Do not
+    // "simplify" the value split below without re-measuring; the sentinel must also stay whole on
+    // ONE line, since a sentinel spanning the cut would be absent from the output for the trivial
+    // reason that it contains a newline.
+    //
+    // THE ANTI-VACUITY ASSERTION IS LOAD-BEARING, exactly as in the two siblings: a DROPPED window
+    // also removes the sentinel, so "the sentinel is absent" alone would be satisfied by the
+    // fail-closed path. Asserting no drop marker is what forces the pair to have been REDACTED, and
+    // it is what makes this test reproduce the reviewer's measured shape — leak with
+    // dropMarker=false — rather than a fail-closed drop.
+    //
+    // FIXTURE STRENGTH. STRADDLE-SECRET-2 is reachable by jsonSecretKeyRegex and by nothing else in
+    // either stage:
+    //   - the pair carries no '=' anywhere, so formBodyParamRegex cannot reach it, and
+    //     urlTokenParamRegex — which runs UNBOUNDED in the header stage and would otherwise mask
+    //     this defect entirely — additionally requires a leading '?' or '&';
+    //   - the value is neither Bearer- nor Basic-prefixed and does not begin "eyJ", so bearerRegex,
+    //     basicAuthRegex and jwtRegex cannot match it;
+    //   - there is no "Cookie:"/"Set-Cookie:" header, no "=== COOKIES ===" section and no
+    //     " (COOKIE)" type suffix, so neither cookie rule — including 21-08's section rule — reaches
+    //     it;
+    //   - the padding is 'y' and 'z' only, so it cannot manufacture a "[REDACTED]" and create a
+    //     false positive on the surviving-key leg;
+    //   - no custom pattern is registered, and @AfterEach resetCustomPatterns prevents bleed from
+    //     oversizeBodyFailsClosed / subWindowBodyFailsClosed, which both install "(a+)+$".
+    // So only jsonSecretKeyRegex can reach the sentinel. Established by mutation M1, not by
+    // inspection.
+    @Test
+    fun windowedScanRedactsJsonPairWhoseValueStraddlesTheCut() {
+        // Key, colon, the value's opening quote and two value characters on the first line; the
+        // value's remainder and its closing quote on the second. The trailing "AK" is what makes the
+        // line end on an ordinary value character instead of on the quote the old predicate saw.
+        val pair = "  \"api_key\": \"AK\nSTRADDLE-SECRET-2\"\n"
+
+        for (shift in 0 until BOUNDARY_SWEEP_SHIFTS) {
+            val body = boundarySweepBody(shift, pair)
+            assertTrue(
+                body.length > Defaults.MAX_REDACTION_BODY_CHARS,
+                "shift=$shift: the fixture must exceed the window width, or this sweeps the single-pass path",
+            )
+
+            val policy = RedactionPolicy.fromMode(PrivacyMode.STRICT)
+            val output = Redaction.apply(body, policy, stableHostSalt = "salt")
+
+            assertFalse(
+                output.contains("STRADDLE-SECRET-2"),
+                "shift=$shift: a quoted value straddling a window boundary must still be redacted",
+            )
+            assertFalse(
+                output.contains("REDACTION INCOMPLETE") || output.contains("REDACTION BUDGET EXCEEDED"),
+                "shift=$shift: the sweep must prove the pair was REDACTED, not that the window was DROPPED",
+            )
+            assertTrue(
+                output.contains("\"api_key\""),
+                "shift=$shift: the key must survive, so the pair was redacted in place, not removed wholesale",
+            )
+        }
+    }
+
     // (PRIV-06) CR-02 / WR-06: one oversize body whose JSON [pair] sits [shift] characters past the
     // natural PAD_LINE_CHARS alignment. Sweeping [shift] walks the pair across the deterministic
     // window cut one character at a time, which is the whole technique: the defect is invisible at
