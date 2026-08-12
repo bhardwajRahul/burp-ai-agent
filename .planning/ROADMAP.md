@@ -170,7 +170,7 @@ a leak this phase just closed. PRIV-06 is not met while CR-01 (round 2) stands.
 
 **Gap-2 Wave 2** *(blocked on Gap-2 Wave 1 — same file)*
 
-- [ ] 21-15-PLAN.md — the cookie-rule cluster: W-01 couples `COOKIES_MAX_COUNT` to `MAX_COOKIE_SECTION_LINES` so raising one cannot silently reopen PRIV-05; W-03 gives `sanitizeCookieSectionEntries` its first direct test; W-05 stops an expired budget destroying a prompt with no section left in it; W-02 and IN-04 dispositioned in source (gap-2 wave 2)
+- [x] 21-15-PLAN.md — the cookie-rule cluster: W-01 couples `COOKIES_MAX_COUNT` to `MAX_COOKIE_SECTION_LINES` so raising one cannot silently reopen PRIV-05; W-03 gives `sanitizeCookieSectionEntries` its first direct test; W-05 stops an expired budget destroying a prompt with no section left in it; W-02 and IN-04 dispositioned in source (gap-2 wave 2)
 
 **Gap-2 Wave 3** *(blocked on Gap-2 Wave 2 — same file)*
 
@@ -291,7 +291,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
-| 21. Redaction Completeness | 14/18 | In Progress|  |
+| 21. Redaction Completeness | 15/18 | In Progress|  |
 | 22. Agent Tool-Call Trust Boundary | 0/? | Not started | — |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
