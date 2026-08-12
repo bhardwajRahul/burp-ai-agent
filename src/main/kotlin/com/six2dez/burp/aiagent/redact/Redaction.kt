@@ -716,6 +716,16 @@ object Redaction {
     // over more than this many lines can still straddle a cut and be missed. T-21-31 accepts it and
     // ADR-14 and .planning/codebase/CONCERNS.md record it, rather than pretending it away.
     //
+    // 21-REVIEW-2 CR-01 — read this residual as THE CAP ONLY, and do not read it as the whole class
+    // of window-boundary misses. It was previously the sole recorded residual for this rule, and
+    // that framing actively hid a live leak: a pair whose quoted value straddled the cut was missed
+    // WITHOUT EVER REACHING THIS CAP, because the risk predicate did not model the open-quoted-value
+    // state and so never started a lookahead. That is now closed by endsInsideOpenQuotedValue and is
+    // no longer a residual of any kind. What remains here is only the case where an extension DOES
+    // start and runs out of budget at this many lines. A future widening of the same kind — a state
+    // the predicate cannot see — would again not be bounded by this number, so raising it is not a
+    // response to that class of defect.
+    //
     // The cap is nonetheless not a fail-OPEN in D-02's sense, and the distinction is worth stating
     // because the two are easy to conflate. This lookahead only ever MOVES a boundary: every byte
     // still lands in exactly one window and is still scanned, nothing is skipped and nothing is
@@ -773,12 +783,14 @@ object Redaction {
     //
     // WHAT LINE-BOUNDARY CUTTING ACTUALLY BUYS, stated as it ships rather than as it was first
     // claimed: it preserves the LINE-ANCHORED SEMANTICS of the built-in body rules — no (?m)^ anchor
-    // is created at an artificial line start and none is destroyed mid-line — and the one built-in
-    // whose match can span newlines, jsonSecretKeyRegex, is covered by a bounded lookahead of
-    // MAX_JSON_BOUNDARY_LOOKAHEAD_LINES lines in windowEnd. Byte-identity with whole-document
-    // processing is NOT claimed in general: a match spanning more than that lookahead, and any user
-    // custom pattern spanning a cut, can still be missed. Both residuals are recorded in ADR-14 and
-    // in .planning/codebase/CONCERNS.md.
+    // is created at an artificial line start and none is destroyed mid-line — and for the one
+    // built-in whose match can span newlines, jsonSecretKeyRegex, windowEnd's risk predicate models
+    // BOTH states that rule can be in at a cut: in the whitespace around the colon, and inside an
+    // unterminated quoted value (see endsInsideOpenQuotedValue). When either fires, the window is
+    // extended, and that extension is bounded by MAX_JSON_BOUNDARY_LOOKAHEAD_LINES. Byte-identity
+    // with whole-document processing is NOT claimed in general: a pair spread over more lines than
+    // that bound, and any user custom pattern spanning a cut, can still be missed. Both residuals
+    // are recorded in ADR-14 and in .planning/codebase/CONCERNS.md.
     //
     // CR-02 / D-08 REFINED — why the previous wording is gone, recorded so it reads as a deliberate
     // retirement rather than something lost in an edit: this paragraph used to state that
@@ -789,6 +801,24 @@ object Redaction {
     // fixture across the cut, which is exactly why it survived review. The claim now lives in a
     // named test, windowedScanRedactsJsonPairAcrossEveryBoundaryAlignment, so the assertion and its
     // evidence cannot drift apart again. A record claims only what ships.
+    //
+    // 21-REVIEW-2 CR-01 / D-08 REFINED — a SECOND retirement in the same paragraph, recorded for the
+    // same reason. The replacement wording above used to present jsonSecretKeyRegex as fully handled
+    // by windowEnd's capped lookahead — deliberately paraphrased here rather than quoted, so the
+    // falsified sentence is not left verbatim in the file for a later reader to lift back out of its
+    // retirement. That asserted coverage this code did not have. The risk predicate saw only the
+    // whitespace around the colon, so a pair whose quoted value carried a raw newline across the cut
+    // never started a lookahead at all and the cap was never reached — the recorded residual
+    // described a bound that the failing shape never touched. Falsified by a reproduction over the
+    // COMPILED SHIPPED CLASSES, not by argument: 6 of 40 alignments of a 1 MB body leaked with
+    // dropMarker=false while the single-pass path redacted the identical content, and this repository
+    // reproduced the same class at 8 of 40 alignments once the fixture geometry was corrected (see
+    // windowedScanRedactsJsonPairWhoseValueStraddlesTheCut). It survived the first review because the
+    // fixture family behind both committed sweeps could not produce the shape — every line of those
+    // fixtures ends on ':' or '"', which is the state the old predicate already detected. The guard
+    // is now windowedScanRedactsJsonPairWhoseValueStraddlesTheCut. The lesson is narrower and worse
+    // than "the claim was too broad": a claim can be falsified by the ABSENCE of a fixture family,
+    // so a coverage sentence is only as strong as the shapes its tests can construct.
     //
     // The bounded lookahead is NOT the overlap clause reinstated under another name. That clause
     // stays dropped on the measured grounds above; this mechanism moves the BOUNDARY, so windows
@@ -1073,12 +1103,14 @@ object Redaction {
     // oversized window rather than being split; the per-pattern deadline already bounds what that
     // costs, and a mid-line cut is the only thing that can change a line-anchored rule's semantics.
     //
-    // JSON boundary safety: jsonSecretKeyRegex's whitespace class CAN span newlines (it matches a
-    // pretty-printed key/colon/value spread over four lines), so a pair split exactly across a
-    // window boundary would be missed. When the last line of the prospective window ends with a
-    // colon or a double quote after a trailing-whitespace strip, following lines are pulled in ONE
-    // AT A TIME, re-checking each newly included line, until a line that cannot continue a pair is
-    // reached or MAX_JSON_BOUNDARY_LOOKAHEAD_LINES lines have been taken.
+    // JSON boundary safety: jsonSecretKeyRegex can span newlines in TWO places — its whitespace
+    // class between key and value (it matches a pretty-printed key/colon/value spread over four
+    // lines), and its "[^"]*" value, since [^"] matches a newline too. Either way a pair split
+    // exactly across a window boundary would be missed. When the last line of the prospective window
+    // ends with a colon or a double quote after a trailing-whitespace strip, OR ends inside an
+    // unterminated quoted string (isJsonPairBoundaryRisk / endsInsideOpenQuotedValue), following
+    // lines are pulled in ONE AT A TIME, re-checking each newly included line, until a line that
+    // cannot continue a pair is reached or MAX_JSON_BOUNDARY_LOOKAHEAD_LINES lines have been taken.
     //
     // CR-02 — the defect this loop replaces, recorded because the comment above it was already
     // correct and the code still did not follow it: the previous form pulled in exactly ONE line and
@@ -1101,6 +1133,14 @@ object Redaction {
     //
     // formBodyParamRegex and urlTokenParamRegex cannot span newlines (their value classes exclude
     // \s) and need nothing.
+    //
+    // 21-REVIEW-2 CR-01 — the second shape, and why the loop alone was not enough. The loop above
+    // fixed how FAR an extension runs; it did not fix WHEN one starts. A pair whose quoted value
+    // carried a raw newline across the cut left the window's last line ending on an ordinary value
+    // character, so no extension started at all and the cap was never reached. Reproduced at 6 of 40
+    // alignments with dropMarker=false — a leak, not a drop — while the single-pass path redacted
+    // the same bytes. Closed by widening the predicate rather than the bound; guarded by
+    // windowedScanRedactsJsonPairWhoseValueStraddlesTheCut.
     //
     // ACCEPTED RESIDUAL: a CUSTOM pattern whose match straddles a window boundary can still be
     // missed. There is no principled bound on a user regex's match length, so no window scheme can
@@ -1191,12 +1231,54 @@ object Redaction {
         return isJsonPairBoundaryRisk(line)
     }
 
-    // (PRIV-06) D-01: true when [line] ends where jsonSecretKeyRegex's newline-spanning whitespace
-    // class could be sitting between a key and its value. Content-only: a blank line is handled by
+    // (PRIV-06) CR-02 / 21-REVIEW-2 CR-01: true when [line] ends INSIDE an unterminated quoted
+    // string. This is not a heuristic about punctuation; it is the second of the two states
+    // jsonSecretKeyRegex can genuinely be in at a cut.
+    //
+    // The rule's value alternative is "[^"]*", and [^"] matches a NEWLINE. So a line carrying an odd
+    // number of unescaped double quotes has left that value OPEN across the newline: the match is
+    // still in flight even though the line ends with an ordinary value character rather than with
+    // ':' or '"'. A backslash escapes whatever follows it, so the character after a '\' is skipped
+    // and never counted as a quote — the same convention jsonSecretKeyRegex's own documented
+    // escaped-quote limitation describes.
+    //
+    // This is exactly what the previous two-clause predicate could not see. It tested only the
+    // whitespace AROUND THE COLON, so on a "key": "value-start / value-end" pair the risk check
+    // returned false, no extension was ever started, and MAX_JSON_BOUNDARY_LOOKAHEAD_LINES was
+    // irrelevant to the shape because the lookahead never began. That is why the cap was NOT the
+    // residual it was recorded as, and why the leak survived a fix plus three mutations: it was a
+    // missing STATE, not an insufficient bound. Reproduced over the compiled shipped classes at 6 of
+    // 40 alignments of a 1 MB body with dropMarker=false — a leak, not a fail-closed drop — while
+    // the single-pass control redacted the identical content.
+    //
+    // It costs one pass over a line already in hand: no parser, no dependency, and the hand-curated
+    // regex constraint is untouched.
+    private fun endsInsideOpenQuotedValue(line: String): Boolean {
+        var quotes = 0
+        var i = 0
+        while (i < line.length) {
+            when (line[i]) {
+                '\\' -> i++ // the escaped character cannot be a value-terminating quote
+                '"' -> quotes++
+            }
+            i++
+        }
+        return quotes % 2 == 1
+    }
+
+    // (PRIV-06) D-01: true when [line] ends where jsonSecretKeyRegex's match could still be in
+    // flight — either in the newline-spanning whitespace class between a key and its value, or
+    // inside the value's own quoted string. Content-only: a blank line is handled by
     // pairMayBeInFlightAt going backward and by isJsonPairBoundaryContinuation going forward.
+    //
+    // The third clause reads the UNTRIMMED line. Trailing whitespace cannot change a quote count, so
+    // this is not a correctness difference; it keeps the two concerns separate — one clause is about
+    // what the line ends WITH, the other about what state the line ends IN — and avoids a second
+    // allocation. pairMayBeInFlightAt and isJsonPairBoundaryContinuation both delegate here, so both
+    // inherit the widened predicate with no change of their own.
     private fun isJsonPairBoundaryRisk(line: String): Boolean {
         val trimmed = line.trimEnd()
-        return trimmed.endsWith(":") || trimmed.endsWith("\"")
+        return trimmed.endsWith(":") || trimmed.endsWith("\"") || endsInsideOpenQuotedValue(line)
     }
 
     // (PRIV-06) CR-02: true when [line] can CONTINUE an extension that is already in flight. A
