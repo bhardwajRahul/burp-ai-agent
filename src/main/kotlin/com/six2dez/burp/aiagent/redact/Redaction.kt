@@ -139,8 +139,8 @@ object Redaction {
 
     // (PRIV-06) CR-03 / D-02 / T-21-29 / W-05: the wall-clock budget for redactCookieSections.
     //
-    // WHAT IT ACTUALLY BOUNDS, stated exactly, because the previous wording claimed a ceiling
-    // "across ALL occurrences within a single call" and the code has never provided one. It is
+    // WHAT IT ACTUALLY BOUNDS, stated exactly, because the previous wording claimed a whole-call
+    // ceiling spanning every occurrence and the code has never provided one. It is
     // SAMPLED ONCE PER OCCURRENCE, immediately after the next section header is found and before
     // that section is rewritten. A single occurrence's String.replace(cookieSectionPairRegex) is
     // therefore bounded by that section's own length, not by this budget: the last occurrence to
@@ -395,10 +395,10 @@ object Redaction {
      * Each site is mutation-guarded by a DIFFERENT named test, so removing either because the other
      * exists reopens a different half. Running twice is harmless because the operation is
      * idempotent: a space-prefixed `" === FOO ==="` no longer satisfies `startsWith("===")`. This
-     * paragraph replaces the sentence "Nothing in plan 21-08 calls this yet", which plan 21-10 made
-     * false at two call sites — a KDoc on a security control asserting that the control is unused is
-     * actively misleading, and this codebase uses "the named guard is X" comments as a load-bearing
-     * safety mechanism, so one wrong reference devalues every other.
+     * paragraph replaces an earlier sentence claiming plan 21-08 left this function uncalled, which
+     * plan 21-10 made false at two call sites — a KDoc on a security control asserting that the
+     * control is unused is actively misleading, and this codebase uses "the named guard is X"
+     * comments as a load-bearing safety mechanism, so one wrong reference devalues every other.
      *
      * The function itself is guarded directly by
      * `RedactionTest.sanitizeCookieSectionEntriesNeutralisesEveryFramingPrimitive`, which is the only
