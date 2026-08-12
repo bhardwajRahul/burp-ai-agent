@@ -174,7 +174,7 @@ a leak this phase just closed. PRIV-06 is not met while CR-01 (round 2) stands.
 
 **Gap-2 Wave 3** *(blocked on Gap-2 Wave 2 — same file)*
 
-- [ ] 21-16-PLAN.md — W-04: the CI flake removed by an injected-budget seam, NOT by changing `MAX_REDACTION_BUDGET_MS`; IN-03 asserts the lookahead cap through a `windowEnd` seam; IN-02 and W-07's test half corrected; every remaining wall-clock assertion gets a measured headroom (gap-2 wave 3)
+- [x] 21-16-PLAN.md — W-04: the CI flake removed by an injected-budget seam, NOT by changing `MAX_REDACTION_BUDGET_MS`; IN-03 asserts the lookahead cap through a `windowEnd` seam; IN-02 and W-07's test half corrected; every remaining wall-clock assertion gets a measured headroom (gap-2 wave 3)
 
 **Gap-2 Wave 4** *(blocked on Gap-2 Wave 3 — same file)*
 
@@ -291,7 +291,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
-| 21. Redaction Completeness | 15/18 | In Progress|  |
+| 21. Redaction Completeness | 16/18 | In Progress|  |
 | 22. Agent Tool-Call Trust Boundary | 0/? | Not started | — |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
