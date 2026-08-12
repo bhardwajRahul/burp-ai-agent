@@ -534,6 +534,32 @@ object Redaction {
     // deadline into a pacing mechanism instead of a cliff.
     private const val WINDOW_RETRY_MAX_DEPTH = 2
 
+    // (PRIV-06) CR-02 / T-21-08: how many following lines the JSON boundary-safety rule in
+    // [windowEnd] may pull into a window. The extension exists because jsonSecretKeyRegex's \s* can
+    // span newlines; capping it is what stops the fix trading a leak for a denial of service, since
+    // an unbounded "keep extending until the pair closes" loop lets a crafted run of colon- or
+    // quote-terminated lines grow a single window without limit. Eight covers every pretty-printer
+    // shape this phase measured — key, colon and value on separate lines, with blank lines between
+    // them — with room to spare.
+    //
+    // Reaching the cap is a DOCUMENTED RESIDUAL, not a closure: a jsonSecretKeyRegex pair spread
+    // over more than this many lines can still straddle a cut and be missed. T-21-31 accepts it and
+    // ADR-14 and .planning/codebase/CONCERNS.md record it, rather than pretending it away.
+    //
+    // The cap is nonetheless not a fail-OPEN in D-02's sense, and the distinction is worth stating
+    // because the two are easy to conflate. This lookahead only ever MOVES a boundary: every byte
+    // still lands in exactly one window and is still scanned, nothing is skipped and nothing is
+    // emitted unscanned. Any window the extension grows past what will scan in time is still
+    // dropped behind a marker by scanWindow/dropOrRetry. What remains at the cap is a rule
+    // FALSE NEGATIVE across a cut — the same class as the custom-pattern residual below, not the
+    // class of defect PRIV-06 exists to remove. Dropping the window at the cap instead was
+    // considered and rejected: the trigger is a content heuristic that ordinary multi-line HTML
+    // attributes and nested YAML both satisfy, so it would destroy up to a megabyte of analytic
+    // context (T-21-06) on entirely benign input.
+    //
+    // detekt's MagicNumber ignore list stops at 2, so this is a named constant, not a literal.
+    private const val MAX_JSON_BOUNDARY_LOOKAHEAD_LINES = 8
+
     // (PRIV-06) D-03 / T-21-05: the marker left in the payload when the total budget is spent and
     // the remaining tail is dropped. Exactly ONE of these is emitted per call, never one per
     // window — a 200 MB input would otherwise produce ~200 markers and bloat the very prompt this
@@ -571,10 +597,32 @@ object Redaction {
     // truncating a match that spans the cut). The original decision's OVERLAP clause is
     // deliberately dropped rather than implemented: the value side of every built-in is
     // length-unbounded (measured single matches of 200 006 characters) and user patterns are
-    // unbounded by construction, so no finite overlap constant is defensible. Line-boundary cutting
-    // was proven byte-identical to whole-document processing, which is the property actually
-    // needed. Matcher.region() has the right semantics but replaceAll() silently resets the region,
-    // so region-scoped replacement is not available at all.
+    // unbounded by construction, so no finite overlap constant is defensible.
+    // Matcher.region() has the right semantics but replaceAll() silently resets the region, so
+    // region-scoped replacement is not available at all.
+    //
+    // WHAT LINE-BOUNDARY CUTTING ACTUALLY BUYS, stated as it ships rather than as it was first
+    // claimed: it preserves the LINE-ANCHORED SEMANTICS of the built-in body rules — no (?m)^ anchor
+    // is created at an artificial line start and none is destroyed mid-line — and the one built-in
+    // whose match can span newlines, jsonSecretKeyRegex, is covered by a bounded lookahead of
+    // MAX_JSON_BOUNDARY_LOOKAHEAD_LINES lines in windowEnd. Byte-identity with whole-document
+    // processing is NOT claimed in general: a match spanning more than that lookahead, and any user
+    // custom pattern spanning a cut, can still be missed. Both residuals are recorded in ADR-14 and
+    // in .planning/codebase/CONCERNS.md.
+    //
+    // CR-02 / D-08 REFINED — why the previous wording is gone, recorded so it reads as a deliberate
+    // retirement rather than something lost in an edit: this paragraph used to state that
+    // line-boundary cutting had been proven equivalent, byte for byte, to whole-document
+    // processing. That was FALSE as implemented, and it was falsified by a reproduction rather than
+    // by argument — a three-line JSON pair straddling the cut leaked on the windowed path while the
+    // single-pass path redacted it. The original claim was established without ever sweeping a
+    // fixture across the cut, which is exactly why it survived review. The claim now lives in a
+    // named test, windowedScanRedactsJsonPairAcrossEveryBoundaryAlignment, so the assertion and its
+    // evidence cannot drift apart again. A record claims only what ships.
+    //
+    // The bounded lookahead is NOT the overlap clause reinstated under another name. That clause
+    // stays dropped on the measured grounds above; this mechanism moves the BOUNDARY, so windows
+    // remain disjoint and line-aligned and no region is ever duplicated into two windows.
     //
     // D-02 / D-14 — fail CLOSED, at EVERY size. Every rule, on both the single-pass path and the
     // windowed path, runs through SafeRegex.replaceAllSafeReporting, and a timedOut flag is never
@@ -761,13 +809,37 @@ object Redaction {
     // JSON boundary safety: jsonSecretKeyRegex's whitespace class CAN span newlines (it matches a
     // pretty-printed key/colon/value spread over four lines), so a pair split exactly across a
     // window boundary would be missed. When the last line of the prospective window ends with a
-    // colon or a double quote after a trailing-whitespace strip, one more line is pulled in.
+    // colon or a double quote after a trailing-whitespace strip, following lines are pulled in ONE
+    // AT A TIME, re-checking each newly included line, until a line that cannot continue a pair is
+    // reached or MAX_JSON_BOUNDARY_LOOKAHEAD_LINES lines have been taken.
+    //
+    // CR-02 — the defect this loop replaces, recorded because the comment above it was already
+    // correct and the code still did not follow it: the previous form pulled in exactly ONE line and
+    // NEVER RE-CHECKED, so the "key on one line, colon on the next, value on the third" case this
+    // very comment cites was unhandled. The boundary landed after the key line, the risk check
+    // fired, the colon line was pulled in, and the window stopped there — leaving the value to start
+    // the next window, where the rule could no longer match across the cut. The reviewer reproduced
+    // a divergence at shift 7: the windowed path LEAKED a value the single-pass path redacts, which
+    // is a redaction bypass keyed only on payload size. Response bodies are attacker-controlled and
+    // window boundaries are deterministic given a known prefix length, so that alignment is
+    // craftable. Guarded by windowedScanRedactsJsonPairAcrossEveryBoundaryAlignment, which sweeps a
+    // full pad-line period rather than testing one alignment.
+    //
+    // The initial test and the loop test are deliberately DIFFERENT predicates, and the asymmetry is
+    // the point. A blank line does NOT start an extension (isJsonPairBoundaryRisk): every window
+    // that happens to end on a blank line would otherwise spend lookahead for nothing. A blank line
+    // DOES continue one already in flight (isJsonPairBoundaryContinuation), because
+    // "key" / ':' / blank / "value" is a shape jsonSecretKeyRegex's \s* genuinely matches — verified
+    // against the real pattern — and it would otherwise still slip through even with the loop.
+    //
     // formBodyParamRegex and urlTokenParamRegex cannot span newlines (their value classes exclude
     // \s) and need nothing.
     //
     // ACCEPTED RESIDUAL: a CUSTOM pattern whose match straddles a window boundary can still be
     // missed. There is no principled bound on a user regex's match length, so no window scheme can
-    // close this; it is recorded rather than pretended away.
+    // close this; it is recorded rather than pretended away. A built-in JSON pair spread over more
+    // than MAX_JSON_BOUNDARY_LOOKAHEAD_LINES lines falls in the same category — narrowed by the
+    // loop, not eliminated by it.
     @Suppress("ReturnCount")
     private fun windowEnd(
         s: String,
@@ -784,20 +856,88 @@ object Redaction {
             return if (next < 0) s.length else next + 1
         }
         var end = lastNewline + 1
-        val prevLineStart = s.lastIndexOf('\n', lastNewline - 1) + 1
-        if (isJsonPairBoundaryRisk(s.substring(maxOf(start, prevLineStart), lastNewline))) {
+        // The line immediately BEFORE the prospective boundary. lineStart/lineEnd are carried
+        // through the loop rather than recomputed with lastIndexOf, so each extension step is O(1)
+        // in the window size and the whole lookahead stays linear in the lines it pulls.
+        var lineStart = maxOf(start, s.lastIndexOf('\n', lastNewline - 1) + 1)
+        var lineEnd = lastNewline
+        // The INITIAL test looks BACKWARD (see pairMayBeInFlightAt); every line pulled in afterwards
+        // is tested with the forward continuation predicate, which treats a blank line as risky.
+        var risky = pairMayBeInFlightAt(s, start, lineStart, lineEnd)
+        var pulled = 0
+        while (risky && pulled < MAX_JSON_BOUNDARY_LOOKAHEAD_LINES) {
             val following = s.indexOf('\n', end)
-            if (following >= 0) end = following + 1
+            // No further newline exists, so there is no next line to pull: the remainder of the
+            // input becomes this window rather than being cut inside a possible pair. Every byte is
+            // still scanned, and scanWindow/dropOrRetry still fail closed if it will not scan in
+            // time.
+            if (following < 0) return s.length
+            lineStart = end
+            lineEnd = following
+            end = following + 1
+            pulled++
+            risky = isJsonPairBoundaryContinuation(s.substring(lineStart, lineEnd))
         }
+        // At the cap the window is line-aligned exactly as in every other branch; only the boundary
+        // moved. See MAX_JSON_BOUNDARY_LOOKAHEAD_LINES for why stopping here is a recorded residual.
         return end
     }
 
+    // (PRIV-06) CR-02: true when a jsonSecretKeyRegex pair may be IN FLIGHT at a window boundary
+    // whose last line is [lineStart, lineEnd). This is the predicate that decides whether to START
+    // an extension at all.
+    //
+    // It has to look BACKWARD, and that is not an embellishment — it was forced by a reproduction.
+    // The boundary can land ON a blank line that is itself inside a pair, i.e.
+    // "key" / ':' / blank / <cut> / "value". Testing only the immediately preceding line refuses to
+    // extend there, because a blank line is deliberately not a risk on its own, so the very shape
+    // the loop exists to catch would still be cut in half. That is exactly what
+    // jsonPairWithBlankLineBetweenKeyAndValueIsRedacted reproduced at shift 0, with the forward loop
+    // already in place.
+    //
+    // So: walk back over blank lines, bounded by the same cap that bounds the forward extension, and
+    // let the nearest line that actually carries content decide. A blank run with nothing risky
+    // behind it still starts nothing, which is the property the risk/continuation asymmetry existed
+    // to protect — windows that merely happen to end on a blank line do not spend forward lookahead.
+    private fun pairMayBeInFlightAt(
+        s: String,
+        start: Int,
+        lineStart: Int,
+        lineEnd: Int,
+    ): Boolean {
+        var probeStart = lineStart
+        var probeEnd = lineEnd
+        var lookedBack = 0
+        var line = s.substring(probeStart, probeEnd)
+        // Skip back over blank lines only. Stopping at [start] keeps this window's decision
+        // independent of earlier windows, and the cap keeps a run of blank lines from turning a
+        // boundary decision into an unbounded backward scan.
+        while (line.isBlank() && probeStart > start && lookedBack < MAX_JSON_BOUNDARY_LOOKAHEAD_LINES) {
+            probeEnd = probeStart - 1
+            probeStart = maxOf(start, s.lastIndexOf('\n', probeEnd - 1) + 1)
+            lookedBack++
+            line = s.substring(probeStart, probeEnd)
+        }
+        // Whichever way the walk ended, the line in hand decides. If it is still blank — the run hit
+        // [start] or the cap with nothing behind it — isJsonPairBoundaryRisk is false, so a blank
+        // region on its own still starts no extension.
+        return isJsonPairBoundaryRisk(line)
+    }
+
     // (PRIV-06) D-01: true when [line] ends where jsonSecretKeyRegex's newline-spanning whitespace
-    // class could be sitting between a key and its value.
+    // class could be sitting between a key and its value. Content-only: a blank line is handled by
+    // pairMayBeInFlightAt going backward and by isJsonPairBoundaryContinuation going forward.
     private fun isJsonPairBoundaryRisk(line: String): Boolean {
         val trimmed = line.trimEnd()
         return trimmed.endsWith(":") || trimmed.endsWith("\"")
     }
+
+    // (PRIV-06) CR-02: true when [line] can CONTINUE an extension that is already in flight. A
+    // whitespace-only line qualifies: jsonSecretKeyRegex's \s* spans it, so "key" / ':' / blank /
+    // "value" is one match, and a loop that stopped on the blank line would cut that shape in half
+    // exactly as the pre-CR-02 single-line pull did. See windowEnd for why this is deliberately
+    // wider than isJsonPairBoundaryRisk rather than the same predicate reused.
+    private fun isJsonPairBoundaryContinuation(line: String): Boolean = line.isBlank() || isJsonPairBoundaryRisk(line)
 
     private val hostHeaderRegex = Regex("(?im)^host:\\s*([^\\s]+)\\s*$")
 
