@@ -178,7 +178,7 @@ a leak this phase just closed. PRIV-06 is not met while CR-01 (round 2) stands.
 
 **Gap-2 Wave 4** *(blocked on Gap-2 Wave 3 — same file)*
 
-- [ ] 21-17-PLAN.md — W-06: the only guard on the hand-factored key vocabulary compares like with like across all three consumers and pins group counts (Pitfall 7); IN-01 stops shipping the naive expression as a public field (gap-2 wave 4)
+- [x] 21-17-PLAN.md — W-06: the only guard on the hand-factored key vocabulary compares like with like across all three consumers and pins group counts (Pitfall 7); IN-01 stops shipping the naive expression as a public field (gap-2 wave 4)
 
 **Gap-2 Wave 5** *(blocked on Gap-2 Wave 4 — same file)*
 
@@ -291,7 +291,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
-| 21. Redaction Completeness | 16/18 | In Progress|  |
+| 21. Redaction Completeness | 17/18 | In Progress|  |
 | 22. Agent Tool-Call Trust Boundary | 0/? | Not started | — |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
