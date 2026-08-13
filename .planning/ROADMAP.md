@@ -182,7 +182,7 @@ a leak this phase just closed. PRIV-06 is not met while CR-01 (round 2) stands.
 
 **Gap-2 Wave 5** *(blocked on Gap-2 Wave 4 — same file)*
 
-- [ ] 21-18-PLAN.md — WR-03 deletes the fail-open `replaceAllSafe` façade; WR-07 widens the ReDoS probe to a corpus and re-validates persisted patterns at startup; WR-04/W-08 make a throwing truncation sink harmless and unwire it in `App.shutdown()` (gap-2 wave 5)
+- [x] 21-18-PLAN.md — WR-03 deletes the fail-open `replaceAllSafe` façade; WR-07 widens the ReDoS probe to a corpus and re-validates persisted patterns at startup; WR-04/W-08 make a throwing truncation sink harmless and unwire it in `App.shutdown()` (gap-2 wave 5)
 
 **SC6 note**: two existing `RedactionTest` assertions are *deliberately* inverted by locked decisions and are
 not regressions — `oversizeBodySkippedSafely` (rewritten by D-01, it currently asserts the fail-open as
@@ -291,7 +291,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
-| 21. Redaction Completeness | 17/18 | In Progress|  |
+| 21. Redaction Completeness | 18/18 | Complete   | 2026-08-13 |
 | 22. Agent Tool-Call Trust Boundary | 0/? | Not started | — |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
