@@ -118,6 +118,26 @@ private object Rfc5869TestCase1 {
 // alone and to nothing else in the pipeline.
 private const val SC3_SENTINEL = "SENTINEL-VALUE-9F2A7C"
 
+// (PRIV-05) W-06 / Pitfall 7: a key expression carrying NO capturing group, substituted into each
+// consumer template so the template's own capturing-group count can be measured rather than
+// remembered. Its value is irrelevant beyond having no parentheses in it.
+private const val GROUP_FREE_KEY_EXPR = "x"
+
+// (PRIV-05) W-06 / Pitfall 7: a $n group reference in a replacement string. The negative lookbehind
+// excludes an escaped \$, which is a literal dollar sign and not a reference.
+private val GROUP_REFERENCE_REGEX = Regex("(?<!\\\\)[$](\\d+)")
+
+// (PRIV-05) W-06: one shipped consumer of SENSITIVE_KEY_EXPR, as the equivalence test needs it —
+// the template that rebuilds the rule around ANY key expression, the replacement the NAIVE side
+// applies, and the document shape the rule is anchored for. Held together in one object so a
+// consumer cannot be half-added: a template with no matching document shape would compare a rule
+// against a document it was never anchored for and agree vacuously.
+private class KeyRuleContext(
+    val rule: (String) -> Regex,
+    val naiveReplacement: String,
+    val document: (String) -> String,
+)
+
 // (PRIV-06) D-03: the injected clock for the truncation-notice window. Named constants rather than
 // inline literals so the relationship to the 10 s window is readable: T_INSIDE_WINDOW is 5 s after
 // T0 and must be suppressed, T_AFTER_WINDOW is 11 s after T0 and must emit. Nothing here sleeps.
@@ -845,59 +865,206 @@ class RedactionTest {
         }
     }
 
-    // (PRIV-05) WR-01 / T-21-38: the shipped SENSITIVE_KEY_EXPR is hand-factored by first letter for
-    // a measured reason (see SENSITIVE_KEY_WORDS in Redaction.kt: the unfactored WR-01 vocabulary
-    // cost +16% on the dominant JSON rule and exhausted the body stage's 2 s budget on the 4 MB
-    // newline-free fixture). Hand-factoring a security-critical alternation is exactly the kind of
-    // change that looks right and is subtly wrong, so it is CHECKED here rather than trusted.
+    // (PRIV-05) W-06: the three consumer TEMPLATES, parameterised by the key expression they embed.
     //
-    // Redaction.NAIVE_KEY_EXPR_FOR_TEST is the same expression built straight from the readable
-    // SENSITIVE_WORDS / CREDENTIAL_PREFIXES / BROAD_WORDS constants. This test drives both over
-    // every key name any corpus in this file mentions and asserts they agree on all of them. A word
-    // added to the readable spec but forgotten in the factored form fails here — which is the whole
-    // reason the seam exists.
+    // The anchors are copied from the shipped declarations in Redaction.kt, not from 21-REVIEW-2's
+    // §W-06 §Fix. The two agree exactly — checked character by character against the compiled
+    // patterns, and recorded rather than assumed, because a naive side copied from a review would
+    // guard the review instead of the code.
+    //
+    // Parameterising by the key expression is what makes the Pitfall 7 assertion derivable: the same
+    // template built around a group-free placeholder yields the capturing-group count each
+    // consumer's replacement string numbering actually depends on, with no hard-coded 2 anywhere.
+    private fun urlRuleFor(keyExpr: String) = Regex("(?i)([?&](?:$keyExpr)=)[^&\\s\"'<>]+")
+
+    private fun formRuleFor(keyExpr: String) = Regex("(?im)(^|[?&])($keyExpr)=[^&\\s\"'<>]+")
+
+    private fun jsonRuleFor(keyExpr: String) = Regex("(?i)(\"$keyExpr\"\\s*:\\s*)(\"[^\"]*\"|true|false|null|-?\\d+(?:\\.\\d+)?)")
+
+    // (PRIV-05) W-06: the naive side of the equivalence comparison, keyed by the SAME label
+    // Redaction.testKeyRules() reports, so the two are paired by name rather than by position.
+    //
+    // The naive replacement strings are written HERE rather than borrowed from the seam on purpose.
+    // If both sides used the shipped replacement, a drifted replacement would cancel out and be
+    // invisible; written independently, the output-equality assertion below pins all three shipped
+    // replacements as a side effect.
+    private val naiveConsumerContexts: Map<String, KeyRuleContext> =
+        mapOf(
+            "urlTokenParamRegex" to KeyRuleContext(::urlRuleFor, "\$1[REDACTED]") { sc3Query(it) },
+            "formBodyParamRegex" to KeyRuleContext(::formRuleFor, "\$1\$2=[REDACTED]") { sc3Form(it) },
+            "jsonSecretKeyRegex" to KeyRuleContext(::jsonRuleFor, "\$1\"[REDACTED]\"") { sc3Json(it) },
+        )
+
+    // (PRIV-05) W-06: every key name any corpus in this file mentions, plus the camelCase and
+    // accepted-over-redaction names that exercise the boundary rules. Hoisted out of the test body
+    // so the anti-vacuity guard and the loop can be shown to measure the same list.
+    private val equivalenceCorpus =
+        sc3MustRedactKeys + sc3BenignKeys + wr01BroadWordBenignKeys +
+            wr01CredentialBroadWordKeys + wr01AcceptedOverRedactions +
+            listOf(
+                "authToken",
+                "accessToken",
+                "userSessionId",
+                "tokenCount",
+                "keyboardLayout",
+                "monkeyBars",
+                "token_bucket_size",
+                "session_timeout_seconds",
+                "auth_provider",
+                "secret_santa",
+                "password_hint_enabled",
+                "abtest_bucket",
+                "stripe_key",
+                "encrypted_key",
+                "myapi_key",
+            )
+
+    // (PRIV-05) W-06 / Pitfall 7: the highest $n a replacement string references, derived from the
+    // string itself so that nobody has to remember to update a hard-coded number — a hard-coded
+    // expectation would have to be edited by whoever breaks the invariant, which is the wrong
+    // direction of pressure. The negative lookbehind skips an escaped \$, which is a literal dollar
+    // rather than a group reference.
+    private fun maxGroupReference(replacement: String): Int = GROUP_REFERENCE_REGEX.findAll(replacement).map { it.groupValues[1].toInt() }.maxOrNull() ?: 0
+
+    private fun capturingGroupCount(rule: Regex): Int = rule.toPattern().matcher("").groupCount()
+
+    // (PRIV-05) WR-01 / W-06 / T-21-38 / T-21-57 / T-21-58: the shipped SENSITIVE_KEY_EXPR is
+    // hand-factored by first letter for a measured reason (see SENSITIVE_KEY_WORDS in Redaction.kt:
+    // the unfactored WR-01 vocabulary cost +16% on the dominant JSON rule and exhausted the body
+    // stage's 2 s budget on the 4 MB newline-free fixture). Hand-factoring a security-critical
+    // alternation is exactly the kind of change that looks right and is subtly wrong, so it is
+    // CHECKED here rather than trusted. Redaction.naiveKeyExprForTest() is the same expression built
+    // straight from the readable SENSITIVE_WORDS / CREDENTIAL_PREFIXES / BROAD_WORDS constants.
+    //
+    // WHAT THIS GUARDS, AND WHAT THE PREVIOUS FORM DID NOT (W-06).
+    // Until now the comparison was ASYMMETRIC: one naive JSON rule on the left, redactWith(doc,
+    // STRICT) — the WHOLE pipeline — on the right. authHeaderRegex, bearerRegex, basicAuthRegex,
+    // jwtRegex, the other two key consumers, both cookie rules and any custom pattern all run in
+    // there, and ANY of them firing marked the input "redacted" and could MASK an under-match in the
+    // factored form. Eight other rules were free to answer for the one under test. It also exercised
+    // ONE of the three consumers, while the same expression is embedded behind three different
+    // anchors — so a factoring error could be invisible in the JSON rule and live in the form rule.
+    //
+    // The comparison is now RULE FOR RULE, IN EVERY CONTEXT THE EXPRESSION IS EMBEDDED IN. For each
+    // key and each consumer the naive rule and the shipped rule are applied to the same document
+    // with their own replacement strings, and both the classification AND the full output must
+    // agree. Nothing here may call redactWith or Redaction.apply: reintroducing the pipeline is the
+    // defect, not a convenience.
+    //
+    // THIS IS A STRENGTHENING OF THE GUARD, NOT A FIX TO THE CODE IT GUARDS. The 21-REVIEW-2
+    // re-review ran a differential fuzz of the shipped expression against the naive one — 400 000
+    // random keys across all three consumer contexts, 500 000 additional camelCase-heavy keys, and
+    // an exhaustive sweep of every key of length <= 4 over a 14-character alphabet — and found ZERO
+    // divergences, with matching group counts. A future reader must not read this rewrite as
+    // evidence that the shipped vocabulary was ever wrong.
     @Test
     fun factoredKeyVocabularyMatchesItsReadableSpecification() {
-        val naiveJsonRule =
-            Regex(
-                "(?i)(\"${Redaction.NAIVE_KEY_EXPR_FOR_TEST}\"\\s*:\\s*)" +
-                    "(\"[^\"]*\"|true|false|null|-?\\d+(?:\\.\\d+)?)",
-            )
-        val corpus =
-            sc3MustRedactKeys + sc3BenignKeys + wr01BroadWordBenignKeys +
-                wr01CredentialBroadWordKeys + wr01AcceptedOverRedactions +
-                listOf(
-                    "authToken",
-                    "accessToken",
-                    "userSessionId",
-                    "tokenCount",
-                    "keyboardLayout",
-                    "monkeyBars",
-                    "token_bucket_size",
-                    "session_timeout_seconds",
-                    "auth_provider",
-                    "secret_santa",
-                    "password_hint_enabled",
-                    "abtest_bucket",
-                    "stripe_key",
-                    "encrypted_key",
-                    "myapi_key",
-                )
+        val naiveKeyExpr = Redaction.naiveKeyExprForTest()
+        val shippedRules = Redaction.testKeyRules()
 
-        // Guard against the corpus silently emptying — an empty list would make every assertion
-        // below vacuous, which is the failure mode that has bitten this phase five times.
-        assertTrue(corpus.size > 100, "The equivalence corpus must be substantial; was ${corpus.size}")
+        // Coverage asserted rather than assumed: a seam that dropped or renamed a consumer would
+        // otherwise make a third of this test vanish in silence.
+        assertEquals(
+            naiveConsumerContexts.keys,
+            shippedRules.map { it.first }.toSet(),
+            "testKeyRules() must expose exactly the three consumers this test builds naive rules for",
+        )
 
-        for (key in corpus.distinct()) {
-            val doc = """{"$key":"$SC3_SENTINEL"}"""
-            val naiveRedacted = !naiveJsonRule.replace(doc, "$1\"[REDACTED]\"").contains(SC3_SENTINEL)
-            val shippedRedacted = !redactWith(doc, PrivacyMode.STRICT).contains(SC3_SENTINEL)
-            assertEquals(
-                naiveRedacted,
-                shippedRedacted,
-                "The factored vocabulary must classify '$key' exactly as the readable specification does",
-            )
+        // The anti-vacuity guard now measures the list the loop ACTUALLY iterates. It used to
+        // measure `corpus` while the loop ran `corpus.distinct()`, so it bounded neither.
+        val corpus = equivalenceCorpus.distinct()
+        assertTrue(
+            corpus.size > 100,
+            "The equivalence corpus must be substantial; ${equivalenceCorpus.size} entries, ${corpus.size} distinct",
+        )
+
+        var comparisons = 0
+        for ((label, shippedRule, shippedReplacement) in shippedRules) {
+            val context = naiveConsumerContexts.getValue(label)
+            val naiveRule = context.rule(naiveKeyExpr)
+            comparisons += compareRuleForRule(label, corpus, context, naiveRule, shippedRule, shippedReplacement)
+            assertGroupNumberingPinned(label, context, naiveRule, shippedRule, shippedReplacement)
         }
+
+        assertEquals(
+            corpus.size * naiveConsumerContexts.size,
+            comparisons,
+            "Every corpus key must have been compared in every consumer context",
+        )
+    }
+
+    // (PRIV-05) W-06: the like-for-like half — one rule on each side, same document, same context.
+    // Returns the number of comparisons made so the caller can assert the loop was not vacuous.
+    private fun compareRuleForRule(
+        label: String,
+        corpus: List<String>,
+        context: KeyRuleContext,
+        naiveRule: Regex,
+        shippedRule: Regex,
+        shippedReplacement: String,
+    ): Int {
+        var comparisons = 0
+        for (key in corpus) {
+            val doc = context.document(key)
+            val naiveOut = naiveRule.replace(doc, context.naiveReplacement)
+            val shippedOut = shippedRule.replace(doc, shippedReplacement)
+            assertEquals(
+                !naiveOut.contains(SC3_SENTINEL),
+                !shippedOut.contains(SC3_SENTINEL),
+                "$label: the factored vocabulary must classify '$key' exactly as the readable specification does",
+            )
+            // Stronger than the classification above and free: byte-identical output also catches a
+            // renumbered group or a drifted replacement string, neither of which changes whether the
+            // sentinel survives.
+            assertEquals(
+                naiveOut,
+                shippedOut,
+                "$label: the factored and readable forms must produce byte-identical output for '$key'",
+            )
+            comparisons++
+        }
+        return comparisons
+    }
+
+    // (PRIV-05) W-06 / T-21-58 / Pitfall 7: the group numbering every replacement string depends on.
+    //
+    // The expectation is DERIVED, not hard-coded: the same consumer template built around a
+    // group-free placeholder has exactly the capturing groups the consumer itself declares, so
+    // asserting the shipped rule matches it is asserting that SENSITIVE_KEY_EXPR contributes ZERO
+    // capturing groups — which is precisely what clause (c) of its comment in Redaction.kt claims.
+    //
+    // CONCRETE CONSEQUENCE, so nobody has to take Pitfall 7 on trust: turning one of the
+    // expression's (?: groups into a capturing ( shifts every group number after it. In
+    // formBodyParamRegex that puts the key somewhere other than group 2, so "$1$2=[REDACTED]" writes
+    // a fragment of the key — or, if the group is gone entirely, a literal $2 — into the outbound
+    // prompt; in jsonSecretKeyRegex it moves the VALUE out of group 2. Measured during this plan:
+    // NO behavioural test in the suite fails on that mutation, because the expression is always
+    // nested inside a consumer's first capturing group, so the damage is latent rather than
+    // immediate. These two assertions are the only guard on it.
+    private fun assertGroupNumberingPinned(
+        label: String,
+        context: KeyRuleContext,
+        naiveRule: Regex,
+        shippedRule: Regex,
+        shippedReplacement: String,
+    ) {
+        val anchorOnlyGroups = capturingGroupCount(context.rule(GROUP_FREE_KEY_EXPR))
+        val shippedGroups = capturingGroupCount(shippedRule)
+        assertEquals(
+            anchorOnlyGroups,
+            shippedGroups,
+            "$label: SENSITIVE_KEY_EXPR must add NO capturing group (Pitfall 7) — a shifted number " +
+                "makes this rule's replacement write key fragments or a literal \$n into the prompt",
+        )
+        assertEquals(
+            anchorOnlyGroups,
+            capturingGroupCount(naiveRule),
+            "$label: the naive template must carry the same anchors, and therefore the same groups, as the shipped rule",
+        )
+        assertTrue(
+            maxGroupReference(shippedReplacement) <= shippedGroups,
+            "$label: replacement '$shippedReplacement' references a group this rule does not have",
+        )
     }
 
     // (PRIV-05) WR-01: the LIMIT of the narrowing, asserted rather than assumed.
