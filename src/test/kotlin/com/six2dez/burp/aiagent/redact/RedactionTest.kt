@@ -403,6 +403,78 @@ class RedactionTest {
         assertTrue(!output.contains("abc123") && !output.contains("xyz789") && !output.contains("dXNlcjpwYXNz"))
     }
 
+    // W-A: the five header NAMES the phase verifier actually measured reaching an AI backend verbatim
+    // under STRICT and BALANCED. sanitizeHeadersForPrompt admits any header whose lowercased name
+    // CONTAINS "cookie", while the two redaction rules anchored on the exact names "cookie:" and
+    // "set-cookie:" — so everything in between was admitted and never stripped.
+    //
+    // FIXTURE REACHABILITY (the whole point of this test — nine vacuous fixtures in this phase came
+    // from a value some OTHER rule also caught). Each sentinel is a bare lowercase alphabetic word,
+    // so a cookie HEADER rule is the only thing in the pipeline that can remove it:
+    //   - no '=' anywhere on the line => formBodyParamRegex ((^|[?&])KEY=...), urlTokenParamRegex
+    //     ([?&]KEY=...) and cookieTypedParamRegex (NAME=VALUE (type)) all fail to match;
+    //   - the name is unquoted at line start => the JSON rule ("KEY"\s*:\s*VALUE) cannot match, since
+    //     '"' is not a header-name character;
+    //   - no "Bearer "/"Basic " prefix, no dotted "eyJ" segment => bearerRegex, basicAuthRegex and
+    //     jwtRegex all fail to match;
+    //   - none of the five names appears in authHeaderRegex's 14-name list, and none of the sentinels
+    //     is a name in KNOWN_SESSION_KEYS or otherwise reachable by SENSITIVE_KEY_EXPR (which is only
+    //     ever consulted as a KEY immediately followed by '=' or inside quotes);
+    //   - the blob carries no "=== COOKIES ===" header => redactCookieSections never runs on it.
+    // The argument above is checked by MUTATION, not by inspection: reverting either regex to its
+    // exact-name form turns this test red (failure sets recorded in the plan summary).
+    //
+    // The NAME assertions are load-bearing in their own right. The two cookie rules used FIXED
+    // replacement strings, so widening the match alone would have rewritten "X-Cookie: v" into
+    // "Cookie: [STRIPPED]" — silently renaming a header in the analyst's view of the traffic
+    // (T-21-WA2). X-Request-Id is the negative control: it carries no "cookie" in its name and must
+    // survive both modes untouched, which is what distinguishes stripping from blanket header loss.
+    @Test
+    fun cookieHeaderNameVariantsAreStripped() {
+        val input =
+            """
+            GET / HTTP/1.1
+            Host: example.com
+            Cookie2: sentinelalphaone
+            X-Cookie: sentinelbravotwo
+            Set-Cookie2: sentinelcharliethree
+            X-Original-Cookie: sentineldeltafour
+            X-Forwarded-Cookie: sentinelechofive
+            X-Request-Id: benignidcontrolvalue
+
+            """.trimIndent()
+
+        val variants =
+            listOf(
+                "Cookie2" to "sentinelalphaone",
+                "X-Cookie" to "sentinelbravotwo",
+                "Set-Cookie2" to "sentinelcharliethree",
+                "X-Original-Cookie" to "sentineldeltafour",
+                "X-Forwarded-Cookie" to "sentinelechofive",
+            )
+
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+            val policy = RedactionPolicy.fromMode(mode)
+            val output = Redaction.apply(input, policy, stableHostSalt = "salt")
+
+            for ((header, sentinel) in variants) {
+                assertTrue(
+                    !output.contains(sentinel),
+                    "$mode: the value of $header must not reach the prompt (leaked: $output)",
+                )
+                assertTrue(
+                    output.contains("$header: [STRIPPED]"),
+                    "$mode: $header must keep its OWN name, not be renamed to Cookie/Set-Cookie (got: $output)",
+                )
+            }
+
+            assertTrue(
+                output.contains("X-Request-Id: benignidcontrolvalue"),
+                "$mode: a header with no 'cookie' in its name must be left untouched (got: $output)",
+            )
+        }
+    }
+
     @Test
     fun balancedModeRedactsUrlTokensInQueryStrings() {
         val input =

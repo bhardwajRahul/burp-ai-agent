@@ -78,8 +78,32 @@ object Redaction {
     // a benign over-redaction, not a leak.
     private val bearerRegex = Regex("(?i)bearer\\s+[A-Za-z0-9\\-\\._~\\+\\/]+=*")
     private val basicAuthRegex = Regex("(?i)basic\\s+[A-Za-z0-9\\+\\/=]+")
-    private val cookieHeaderRegex = Regex("(?im)^cookie:\\s*.+$")
-    private val setCookieHeaderRegex = Regex("(?im)^set-cookie:\\s*.+$")
+
+    // W-A: an RFC 9110 field-name is a token; the subset that occurs in practice for cookie-bearing
+    // headers is [A-Za-z0-9-]. Used as the "rest of the name" either side of the literal "cookie".
+    private const val COOKIE_NAME_PART = "[A-Za-z0-9-]*"
+
+    // W-A: both rules key on a header whose NAME CONTAINS "cookie", not on the two exact names
+    // "cookie"/"set-cookie". The phase verifier measured five real names — Cookie2, X-Cookie,
+    // Set-Cookie2, X-Original-Cookie, X-Forwarded-Cookie — reaching an AI backend VERBATIM under
+    // STRICT and BALANCED, because sanitizeHeadersForPrompt admits any header whose lowercased name
+    // contains "cookie" while these two rules only removed the two canonical spellings. Matching the
+    // same predicate the prompt builder admits on is what closes that gap, and it is bounded and
+    // complete in a way the open-ended vendor auth-header list below is not.
+    //
+    // Over-redacting a benign header that merely contains "cookie" in its name is accepted
+    // (T-21-WA3): any *cookie* header is cookie-bearing by convention, and only the VALUE is removed.
+    //
+    // The two regexes stay mutually exclusive rather than merely ordered: the negative lookahead
+    // keeps "*set-cookie*" names out of cookieHeaderRegex, so a response header is still reported by
+    // the set-cookie rule and never by the request-cookie one, whatever order apply() runs them in.
+    private val cookieHeaderRegex =
+        Regex(
+            "(?im)^(?!" + COOKIE_NAME_PART + "set-cookie)" +
+                COOKIE_NAME_PART + "cookie" + COOKIE_NAME_PART + ":\\s*.+$",
+        )
+    private val setCookieHeaderRegex =
+        Regex("(?im)^" + COOKIE_NAME_PART + "set-cookie" + COOKIE_NAME_PART + ":\\s*.+$")
 
     /**
      * The passive scanner's dedicated cookie-section header.
@@ -1687,8 +1711,24 @@ object Redaction {
         var out = raw
 
         if (policy.stripCookies) {
-            out = out.replace(cookieHeaderRegex, "Cookie: [STRIPPED]")
-            out = out.replace(setCookieHeaderRegex, "Set-Cookie: [STRIPPED]")
+            // W-A: name-PRESERVING replacements, mirroring authHeaderRegex below. These were fixed
+            // strings ("Cookie: [STRIPPED]"), which was harmless only while the match was pinned to
+            // the two canonical names. Now that the match is name-contains-"cookie", a fixed string
+            // would rewrite "X-Cookie: v" into "Cookie: [STRIPPED]" and silently rename a header in
+            // the analyst's view of the traffic (T-21-WA2). "Cookie" and "Set-Cookie" still render
+            // exactly as before — substringBefore(":") returns them unchanged — which is what keeps
+            // RedactionTest.strictModeStripsCookiesTokensAndHosts and the BountyPromptTagResolver
+            // assertion green WITHOUT edits.
+            out =
+                out.replace(cookieHeaderRegex) { m ->
+                    val header = m.value.substringBefore(":")
+                    "$header: [STRIPPED]"
+                }
+            out =
+                out.replace(setCookieHeaderRegex) { m ->
+                    val header = m.value.substringBefore(":")
+                    "$header: [STRIPPED]"
+                }
             // (PRIV-05) SC1: the passive scanner re-emits cookies as bare name=value lines in a
             // dedicated section, stripped of the prefix the two header rules above key on.
             out = redactCookieSections(out)
