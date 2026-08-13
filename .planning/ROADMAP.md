@@ -215,7 +215,7 @@ Plans:
 - [ ] 22-04-PLAN.md — Gate decision state machine: per-session memory, four actions, the D-12 denial constant, monotone budget helpers (wave 3)
 - [ ] 22-05-PLAN.md — `ToolDecisionReporter`: ordered `mcp_tool_decision` payload, hash-by-default, Output line, `MCP_TOOL_CALL` metadata (wave 3)
 - [ ] 22-06-PLAN.md — `ToolApprovalCard`: trust typography, tier badge, args disclosure, resolution and the compact resolved rows (wave 3)
-- [ ] 22-07-PLAN.md — The gate lands: required `origin` on `executeTool`, card wiring, parked continuation, inverted SC4 acceptance gate (wave 4)
+- [ ] 22-07-PLAN.md — The gate lands: required `origin` on `executeTool`, card wiring, parked continuation, the SC4 acceptance gate on a `CONFIRM`-tier tool (wave 4)
 - [ ] 22-08-PLAN.md — Pending-decision lifecycle across all five teardown paths, SC3 audit wiring, session-list marker (wave 5)
 - [ ] 22-09-PLAN.md — ADR-15, the ADR guard test, `CONCERNS.md` corrections and `22-HUMAN-UAT.md` (wave 6)
 

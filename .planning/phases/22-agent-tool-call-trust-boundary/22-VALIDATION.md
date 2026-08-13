@@ -110,6 +110,15 @@ empty, and a path-scoped revert would break compilation of the eight updated `ex
 test call sites. Only the test sources are copied into the worktree; a compile failure there
 invalidates the proof rather than counting as the red.
 
+**What counts as the red.** The proof is valid **only** when
+`confirmToolDoesNotReachBurpBeforeADecision` fails on the Mockito `never()` verification
+(`NeverWantedButInvoked` / `TooManyActualInvocations`) — that failure is what proves the
+tool reached Burp. A failure only on the companion `assertNotNull(findApprovalCard(...))`
+does **not** count: no card type is wired in at the pre-gate commit, so that assertion is
+trivially red there and says nothing about the defect. JUnit stops at the first failure, so
+the `never()` verification is asserted first; if it passes and only the card assertion
+fails, the harness never reached Burp and must be diagnosed before the proof is accepted.
+
 ---
 
 ## Wave 0 Requirements
@@ -153,7 +162,7 @@ if the harness ships first.
 - [x] Wave 0 covers all MISSING references (plan 22-01 lands the guard, the harness and the baseline test in wave 1)
 - [x] No watch-mode flags
 - [x] Feedback latency < 20s
-- [ ] SC4's acceptance gate confirmed RED against pre-fix `maybeExecuteToolCall` before the fix lands — on the `CONFIRM`-tier `proxy_http_history` assertion, **not** on the `AUTO` `scope_check` baseline, and via the `git worktree` procedure rather than `git stash`
+- [ ] SC4's acceptance gate confirmed RED against pre-fix `maybeExecuteToolCall` before the fix lands — on the `CONFIRM`-tier `proxy_http_history` assertion, **not** on the `AUTO` `scope_check` baseline; via the `git worktree` procedure rather than `git stash`; and counted as red **only** when the Mockito `never()` verification is the assertion that failed, never the companion `findApprovalCard` assertion alone
 - [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** task IDs assigned by `/gsd-plan-phase` on 2026-08-13; SC4's red-before-green proof is enforced as an acceptance criterion of 22-07 Task 3, executed in a `git worktree` pinned to the pre-gate SHA recorded by 22-07 Task 1.

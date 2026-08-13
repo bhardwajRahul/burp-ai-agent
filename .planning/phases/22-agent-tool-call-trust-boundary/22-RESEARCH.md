@@ -680,7 +680,7 @@ verify(api.scope(), atLeastOnce()).isInScope("http://evil.example/")   // GREEN 
 Console output from the measured run: `PROBE3 input=true sendBtn=true` /
 `PROBE3 toolReachedBurp=YES` / `BUILD SUCCESSFUL`.
 
-**The SC4 regression test is the inversion of the last line:**
+**The SC4 regression test is the inversion of the last line:** *(⚠ SUPERSEDED — read the correction note immediately below this code block before copying anything from it. `scope_check` is `AUTO`, so this line is red after the fix too.)*
 
 ```kotlin
 verify(api.scope(), never()).isInScope("http://evil.example/")   // RED today, GREEN after the fix
@@ -689,6 +689,20 @@ assertNotNull(findApprovalCard(panel.root))                      // RED today (n
 
 That is a genuine, behavioural, pre-fix-red assertion against the real production path — not a
 modelled stand-in. It satisfies the Phase 20 SC4 / Phase 21 standard without qualification.
+
+> **Correction appended during planning (2026-08-13, revision 2) — superseded by `22-VALIDATION.md`.**
+> The `never()` line in the code block immediately above is **wrong about `scope_check`**. 22-02's
+> locked tier table classifies `scope_check` as `SecTier.AUTO`, so it still runs silently *after* the
+> gate ships: `verify(api.scope(), never()).isInScope(...)` is red today **and red after the fix**,
+> which makes it unusable as the acceptance assertion. The measured probe itself stands; only the
+> proposal to invert it is superseded.
+>
+> The SC4 acceptance gate lands instead on a **`CONFIRM`**-tier tool — `proxy_http_history`, whose
+> executor branch calls `api.proxy().history()` (`McpToolExecutorImpl.kt:694`) — as
+> `verify(api.proxy(), never()).history()`, paired with `assertNotNull(findApprovalCard(panel.root))`.
+> Those two are red before the gate and green after. The `scope_check` / `atLeastOnce()` probe measured
+> here is **kept unchanged** by plan 22-07 as the `AUTO` companion, proving `AUTO` still runs with no
+> card. Authoritative statement: `22-VALIDATION.md` §"The SC4 acceptance gate, stated concretely".
 
 **Scope judgement for the planner:** the two-line headless guard is a production change that is not
 literally part of SEC-06. Phase 20's precedent is directly on point — plan `20-02` added the
@@ -1210,6 +1224,17 @@ because — measured this session — the model-emitted call reaches `api.scope(
 after the gate lands. A companion assertion, `assertNotNull(findApprovalCard(panel.root))`, also fails
 today because no card exists. Neither is vacuous, neither is modelled, and both exercise the real
 production path from the real Send button.
+
+> **Correction appended during planning (2026-08-13, revision 2) — superseded by `22-VALIDATION.md`.**
+> The claim "It passes after the gate lands" is **false for `scope_check`**, which 22-02's locked tier
+> table classifies as `SecTier.AUTO`: an `AUTO` tool runs silently by design, so
+> `verify(api.scope(), never()).isInScope(...)` stays red after the fix too. The acceptance assertion
+> is therefore `verify(api.proxy(), never()).history()` on the `CONFIRM`-tier `proxy_http_history`
+> (`McpToolExecutorImpl.kt:694`), with `assertNotNull(findApprovalCard(panel.root))` as its companion.
+> 22-01's `scope_check` / `atLeastOnce()` line is **kept** by 22-07 as the `AUTO` companion rather than
+> inverted. The Verification Map row above ("SC4 | **Acceptance gate:** …") is unaffected — only the
+> `scope_check` code block is superseded. See `22-VALIDATION.md` §"The SC4 acceptance gate, stated
+> concretely".
 
 **On the SC1 doc test:** a string-matching test over `DECISIONS.md` is cheap and prevents the ADR from
 silently losing D-05's verbatim sentence, but it is unusual for this repo. If the planner prefers, make

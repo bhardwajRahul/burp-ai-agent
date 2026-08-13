@@ -14,8 +14,9 @@ line numbers given.
 
 | New/Modified File | New? | Role | Data Flow | Closest Analog | Match Quality |
 |-------------------|:----:|------|-----------|----------------|---------------|
-| `src/main/kotlin/com/six2dez/burp/aiagent/mcp/ToolCallOrigin.kt` | NEW | model (sealed type) | transform | `mcp/McpAccessControlDecision.kt:62-101` | exact |
-| `src/main/kotlin/com/six2dez/burp/aiagent/mcp/ToolApprovalGate.kt` | NEW | service (pure policy + state machine) | event-driven | `mcp/McpAccessControlDecision.kt` + `mcp/McpBlockedRequestReporter.kt` | exact |
+| ~~`src/main/kotlin/com/six2dez/burp/aiagent/mcp/ToolCallOrigin.kt`~~ — **not a separate file; folded into `ToolApprovalGate.kt` by plan 22-03** | — | model (sealed type) | transform | `mcp/McpAccessControlDecision.kt:62-101` | exact |
+| `src/main/kotlin/com/six2dez/burp/aiagent/mcp/ToolApprovalGate.kt` | NEW | service (pure policy + state machine) **and home of the `ToolCallOrigin` types** | event-driven | `mcp/McpAccessControlDecision.kt` + `mcp/McpBlockedRequestReporter.kt` | exact |
+| `src/main/kotlin/com/six2dez/burp/aiagent/mcp/ToolDecisionReporter.kt` | NEW | service (audit + telemetry reporter) | event-driven | `mcp/McpBlockedRequestReporter.kt` | exact |
 | `src/main/kotlin/com/six2dez/burp/aiagent/ui/components/ToolApprovalCard.kt` | NEW | component (Swing) | event-driven | `ui/components/ActionCard.kt` (layout) + `ui/components/SubtleNotice.kt` (accent strip, `updateUI`) + `ui/components/SafetyIndicator.kt` (`initialized` guard) | role-match (composite) |
 | `src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpToolCatalog.kt` | MOD | model / static catalog | transform | itself (`:5-14`, `:19-33`) | self |
 | `src/main/kotlin/com/six2dez/burp/aiagent/mcp/tools/McpToolExecutorImpl.kt` | MOD | service (executor) | request-response | itself (`:1019-1039`, `:1114-1121`) | self |
@@ -25,8 +26,11 @@ line numbers given.
 | `src/test/kotlin/com/six2dez/burp/aiagent/mcp/SecTierResolutionTest.kt` | NEW | test (unit, parity) | transform | `mcp/tools/McpToolParityTest.kt` | exact |
 | `src/test/kotlin/com/six2dez/burp/aiagent/mcp/McpToolCatalogTierParityTest.kt` | NEW | test (unit, invariant) | transform | `mcp/tools/McpToolParityTest.kt:17-22` | exact |
 | `src/test/kotlin/com/six2dez/burp/aiagent/mcp/ToolApprovalGateTest.kt` | NEW | test (unit, state machine + audit) | event-driven | `mcp/BlockedRequestReporterTest.kt` | exact |
+| `src/test/kotlin/com/six2dez/burp/aiagent/mcp/ToolDecisionReporterTest.kt` | NEW | test (unit, payload shape + hashing) | transform | `mcp/BlockedRequestReporterTest.kt` | exact |
 | `src/test/kotlin/com/six2dez/burp/aiagent/ui/ChatPanelTestHarness.kt` | NEW | test fixture (Swing) | — | `mcp/tools/McpToolParityTest.kt:44-45` (deep stub) + `TestSettings.kt` | partial — no headless-Swing harness exists |
 | `src/test/kotlin/com/six2dez/burp/aiagent/ui/ChatPanelToolGateTest.kt` | NEW | test (integration, real panel) | event-driven | none in repo (`ChatPanelConcurrencyTest.kt` is a deliberate anti-analog) | partial |
+| `src/test/kotlin/com/six2dez/burp/aiagent/ui/ToolApprovalCardTest.kt` | NEW | test (unit, headless Swing) | event-driven | none in repo — no Swing component test exists yet | partial |
+| `src/test/kotlin/com/six2dez/burp/aiagent/DecisionsAdrTest.kt` | NEW | test (doc assertion, SC1 ADR guard) | transform | none in repo | partial |
 | `src/test/kotlin/com/six2dez/burp/aiagent/ui/McpToolTabModelTest.kt` | MOD | test (unit) | transform | itself (`:21-38`) | self |
 | `.planning/codebase/CONCERNS.md` | MOD | doc | — | itself | self |
 
@@ -34,11 +38,28 @@ line numbers given.
 `mcp/tools/McpToolHandlers.kt` are untouched — the origin parameter goes on `executeTool`, and
 `McpToolHandlers.kt:129` calls `executeToolResult`, whose signature does not change.
 
+**Table currency.** Refreshed on 2026-08-13 (planning revision 2) after the nine-plan split; the
+original table predated it. Two entries are deliberate deviations from the single-file sketch and both
+are **correct as planned, not errors**:
+
+- `ToolCallOrigin` ships **inside** `ToolApprovalGate.kt` rather than as its own file. Plan 22-03 folds
+  it there so the model-originated variant can be *file-private to the gate* — which is precisely the
+  SC5 property a separate file would give away.
+- `ToolDecisionReporter.kt` / `ToolDecisionReporterTest.kt` are plan 22-05's SC3 split out of the gate,
+  which keeps `ToolApprovalGate.kt` a pure policy type with no audit dependency (the
+  `McpAccessControlDecision.kt` purity contract).
+
+The `mcp/ToolCallOrigin.kt` pattern assignment below still applies in full — read it as guidance for the
+`ToolCallOrigin` **types**, wherever they live.
+
 ---
 
 ## Pattern Assignments
 
 ### `mcp/ToolCallOrigin.kt` (model, sealed type) — NEW
+
+> **Where this actually ships:** these types live **inside** `mcp/ToolApprovalGate.kt` (plan 22-03), not
+> in a separate `ToolCallOrigin.kt`. Only the filename changed; everything below applies unaltered.
 
 **Analog:** `src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpAccessControlDecision.kt`
 
