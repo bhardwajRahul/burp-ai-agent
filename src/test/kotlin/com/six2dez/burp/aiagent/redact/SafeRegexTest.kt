@@ -27,8 +27,16 @@ class SafeRegexTest {
         assertTrue(SafeRegex.isPatternSafe("\\d+"), "Benign pattern \\d+ must be accepted")
     }
 
-    // PRIV-02 / SC3: replaceAllSafe on a catastrophic pattern with a long matching-resistant
-    // input must return the original input unchanged (fail-open) and not hang.
+    // PRIV-02 / SC3 / WR-03: THE TEXT HALF of the bounded-replacement contract — on timeout the
+    // returned text is the ORIGINAL input, unchanged and uncorrupted, and the call does not hang.
+    //
+    // This assertion used to run against the deleted replaceAllSafe façade. WR-03 removed that
+    // façade (see SafeReplaceResult's KDoc); the fail-soft TEXT behaviour it pinned is unchanged and
+    // is still a real, separately-stated guarantee, so the assertion moved onto
+    // replaceAllSafeReporting(...).text rather than being dropped. D-14's clause that
+    // "SafeRegexTest:44 stays green unchanged" described plan 21-02's scope, and is superseded by
+    // the maintainer's 2026-08-12 decision to close WR-03 — the behaviour survives, the façade does
+    // not.
     @Test
     fun catastrophicPatternTimesOutAndReturnsInput() {
         // 2 000 'a' characters followed by '!' — on JDK 21 this reliably triggers the 50 ms
@@ -38,18 +46,24 @@ class SafeRegexTest {
         val pattern = Pattern.compile("(a+)+\$")
 
         val start = System.currentTimeMillis()
-        val result = SafeRegex.replaceAllSafe(input, pattern, "[REDACTED]")
+        val result = SafeRegex.replaceAllSafeReporting(input, pattern, "[REDACTED]").text
         val elapsed = System.currentTimeMillis() - start
 
-        assertEquals(input, result, "On timeout replaceAllSafe must return the original input unchanged (fail-open)")
-        assertTrue(elapsed < 200L, "replaceAllSafe must return within 200 ms; took $elapsed ms")
+        assertEquals(
+            input,
+            result,
+            "On timeout replaceAllSafeReporting(...).text must be the original input unchanged (fail-soft on the text)",
+        )
+        assertTrue(elapsed < 200L, "replaceAllSafeReporting must return within 200 ms; took $elapsed ms")
     }
 
-    // PRIV-06 / D-14: the pair of tests is deliberate. catastrophicPatternTimesOutAndReturnsInput
-    // above pins the fail-open FAÇADE (replaceAllSafe returns the input, and callers depend on it);
-    // this one pins the SIGNAL that makes fail-closed possible. The returned text is identical in
-    // both the "no matches" and the "timed out" cases, so timedOut is the only way a body-redaction
-    // caller can tell that a window was never fully scanned and must be dropped rather than sent.
+    // PRIV-06 / D-14: the pair of tests is deliberate, and stays a pair after WR-03.
+    // catastrophicPatternTimesOutAndReturnsInput above pins the TEXT half ("what you get back is
+    // safe"); this one pins the FLAG half ("you can tell that you got it back for the wrong
+    // reason"), which is what makes fail-closed possible. The returned text is identical in both the
+    // "no matches" and the "timed out" cases, so timedOut is the only way a body-redaction caller
+    // can tell that a window was never fully scanned and must be dropped rather than sent. Merging
+    // the two would lose exactly that distinction.
     @Test
     fun catastrophicPatternReportsTimedOut() {
         // Same input and pattern as catastrophicPatternTimesOutAndReturnsInput — 2 000 'a'
@@ -96,15 +110,20 @@ class SafeRegexTest {
         }
     }
 
-    // PRIV-02: replaceAllSafe on a benign pattern must apply the replacement correctly.
+    // PRIV-02 / WR-03: the counter-assertion to catastrophicPatternTimesOutAndReturnsInput — a
+    // benign pattern must actually APPLY its replacement. Without it, "returns the input unchanged"
+    // would be satisfiable by a function that never replaces anything at all. Moved onto
+    // replaceAllSafeReporting(...).text when WR-03 deleted the un-reporting façade; the guarantee is
+    // unchanged.
     @Test
     fun benignReplaceAppliesReplacement() {
         val result =
-            SafeRegex.replaceAllSafe(
-                "id=12345",
-                Pattern.compile("\\d+"),
-                "[REDACTED]",
-            )
+            SafeRegex
+                .replaceAllSafeReporting(
+                    "id=12345",
+                    Pattern.compile("\\d+"),
+                    "[REDACTED]",
+                ).text
         assertEquals("id=[REDACTED]", result)
     }
 }

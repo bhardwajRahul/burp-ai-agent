@@ -1954,10 +1954,11 @@ class RedactionTest {
     // produce a MARKER, never passthrough.
     //
     // This is the fail-CLOSED half of SC4 and the explicit guard against treating
-    // SafeRegex.replaceAllSafe's return value as success: on timeout that facade returns the input
-    // unchanged, byte-identical to "the pattern matched nothing", so a body stage built on it would
-    // silently emit unscanned bytes while looking correct. Only the timedOut flag from
-    // replaceAllSafeReporting can tell the two apart.
+    // SafeRegex.replaceAllSafeReporting(...).text as success without checking timedOut: on timeout
+    // that text is the input unchanged, byte-identical to "the pattern matched nothing", so a body
+    // stage that assigned it blind would silently emit unscanned bytes while looking correct. Only
+    // the timedOut flag tells the two apart. (WR-03 deleted the String-returning replaceAllSafe
+    // façade this comment used to name, so the hazard is now spelled out in the form that ships.)
     //
     // (a+)+$ is the classic catastrophic-backtracking pattern and 2 000 'a' characters followed by
     // '!' is the input shape SafeRegexTest already proves trips the 50 ms deadline on JDK 21. It is
@@ -2013,10 +2014,10 @@ class RedactionTest {
     // width too, not only above it.
     //
     // The sibling above covers oversized input. This one covers the single-pass path, which plan
-    // 21-06 shipped assigning SafeRegex.replaceAllSafe's return value: that facade returns its
-    // input unchanged on timeout, byte-identical to "the pattern matched nothing", so a rule that
-    // overran the 50 ms deadline was silently skipped and its unredacted content passed straight
-    // through. That is fail-OPEN, one size class below the defect the phase exists to remove, and
+    // 21-06 shipped assigning the return value of the since-deleted SafeRegex.replaceAllSafe façade
+    // (WR-03): that value was replaceAllSafeReporting's .text, which on timeout is the input
+    // unchanged, byte-identical to "the pattern matched nothing", so a rule that overran the 50 ms
+    // deadline was silently skipped and its unredacted content passed straight through. That is fail-OPEN, one size class below the defect the phase exists to remove, and
     // it is what this test pins shut. The fix discards the partial result and re-scans the ORIGINAL
     // input through the windowed path, which already drops unscannable content behind a marker.
     //

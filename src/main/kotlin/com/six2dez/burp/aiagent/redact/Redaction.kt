@@ -156,10 +156,11 @@ object Redaction {
     // milliseconds per megabyte rather than the exponential blow-up SafeRegex exists to stop.
     //
     // DELIBERATELY NOT ROUTED THROUGH SafeRegex, and this is a decision rather than an oversight.
-    // SafeRegex.replaceAllSafe returns the ORIGINAL input on timeout, which for THIS rule means the
-    // unredacted cookie section passed straight through — fail OPEN, in direct contradiction of
-    // D-02. Using replaceAllSafeReporting and branching on timedOut would be the correct adoption,
-    // and it is a behaviour change (what to drop, and how much) outside this plan's surface.
+    // SafeRegex.replaceAllSafeReporting(...).text is the ORIGINAL input on timeout, so ASSIGNING
+    // THAT TEXT WITHOUT BRANCHING ON timedOut would for THIS rule mean the unredacted cookie section
+    // passed straight through — fail OPEN, in direct contradiction of D-02. Adopting SafeRegex here
+    // therefore means branching on timedOut, and that is a behaviour change (what to drop, and how
+    // much) outside this plan's surface.
     // RECORDED AS A RESIDUAL rather than claimed closed: a single cookie section is currently
     // rewritten with no per-match deadline at all, accepted on the linearity argument above.
     //
@@ -1010,10 +1011,12 @@ object Redaction {
     // windowed path, runs through SafeRegex.replaceAllSafeReporting, and a timedOut flag is never
     // ignored: above the window width the affected window is DROPPED behind a marker, and at or
     // below it the partial result is discarded and the whole input is re-scanned through the
-    // windowed path. Assigning replaceAllSafe's return value anywhere in this stage would be
-    // fail-OPEN at exactly the moment D-02 demands fail-closed, because on timeout it returns the
-    // input unchanged — byte-identical to "the pattern matched nothing" (T-21-03). There is
-    // therefore no size at which a body rule can time out and its unscanned bytes still be emitted.
+    // windowed path. Assigning replaceAllSafeReporting(...).text anywhere in this stage WITHOUT
+    // branching on timedOut would be fail-OPEN at exactly the moment D-02 demands fail-closed,
+    // because on timeout that text is the input unchanged — byte-identical to "the pattern matched
+    // nothing" (T-21-03). WR-03 deleted the String-returning façade that made that mistake a
+    // one-word autocomplete, so it now takes a deliberate discard of the flag. There is therefore no
+    // size at which a body rule can time out and its unscanned bytes still be emitted.
     @Suppress("ReturnCount")
     private fun bodyStage(
         input: String,
@@ -1034,11 +1037,14 @@ object Redaction {
         // SafeRegex) and now all of them do.
         //
         // (PRIV-06) D-02 / D-14: that new deadline must not smuggle a fail-OPEN back in.
-        // SafeRegex.replaceAllSafe returns its input UNCHANGED on timeout, byte-identical to "the
-        // pattern matched nothing", so assigning its result here would silently skip an overrunning
-        // rule and emit unredacted content on the common path — the exact failure mode this phase
-        // exists to remove, reintroduced one size class lower. replaceAllSafeReporting's timedOut
-        // flag is the only signal that tells the two cases apart, so it is what is branched on.
+        // SafeRegex.replaceAllSafeReporting yields its input UNCHANGED as .text on timeout,
+        // byte-identical to "the pattern matched nothing", so assigning that text here WITHOUT
+        // branching on timedOut would silently skip an overrunning rule and emit unredacted content
+        // on the common path — the exact failure mode this phase exists to remove, reintroduced one
+        // size class lower. The timedOut flag is the only signal that tells the two cases apart, so
+        // it is what is branched on. WR-03 deleted the String-returning façade that once offered the
+        // fail-open form by autocomplete; making that mistake now requires dropping the flag on
+        // purpose.
         //
         // On timeout the PARTIAL result is discarded and the ORIGINAL input is handed to
         // windowedScan, which already fails closed (halve-and-retry to WINDOW_RETRY_MAX_DEPTH, then
@@ -1135,8 +1141,9 @@ object Redaction {
     //
     // The minOf() is what stops a per-pattern deadline outliving the total budget: a rule starting
     // with 12 ms of budget left gets a 12 ms deadline and REPORTS a timeout instead of overrunning.
-    // replaceAllSafe's return value is never assigned here — on timeout it returns the input
-    // unchanged, indistinguishable from "no matches".
+    // replaceAllSafeReporting(...).text is never taken here without first branching on timedOut — on
+    // timeout that text is the input unchanged, indistinguishable from "no matches". WR-03 removed
+    // the String-returning façade that used to hide that hazard behind a plain return type.
     private fun scanWindow(
         window: String,
         rules: List<Pair<Pattern, String>>,

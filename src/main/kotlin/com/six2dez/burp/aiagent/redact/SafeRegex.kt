@@ -61,6 +61,21 @@ object SafeRegex {
      * finished" case, so a caller that inspects [text] alone cannot tell those two apart. A caller
      * that must fail closed — a body-redaction window whose unscanned bytes must never reach a
      * backend — has to branch on [timedOut], never on whether [text] changed.
+     *
+     * WR-03: THERE IS DELIBERATELY NO UN-REPORTING FAÇADE, and this note exists so the next person
+     * who wants one finds the reason here instead of re-adding it.
+     *
+     * The DELETED function was `replaceAllSafe` — a `String`-returning one-line delegate that sat
+     * beside [replaceAllSafeReporting] and returned exactly this [text] (the name is spelled out on
+     * this line on purpose, so that grepping for it lands on its obituary). It ended Phase 21 with
+     * ZERO production callers while its own KDoc named its hazard — "fail-open", "conflates
+     * 'matched nothing' with 'timed out'" — i.e. a public fail-open replacement entry point inside
+     * the redaction package, one autocomplete away from the next contributor who adds a rule. It was
+     * removed (maintainer scope decision, 2026-08-12) rather than deprecated, because a `String`
+     * return type structurally CANNOT carry [timedOut] and D-02 requires every body rule to fail
+     * CLOSED on a timeout: a deprecated-but-callable fail-open helper is still a fail-open helper.
+     * The shape that replaces it is explicit and one line longer:
+     * `val r = replaceAllSafeReporting(...); if (r.timedOut) <fail closed> else r.text`.
      */
     data class SafeReplaceResult(
         val text: String,
@@ -71,10 +86,13 @@ object SafeRegex {
      * Replaces all matches of [pattern] in [input] with [replacement], bounding the match to
      * [timeoutMs] milliseconds, and reports whether the match ran to completion (PRIV-06 / D-14).
      *
-     * On timeout [SafeReplaceResult.text] is the ORIGINAL [input] — the same fail-soft text
-     * behaviour as [replaceAllSafe] — but [SafeReplaceResult.timedOut] is true, which is what
-     * lets a caller drop unscanned content instead of silently passing it through. See
-     * [SafeReplaceResult] for why the flag, not the text, is the signal.
+     * This is the ONLY replacement entry point in the redaction package (WR-03).
+     *
+     * On timeout [SafeReplaceResult.text] is the ORIGINAL [input] — fail-soft on the TEXT, so the
+     * redaction pipeline never hangs and never corrupts content on account of a slow pattern — but
+     * [SafeReplaceResult.timedOut] is true, which is what lets a caller drop unscanned content
+     * instead of silently passing it through. See [SafeReplaceResult] for why the flag, not the
+     * text, is the signal, and for why no `String`-returning convenience wrapper exists.
      */
     fun replaceAllSafeReporting(
         input: String,
@@ -90,24 +108,6 @@ object SafeRegex {
             // Fail-soft on the text as before, but report the timeout so the caller can fail closed.
             SafeReplaceResult(input, true)
         }
-
-    /**
-     * Replaces all matches of [pattern] in [input] with [replacement], bounding the match to
-     * [timeoutMs] milliseconds.
-     *
-     * If the pattern times out (RegexTimeoutException from the DeadlineCharSequence), the
-     * ORIGINAL [input] is returned unchanged — fail-open so the redaction pipeline never hangs
-     * and never corrupts content on account of a slow pattern.
-     *
-     * This façade therefore conflates "matched nothing" with "timed out"; callers that must tell
-     * the two apart use [replaceAllSafeReporting] instead.
-     */
-    fun replaceAllSafe(
-        input: String,
-        pattern: Pattern,
-        replacement: String,
-        timeoutMs: Long = DEFAULT_TIMEOUT_MS,
-    ): String = replaceAllSafeReporting(input, pattern, replacement, timeoutMs).text
 
     /**
      * Returns true if [regex] compiles successfully AND finishes matching the adversarial probe
