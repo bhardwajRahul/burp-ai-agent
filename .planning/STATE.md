@@ -4,12 +4,12 @@ milestone: v0.10.0
 milestone_name: — Security Correctness & Agent Trust
 status: executing
 stopped_at: Phase 22 UI-SPEC approved
-last_updated: "2026-08-13T12:15:23.681Z"
-last_activity: 2026-08-13
+last_updated: "2026-08-13T13:58:20.923Z"
+last_activity: 2026-08-13 -- Phase 22 planning complete
 progress:
   total_phases: 7
   completed_phases: 2
-  total_plans: 29
+  total_plans: 38
   completed_plans: 29
   percent: 29
 ---
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 Phase: 22
 Plan: Not started
-Status: Executing Phase 21
+Status: Ready to execute
 Resume file: .planning/phases/22-agent-tool-call-trust-boundary/22-UI-SPEC.md
-Last activity: 2026-08-13
+Last activity: 2026-08-13 -- Phase 22 planning complete
 
 ## Milestone Origin
 
