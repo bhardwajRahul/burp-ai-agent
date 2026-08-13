@@ -56,7 +56,7 @@ prefixed with `JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 22-01 T1 | 22-01 | 1 | SEC-06 / SC4 | T-22-13 | Headless guard on `ChatPanel.kt:377-380` lets a real `ChatPanel` construct under test; `tasks.test` runs headless | infra | `./gradlew test` | ➡️ 22-01 | ⬜ pending |
 | 22-01 T2 | 22-01 | 1 | SEC-06 / SC4 | T-22-13 | Shared harness constructs a real `ChatPanel` from deep stubs and drives the real Send button | infra | `./gradlew compileTestKotlin` | ➡️ 22-01 | ⬜ pending |
-| 22-01 T3 | 22-01 | 1 | SEC-06 / SC4 | T-22-01 | **Pre-fix baseline** — a model-emitted call reaches Burp with no decision (GREEN today; 22-07 T3 inverts it) | integration | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ➡️ 22-01 | ⬜ pending |
+| 22-01 T3 | 22-01 | 1 | SEC-06 / SC4 | T-22-01 | **Pre-fix baseline** — a model-emitted `scope_check` reaches Burp with no decision (GREEN today; `scope_check` is `AUTO`, so 22-07 T3 **keeps** this as the `atLeastOnce()` companion and puts the `never()` gate assertion on `proxy_http_history`) | integration | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ➡️ 22-01 | ⬜ pending |
 | 22-02 T1 | 22-02 | 1 | SEC-06 / SC6 | T-22-14, T-22-15 | All 59 catalog tools declare a required non-defaulted `secTier`; omitting one does not compile | unit + compile | `./gradlew test` | ➡️ 22-02 | ⬜ pending |
 | 22-02 T2 | 22-02 | 1 | SEC-06 / SC6 | T-22-02, T-22-15 | The `AUTO` set is exactly the enumerated 19; no `unsafeOnly` tool is `AUTO`; `ai_analyze`/`ai_passive_scan` prove the axes are independent | unit | `./gradlew test --tests "*McpToolCatalogTierParityTest*"` | ➡️ 22-02 | ⬜ pending |
 | 22-03 T1 | 22-03 | 2 | SEC-06 / SC6 | T-22-12 | Gate and executor consume one `canonicalToolId`; no alias map exists under `ui/` | unit | `./gradlew test` | ➡️ 22-03 | ⬜ pending |
@@ -71,7 +71,7 @@ prefixed with `JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
 | 22-06 T3 | 22-06 | 3 | SEC-06 / SC2 | T-22-07, T-22-26, T-22-27 | `getClientProperty("html")` is null on every `JLabel`/`AbstractButton`; unknown tool labelled; button counts per tier | unit (headless Swing) | `./gradlew test --tests "*ToolApprovalCardTest*"` | ➡️ 22-06 | ⬜ pending |
 | 22-07 T1 | 22-07 | 4 | SEC-06 / SC5 | T-22-11, T-22-19 | `executeTool` requires a non-defaulted origin at all eleven call sites; the gate runs before the executor; every non-`Run` outcome is fail-closed | unit + compile | `./gradlew test` | ➡️ 22-07 | ⬜ pending |
 | 22-07 T2 | 22-07 | 4 | SEC-06 / SC2 | T-22-01, T-22-31 | The card supplies the decision; `AWAITING_DECISION` parks `onCompleted`; no branch leaves it undischarged; no new EDT marshalling | unit | `./gradlew test` | ➡️ 22-07 | ⬜ pending |
-| 22-07 T3 | 22-07 | 4 | SEC-06 / SC2, SC4, SC5 | T-22-01, T-22-32 | **ACCEPTANCE GATE — must be RED against pre-gate code.** A `CONFIRM` model call never reaches Burp before a decision; `AUTO` still runs silently; neither user path is double-prompted | integration (real `ChatPanel`, real Send button) | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ➡️ 22-07 | ⬜ pending |
+| 22-07 T3 | 22-07 | 4 | SEC-06 / SC2, SC4, SC5 | T-22-01, T-22-32 | **ACCEPTANCE GATE — must be RED against pre-gate code**, proven in a `git worktree` pinned to the SHA 22-07 T1 records (never `git stash`). Ten tests: a `CONFIRM` model call never reaches Burp before a decision; `AUTO` still runs silently; neither user path is double-prompted; eight denials terminate the chain with no ninth turn | integration (real `ChatPanel`, real Send button) | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ➡️ 22-07 | ⬜ pending |
 | 22-08 T1 | 22-08 | 5 | SEC-06 / SC2 | T-22-10, T-22-33, T-22-36 | All five teardown paths route through one `resolvePending`; no implicit denial starts a backend turn; `:342` discarded-fallback fixed | unit | `./gradlew test` | ➡️ 22-08 | ⬜ pending |
 | 22-08 T2 | 22-08 | 5 | SEC-06 / SC3 | T-22-09 | Every resolved branch — including `AUTO` and all five implicit-denial reasons — reports; the metadata map is merged, not duplicated | unit | `./gradlew test` | ➡️ 22-08 | ⬜ pending |
 | 22-08 T3 | 22-08 | 5 | SEC-06 / SC2, SC3 | T-22-34, T-22-35 | `Awaiting approval` marker; scroll-to-pending on session switch; four lifecycle/audit integration tests | integration | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ➡️ 22-08 | ⬜ pending |
@@ -82,14 +82,33 @@ prefixed with `JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
 **The SC4 acceptance gate, stated concretely.** Research measured that against today's
-`ChatPanel.maybeExecuteToolCall`, a model-emitted `scope_check` reaches
-`api.scope().isInScope("http://evil.example/")` with no user decision. The assertion
-`verify(api.scope(), never()).isInScope("http://evil.example/")` therefore **fails today
-and passes after the gate lands**. A companion assertion,
-`assertNotNull(findApprovalCard(panel.root))`, also fails today. Neither is vacuous and
-neither is modelled — both drive the real production path from the real Send button. This
-follows the Phase 20 SC4 / Phase 21 rule: **a test that passes both before and after the
-change has not tested the defect.**
+`ChatPanel.maybeExecuteToolCall`, a model-emitted tool call reaches Burp with no user
+decision at all. The probe used `scope_check` and `api.scope().isInScope("http://evil.example/")`,
+which plan 22-01 lands as the **pre-fix baseline**.
+
+`scope_check` cannot be the acceptance assertion, because it is `SecTier.AUTO` in 22-02's
+locked tier table and therefore still runs silently **after** the gate ships — inverting it
+to `never()` would assert the opposite of the shipped behaviour. The acceptance gate
+therefore uses a **`CONFIRM`**-tier tool: **`proxy_http_history`**, whose executor branch
+calls `api.proxy().history()` (`McpToolExecutorImpl.kt:694`). Against the pre-gate code that
+call reaches Burp with no decision, so both of
+
+- `verify(api.proxy(), never()).history()`, and
+- `assertNotNull(findApprovalCard(panel.root))`
+
+**fail before the gate lands and pass after it.** 22-01's `scope_check` / `atLeastOnce()`
+assertion is kept unchanged alongside them as the **`AUTO` companion**, proving `AUTO` still
+runs with no card. Neither gate assertion is vacuous and neither is modelled — all three
+drive the real production path from the real Send button. This follows the Phase 20 SC4 /
+Phase 21 rule: **a test that passes both before and after the change has not tested the
+defect.**
+
+The red-before-green proof is executed by 22-07 Task 3 in a `git worktree` pinned to the
+pre-gate SHA that 22-07 Task 1 records to `/tmp/sec06-pregate.sha`. It must **not** use
+`git stash`: GSD commits per task, so nothing is uncommitted by then and the stash would be
+empty, and a path-scoped revert would break compilation of the eight updated `executeTool`
+test call sites. Only the test sources are copied into the worktree; a compile failure there
+invalidates the proof rather than counting as the red.
 
 ---
 
@@ -129,12 +148,12 @@ if the harness ships first.
 
 ## Validation Sign-Off
 
-- [x] All tasks have `<automated>` verify or Wave 0 dependencies (23/23 tasks carry an `<automated>` command)
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies (**24/24** tasks carry an `<automated>` command — 22-01: 3, 22-02: 2, 22-03: 3, 22-04: 2, 22-05: 2, 22-06: 3, 22-07: 3, 22-08: 3, 22-09: 3)
 - [x] Sampling continuity: no 3 consecutive tasks without automated verify (every task has one)
 - [x] Wave 0 covers all MISSING references (plan 22-01 lands the guard, the harness and the baseline test in wave 1)
 - [x] No watch-mode flags
 - [x] Feedback latency < 20s
-- [ ] SC4's acceptance gate confirmed RED against pre-fix `maybeExecuteToolCall` before the fix lands
+- [ ] SC4's acceptance gate confirmed RED against pre-fix `maybeExecuteToolCall` before the fix lands — on the `CONFIRM`-tier `proxy_http_history` assertion, **not** on the `AUTO` `scope_check` baseline, and via the `git worktree` procedure rather than `git stash`
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** task IDs assigned by `/gsd-plan-phase` on 2026-08-13; SC4's red-before-green proof is enforced as an acceptance criterion of 22-07 Task 3.
+**Approval:** task IDs assigned by `/gsd-plan-phase` on 2026-08-13; SC4's red-before-green proof is enforced as an acceptance criterion of 22-07 Task 3, executed in a `git worktree` pinned to the pre-gate SHA recorded by 22-07 Task 1.

@@ -1294,7 +1294,10 @@ Scoped to a desktop JVM plugin with an embedded MCP server. Verified against the
 Everything else in this document was measured against the running build or read directly from the
 source at `HEAD` (`44610a5`).
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All five were decided during `/gsd-plan-phase` on 2026-08-13. Each carries the resolution and
+> the plan that owns it inline; nothing below is still open.
 
 1. **Should `clearCurrentChat()` also clear D-10's approval sets?**
    - What we know: it already resets `toolCatalogSent` and `toolsMode` (`ChatPanel:994-998`), and it
@@ -1303,6 +1306,9 @@ source at `HEAD` (`44610a5`).
      session.
    - Recommendation: **clear them.** Clear Chat is the user declaring a new task, which is exactly
      D-10's stated justification for re-consent. Record the choice in ADR-15 so it is not re-litigated.
+   - **RESOLVED: plan `22-08` Task 1 step 3** clears the session's `approvalMemory` inside
+     `clearCurrentChat()` alongside the existing `toolCatalogSent` / `toolsMode` reset (threat T-22-34);
+     plan `22-09` Task 1 records the choice in ADR-15.
 
 2. **Should the resolved decision be appended to `session.messages` so it survives restart and Markdown export?**
    - What we know: today `maybeExecuteToolCall` calls `panel.addMessage("Tool result: …", result)` but
@@ -1315,6 +1321,9 @@ source at `HEAD` (`44610a5`).
      as history — a new prompt-injection surface for no stated requirement. Note the limitation in
      ADR-15 under "claim only what ships": the card is a live-session record, not a durable audit trail;
      the durable record is the SC3 audit event.
+   - **RESOLVED: not persisted.** No plan writes decisions to `session.messages`; plan `22-09` Task 1
+     records the limitation in ADR-15 under "claim only what ships", and plan `22-08` Task 2 makes the
+     SC3 `mcp_tool_decision` event the durable record instead.
 
 3. **Is the Wave-0 headless guard inside this phase's scope?**
    - What we know: it is a two-line additive change to a file this phase already modifies, and without
@@ -1324,6 +1333,9 @@ source at `HEAD` (`44610a5`).
      scope for v0.10.0.
    - Recommendation: **in scope, as its own Wave-0 plan**, justified in the plan text by the Phase 20
      precedent. It is additive, not structural.
+   - **RESOLVED: plan `22-01`** (wave 1) lands the `ChatPanel.kt:377-380` guard, the
+     `-Djava.awt.headless=true` `jvmArg` and the shared harness in their own commit, exactly as
+     recommended and citing the Phase 20 `20-02` precedent.
 
 4. **Does `AUTO` include the six args-only parsers (`request_parse`, `response_parse`, `params_extract`, `insertion_points`, `diff_requests`, `find_reflected`)?**
    - What we know: they are pure transforms of text the model already holds; no new data enters context.
@@ -1332,6 +1344,9 @@ source at `HEAD` (`44610a5`).
      scope reads", and these are none of the three. Including them makes `AUTO` 19 of 59 rather than 13.
    - Recommendation: **`AUTO`** — the definition governs, the parenthetical illustrates. But this is the
      single biggest judgement in the table and the planner should make it consciously.
+   - **RESOLVED: `AUTO`, consciously.** Plan `22-02` Task 1 locks the `AUTO` set at exactly 19 tools
+     including all six args-only parsers, and Task 2's `McpToolCatalogTierParityTest` pins that exact set
+     so any future promotion is a deliberate, reviewed diff.
 
 5. **Does SC1 get an automated test or a human-UAT item?**
    - What we know: Phases 20 and 21 both shipped `*-HUMAN-UAT.md` files for items automation could not
@@ -1339,6 +1354,9 @@ source at `HEAD` (`44610a5`).
    - Recommendation: human-UAT item, unless the planner wants a cheap string-match guard for D-05's
      verbatim sentence specifically. Do not leave it unassigned — an ADR is the one SC that is easy to
      mark done without checking.
+   - **RESOLVED: both.** Plan `22-09` Task 2 adds `DecisionsAdrTest` as the cheap string-match guard on
+     D-05's verbatim sentence, and Task 3 ships `22-HUMAN-UAT.md` carrying ADR-15's factual-accuracy
+     review plus the three other manual verifications listed in `22-VALIDATION.md`.
 
 ## Sources
 
