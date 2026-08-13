@@ -246,6 +246,27 @@ object App {
         }
         safeShutdownStep("Alerting client") { Alerting.shutdownClient() }
         safeShutdownStep("Redaction mappings") { Redaction.clearMappings() }
+        // (PRIV-06) WR-04 / W-08 / T-21-66: unwire the truncation sink beside clearMappings(), so
+        // both pieces of Redaction's global state are released together. The lambda set in
+        // initialize() captures `api`, and Redaction is a singleton that outlives this extension
+        // instance, so leaving it wired hands a torn-down api.logging() to whatever redaction is
+        // still in flight on a Burp scanner thread or an MCP tool thread. Every other global sink
+        // here is already unwired — BackendDiagnostics.retry above, AuditLogger's emitter below —
+        // and this was the one addition that was set and never cleared.
+        //
+        // WHAT CHANGED SINCE PLAN 21-12 DEFERRED THIS. The deferral called it a teardown-race
+        // robustness issue, accurate at the time: maybeLogTruncation was only reachable from
+        // windowedScan's budget-exhaustion branch and dropOrRetry, i.e. oversized bodies. This phase
+        // added a third call site inside redactCookieSections, which runs in the HEADER stage of
+        // every Redaction.apply where stripCookies is true — the default BALANCED mode, on every MCP
+        // tool call and every passive scan, not only on oversized bodies. The window is now reachable
+        // far more often than when it was recorded.
+        //
+        // This step is SOURCE-ASSERTED, not test-asserted: shutdown() needs a live MontoyaApi, so no
+        // unit test exercises it. The defence that IS automated is maybeLogTruncation's runCatching
+        // (RedactionTest.truncationLoggerThatThrowsDoesNotAbortRedaction), which keeps the race
+        // harmless even if this line is ever removed.
+        safeShutdownStep("Redaction truncation sink") { Redaction.truncationLogger = null }
         AuditLogger.registerGlobalEmitter(null)
     }
 

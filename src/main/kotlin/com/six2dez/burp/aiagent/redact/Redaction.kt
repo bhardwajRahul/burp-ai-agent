@@ -767,9 +767,11 @@ object Redaction {
     /**
      * (PRIV-06) D-03: optional sink for the truncation notice.
      *
-     * Wired in App.initialize to api.logging()::logToOutput, beside the other diagnostics sinks. It
-     * is null in tests and in headless contexts and the redaction pipeline never depends on it —
-     * a missing sink costs the user visibility, never correctness.
+     * Wired in App.initialize to api.logging()::logToOutput, beside the other diagnostics sinks, and
+     * UNWIRED in App.shutdown() beside Redaction.clearMappings() (WR-04). It is null in tests and in
+     * headless contexts and the redaction pipeline never depends on it — a missing sink costs the
+     * user visibility, never correctness, and since WR-04 the same is true of a sink that THROWS
+     * (see [maybeLogTruncation]'s runCatching).
      *
      * @Volatile because the write happens on the EDT at startup while the reads happen on scanner
      * threads and MCP tool threads. Modelled on backends/BackendDiagnostics.output, which is the
@@ -805,6 +807,23 @@ object Redaction {
      *
      * [droppedChars] is a count, never the dropped text. The emitted line carries counts only and
      * can therefore never echo attacker-controlled content into the Output tab (T-21-22).
+     *
+     * (PRIV-06) WR-04 / W-08 / T-21-65 — A FAILING SINK COSTS VISIBILITY, NEVER CORRECTNESS. The
+     * [truncationLogger] KDoc already promises that of a MISSING sink; the runCatching below makes
+     * it true of a THROWING one. The concrete failure mode is not hypothetical: App.initialize sets
+     * the sink to a lambda that captures `api`, and `api.logging()` on a torn-down extension throws.
+     * Without the wrap that throw propagates out through redactCookieSections -> apply -> the
+     * caller, so a lost diagnostic line becomes a failed redaction on a scanner or MCP tool thread.
+     * App.shutdown() nulls the sink, but a pass already in flight can still be between the teardown
+     * and that assignment — the wrap is what makes the race harmless, and it holds even if the
+     * shutdown step is ever removed.
+     *
+     * THE WRAP ENCLOSES THE SINK INVOCATION AND NOTHING ELSE, deliberately. The limiter read, the
+     * compareAndSet and the getAndSet stay OUTSIDE it: a wrap one line wider would swallow the
+     * window bookkeeping along with the sink, so a throwing sink would leave the window permanently
+     * closed and every later notice would emit unsuppressed. Guard:
+     * RedactionTest.truncationLoggerThatThrowsDoesNotAbortRedaction asserts both halves — the pass
+     * completes AND the suppression accounting is intact.
      */
     internal fun maybeLogTruncation(
         nowMs: Long,
@@ -818,7 +837,7 @@ object Redaction {
             return
         }
         val suppressed = suppressedTruncations.getAndSet(0L)
-        truncationLogger?.invoke(truncationLine(droppedChars, suppressed))
+        runCatching { truncationLogger?.invoke(truncationLine(droppedChars, suppressed)) }
     }
 
     // (PRIV-06) D-03: the notice text. A constant sentence plus counts — no dropped content, and
