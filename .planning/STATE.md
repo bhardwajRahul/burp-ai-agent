@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: — Security Correctness & Agent Trust
 status: executing
-stopped_at: Phase 21 executed (7/7 plans) but NOT complete — 21-REVIEW.md found 4 blockers incl. CR-01, a reproduced PRIV-05 cookie leak. Gap-closure planning next.
-last_updated: "2026-08-13T09:21:34.348Z"
+stopped_at: Phase 22 context gathered
+last_updated: "2026-08-13T10:51:51.455Z"
 last_activity: 2026-08-13
 progress:
   total_phases: 7
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 Phase: 22
 Plan: Not started
 Status: Executing Phase 21
-Resume file: .planning/phases/21-redaction-completeness/21-REVIEW.md
+Resume file: .planning/phases/22-agent-tool-call-trust-boundary/22-CONTEXT.md
 Last activity: 2026-08-13
 
 ## Milestone Origin
@@ -211,6 +211,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-12T07:32:02.380Z
-Stopped at: Phase 21 executed (7/7 plans) but NOT complete — 21-REVIEW.md found 4 blockers incl. CR-01, a reproduced PRIV-05 cookie leak. Gap-closure planning next.
+Last session: 2026-08-13T10:51:51.449Z
+Stopped at: Phase 22 context gathered
 Resume file: None
