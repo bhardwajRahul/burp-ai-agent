@@ -129,9 +129,28 @@ Model text is rendered **only** into `JTextField` / `JTextArea`. It is **forbidd
 | Forbidden widget | Why |
 |------------------|-----|
 | `JLabel` | Swing's `JLabel` interprets a leading `<html>` tag. `"<html><b>Approved</b>"` in a tool ID would render as extension-looking chrome. |
+| `AbstractButton` — `JButton`, `JCheckBox`, `JRadioButton`, `JMenuItem` | **Identical hazard to `JLabel`, and verified as identical.** Both route their text through `BasicHTML.updateRenderer`. Measured on Temurin JDK 21, headless: `JButton("<html><b>Approved</b>")` and `JLabel("<html><b>Approved</b>")` both come back with a **non-null** `getClientProperty("html")`, i.e. the HTML renderer is installed in both. This card puts computed values into button labels, so the row is stated rather than left implicit. |
 | `JEditorPane` / `JTextPane` with `contentType = "text/html"` | Same, worse. This is exactly what the transcript's message body does (`ChatPanel.kt:1864`) and exactly what `SubtleNotice` does (`SubtleNotice.kt:59`). **Neither may be used for model text on this card.** |
-| `setToolTipText(...)` with model content | Swing tooltips render HTML (`SafetyIndicator.kt:43` passes `tooltipHtml` deliberately). A model-authored tooltip is styled, floating, extension-looking text. |
-| Any widget that also carries extension text | One widget = one trust class. No `"Tool: " + modelString` concatenations anywhere. |
+| `setToolTipText(...)` with model content | Swing tooltips render HTML. `SafetyIndicator` documents it at `:38` — *"Swing renders HTML tooltips natively"* — and passes `tooltipHtml` straight through at `:46`. A model-authored tooltip is styled, floating, extension-looking text. |
+| Any widget that also carries extension text | One widget = one trust class. No `"Tool: " + modelString` concatenations anywhere. **One sanctioned exception:** the accessible description, which is not a widget and is governed by three explicit conditions in §Accessibility. |
+
+**Why the computed button labels on this card are nonetheless safe.** `BasicHTML.isHTMLString` fires
+**only at position 0**: it tests `charAt(0) == '<'` **and** `charAt(5) == '>'`, then compares the four
+characters between them to `"html"`. Nothing at any other offset can install the renderer. Measured on
+Temurin JDK 21, headless:
+
+| Probe | `getClientProperty("html")` |
+|-------|------------------------------|
+| `JButton("▶ Show arguments (4021 characters)")` | `null` — plain renderer |
+| `JButton("x<html><b>Approved</b>")` (tag at position 1) | `null` — plain renderer |
+| `JTextField("<html><b>Approved</b>")` | `null` — plain renderer |
+| `JTextArea("<html><b>Approved</b>")` | `null` — plain renderer |
+
+So `▶ Show arguments ({N} characters)`, `Show all {N} characters` and `Show first {cap} characters` are
+safe on two independent grounds: the interpolated value is an extension-computed integer and never a
+model string, **and** it is never at position 0. The positive allowlist — model text goes into
+`JTextField` / `JTextArea` only — remains the primary control; the position-0 fact is why that allowlist
+does not have to be relaxed for the toggle labels.
 
 D-07 says "never markdown, never as extension chrome". In Swing that sentence resolves to exactly this
 table.
@@ -162,6 +181,8 @@ Immediately above the first model region, a `helpLabel` (`Components.kt:331` —
 > `AI-supplied — this extension did not write the text below:`
 
 It is outside every box, so by T-1 it cannot be spoofed: model text physically cannot escape into it.
+The rule is **not conditional on card kind** — wherever a model region appears, including the compact
+resolved row, this label appears immediately above it.
 
 ### Rule T-6 — Sanitize before display, with **two** different sanitizers
 
@@ -191,7 +212,8 @@ extension-derived title line reads:
 > `Not a known tool — this call will fail if you approve it.`
 
 The model's string still appears, sanitized, inside its box (the user must see *what* was asked for),
-but no catalog title is fabricated for it.
+but no catalog title is fabricated for it. On a compact resolved row, where no approve button exists,
+the same rule uses a button-free wording — see §"The compact resolved row".
 
 ---
 
@@ -211,7 +233,8 @@ ships both themes and some users are colorblind.
 **Specification:** a `private fun tierBadge(tier: SecTier): JLabel` inside `ToolApprovalCard.kt`,
 structured exactly like `toolBadge` (`Components.kt:426`) with a border added. Not a public builder in
 `Components.kt` — Phase 13's stance ("avoid premature generalisation") applies until a second caller
-exists.
+exists. Structuring it "exactly like `toolBadge`" transitively adopts that builder's internal
+`EmptyBorder(2, 6, 2, 6)` padding; that is recorded in §Spacing rather than silently inherited.
 
 ### Four redundant channels
 
@@ -223,7 +246,7 @@ exists.
 | 4 | **Button count** (structural) | 4 buttons | 2 buttons | no card |
 
 Channel 1 mirrors `SafetyIndicator`'s own stated rationale verbatim: *"the text spells out the state so
-the indicator self-describes without relying on color alone"* (`SafetyIndicator.kt:12-14`). Channel 4
+the indicator self-describes without relying on color alone"* (`SafetyIndicator.kt:10-11`). Channel 4
 is not decoration — it **is** the semantic difference D-02 encodes, and it survives grayscale, low
 vision and a screenshot.
 
@@ -234,14 +257,24 @@ vision and a screenshot.
 - Foreground: `Colors.onSurface`.
 - Border: 1 px `LineBorder(tierColor, 1, true)`.
 
-**A filled tier pill was rejected on contrast grounds, measured.** `SafetyIndicator` fills with
-`statusTerminal` (`#F57C00`) and sets `foreground = onPrimary` (white) — that is ≈2.9:1, below WCAG AA
-for normal text. `PrivacyPill` avoids it for BALANCED by using `onSurface` (`PrivacyPill.kt:35`), but
-`onSurface` resolves to `Label.foreground`, which is **light** in dark theme — so the same fix breaks
-in the other theme. An outlined badge on `cardSurface` with `onSurface` text has the same contrast
-relationship as ordinary body text on a table row, which the design system already guarantees in both
-themes. **Color therefore never carries text on this card**; it is moved to the 3 px accent strip
-(channel 3), where contrast is irrelevant because the strip carries no glyph.
+**A filled tier pill was rejected on contrast grounds, computed.** `SafetyIndicator` fills with
+`statusTerminal` and sets `foreground = onPrimary` (`SafetyIndicator.kt:63`, `:66`). Against the
+declared fallback values — `onPrimary` = `Color.WHITE` (`DesignTokens.kt:174`), `statusWarning` =
+`#F57C00` (`DesignTokens.kt:186`) — that pairing has a WCAG relative luminance of **0.338** and a
+contrast ratio of **≈2.70:1**, far below the 4.5:1 AA threshold for normal text. `PrivacyPill` avoids
+the same trap for BALANCED by using `onSurface` (`PrivacyPill.kt:35`), but `onSurface` resolves to
+`Label.foreground` (`DesignTokens.kt:131`), which is **light** in dark theme — so the same fix breaks in
+the other theme.
+
+An outlined badge on `cardSurface` with `onSurface` text puts badge text in exactly the same
+foreground/background relationship as ordinary body text on a transcript card: `Label.foreground` over
+`Table.background` (`DesignTokens.kt:131`, `:143`). **That relationship is not measured here, and
+`09-UI-SPEC.md` contains no contrast measurement either** — it is supplied by Burp's Look-and-Feel and
+is the same pairing every other label in the extension already depends on. The claim is therefore *not*
+that a number was verified; it is that the outlined badge introduces **no new** contrast obligation,
+whereas a filled badge introduces one and fails it. **Color therefore never carries text on this card**;
+it is moved to the 3 px accent strip (channel 3), where contrast is irrelevant because the strip carries
+no glyph.
 
 `AUTO` is specified for completeness so the `when (tier)` is exhaustive and a future value cannot
 render blank, but **`AUTO` is unreachable in this phase** — it produces no card (D-02). Claim only what
@@ -267,8 +300,8 @@ second one.**
 | # | State | Trigger | Card in transcript | Accent strip | Buttons | Args region |
 |---|-------|---------|--------------------|--------------|---------|-------------|
 | 1 | **Suppressed — auto** | tier = `AUTO` | **none** | — | — | — |
-| 2 | **Suppressed — session-approved** | tool in `approvedForSession` | compact resolved row (**recommended**, see FLAG-22-03) | `borderSubtle` | none | collapsed, expandable |
-| 3 | **Suppressed — session-denied** | tool in `deniedForSession` | compact resolved row (**required**) | `borderSubtle` | none | collapsed, expandable |
+| 2 | **Suppressed — session-approved** | tool in `approvedForSession` | compact resolved row (**recommended**, see FLAG-22-03) — designed in §"The compact resolved row" | `borderSubtle` | none | collapsed, expandable |
+| 3 | **Suppressed — session-denied** | tool in `deniedForSession` | compact resolved row (**required**) — designed in §"The compact resolved row" | `borderSubtle` | none | collapsed, expandable |
 | 4 | **Pending** | tier = `CONFIRM` | full card | `statusWarning` | 4 | collapsed, expandable |
 | 5 | **Pending** | tier = `CONFIRM_EACH` | full card | `statusError` | 2 | **expanded by default** |
 | 6 | **Approved once** | click `Approve once` | same card, mutated | `borderSubtle` | replaced by outcome row | state preserved |
@@ -312,6 +345,12 @@ by `SessionPanel.addComponent` recomputes from `preferredSize` on every layout p
 | Verb | `Typography.label` | `Colors.onSurface` |
 | Timestamp | `Typography.caption` | `Colors.onSurfaceVariant` |
 
+**Label split — applies to every outcome string in §Copywriting Contract, full card and compact row
+alike.** The glyph label carries the leading glyph and nothing else. The timestamp label carries the
+trailing time token **including the separator or parentheses exactly as the copy line writes them**
+(`— {time}` for the em-dash forms, `({time})` for the parenthesised forms). The verb label carries
+everything in between. This fixes which of the three labels each fragment lands in; it alters no string.
+
 Color appears on the glyph **only**. No filled background on a resolved card: a resolved card must
 recede, and a denied card that shouts red forever is itself a habituation trainer.
 
@@ -323,6 +362,126 @@ second format in the same transcript.
 Non-negotiable. The args are the record; collapsing them on resolution would destroy the reason the
 card persists, and auto-collapsing on approve would hide the thing the user just authorised. Whatever
 expand state the user left it in is preserved through resolution.
+
+### The compact resolved row (states 2 and 3)
+
+States 2 and 3 are **not** decisions. The gate consulted `approvedForSession` / `deniedForSession`,
+applied a decision the user already made, and moved on. The row is a receipt, not a prompt, and it must
+be designed as one rather than left for the executor to invent.
+
+**Both variants are the same layout.** The required session-denied row and the optional session-approved
+row (FLAG-22-03) differ in exactly one place: the outcome row's glyph, its color and its verb. Shipping
+the optional variant therefore costs one `when` branch, not a second component — a fact the executor
+should have when making FLAG-22-03's call.
+
+#### Which of rows 0–10 survive
+
+| Full-card row | On a compact row | Reason |
+|---------------|------------------|--------|
+| 0 — heading + tier badge | **dropped** | see below |
+| 1 — catalog title | **kept**, unchanged position in reading order | the "what tool" answer; extension-derived; essential to the record |
+| 2 — tier reason | **dropped** | it explains what the buttons mean; there are no buttons |
+| 3 — repeat counter | **dropped** | see below |
+| 4 — trust label (Rule T-5) | **kept** | T-5 is not conditional; a model region is present |
+| 5 — tool-ID box | **kept** | see below |
+| 6 — args toggle | **kept**, always **collapsed** by default | see below |
+| 7 — args area | **kept**, `isVisible = false` until the toggle is clicked | the record of what ran (state 2) or what was attempted (state 3) |
+| 8 — truncation footer | **kept, conditional** — appears only when row 7 is visible **and** truncated | identical rule to the full card |
+| 9 — buttons | **replaced by the outcome row, moved to the top** | see below |
+| 10 — session-scope footer | **dropped** | see below |
+
+Result: **five visible rows collapsed**, against a resolved full card's eight or nine. The compact row
+is roughly half the height, which is the whole point of the word "compact".
+
+#### Why the heading and the tier badge are dropped
+
+- **Heading.** `The AI asked to run a tool` is the *question* on a pending card. On a compact row the
+  next line already answers it. Dropping it also gives the two card kinds visibly different first lines
+  — a bold proportional `sectionTitle` heading versus a glyph plus a `Typography.label` verb — so a
+  reader scanning the transcript can separate *"a decision happened here"* from *"a decision you made
+  earlier was applied here"* without reading either. That distinction is semantic, not cosmetic.
+- **Tier badge.** §Resolution keeps the badge on a mutated full card because it is the record of *what
+  was offered* — four buttons or two. On a compact row **nothing was offered**; no button ever existed,
+  so the badge has no record to carry. It is also invariant: both session sets can only be populated by
+  `Approve for session` / `Deny for session`, which only a `CONFIRM` card renders (D-02 / D-11 give
+  `CONFIRM_EACH` only `Approve once` and `Deny`), so every compact row is `CONFIRM` and a badge would
+  read the same on every one of them. A constant badge is noise, not a channel.
+
+#### Why the outcome row goes first here and last on a mutated full card
+
+On a mutated full card the outcome sits last because it is dropped into the button row's grid cell —
+a mechanical consequence of §Resolution's *"replace in the same cell so no other row reflows"*, not a
+reading-order decision. A compact row has no button row to replace, so the constraint does not apply,
+and it has no heading, so its first line does heading duty. The inconsistency is deliberate and it is
+the signal described above.
+
+#### Why the model regions are not dropped
+
+- **State 2's call actually ran.** The args are the record of what executed against the target. D-07's
+  *"the args are where exfiltration hides"* applies with full force to a call the user was never asked
+  about.
+- **State 3 exists precisely because a tool the user already refused was requested again.** What was
+  requested is the entire content of the event.
+- **The catalog title is insufficient for an unknown tool**, where the model's string is the only
+  identifying content — and an unknown tool is a realistic occupant of `deniedForSession`.
+- Keeping the tool-ID box **forces** the trust label to come with it (Rule T-5).
+
+#### Why the repeat counter and the session-scope footer are dropped
+
+- **Repeat counter.** Mechanism B is an anti-habituation device aimed at a decision, and there is no
+  decision here. The signal is not lost: five compact rows for the same tool **are** the repeat count,
+  visible without a caption and without spending `statusWarning` on a row whose job is to recede.
+- **Session-scope footer.** Row 10 exists to reconcile D-11's button vocabulary ("session") with the
+  rest of the UI ("chat"). No buttons, no mismatch — and the compact outcome copy already says "for this
+  chat", which is the plain form row 10 reconciles *to*. The full card that created the session-wide
+  decision carried row 10 and is still above in the same transcript.
+
+#### Why the args are collapsed by default even on a former `CONFIRM_EACH` tool
+
+Mechanism A expands args on `CONFIRM_EACH` in order to interrupt a run of prompts. A compact row
+interrupts nothing. §"The args region stays expandable after resolution" is honoured — the region *is*
+expandable; there is simply no prior user expand state to preserve, because the row was never pending.
+
+#### Structure
+
+```
+┌ 3px MatteBorder accent strip  (borderSubtle — always; a compact row is never pending)
+│ ┌ 1px LineBorder(Colors.border, 1, true)
+│ │ EmptyBorder(Spacing.sm, Spacing.md, Spacing.sm, Spacing.md)   // 8, 12, 8, 12
+│ │
+│ │  row C0   ✖ Blocked automatically — you denied this tool …    outcome row (§Outcome row)
+│ │  row C1   Send HTTP/1.1 request                               body / onSurface
+│ │  row C2   AI-supplied — this extension did not write …        caption / onSurfaceVariant
+│ │  row C3  ┌────────────────────────────────────────────┐       JTextField, mono, boxed
+│ │          │ http1_request                              │
+│ │          └────────────────────────────────────────────┘
+│ │  row C4   ▶ Show arguments (412 characters)                   JButton, body, LEFT
+│ │  row C5  [args area — isVisible = false until C4 clicked]     JTextArea, mono, boxed
+│ │  row C6  [truncation footer — only if C5 visible + truncated] helpLabel
+│ └
+└
+```
+
+Same as the full card in every other respect: `GridBagLayout` single column, `isOpaque = true` with
+`background = Colors.cardSurface`, no `preferredSize`, no `maximumSize` override, no `JTextArea.rows`,
+and the same `updateUI()` obligation (§Light/Dark Compliance Rules).
+
+#### Insets — no compact-specific value
+
+| Compact rows | `GridBagConstraints.insets` | Same as full-card row |
+|--------------|------------------------------|-----------------------|
+| C0, C1, C2 | `Insets(0, 0, Spacing.xs, 0)` = (0, 0, 4, 0) | rows 0–4 |
+| C3, C5 (model regions) | `Insets(0, 0, Spacing.sm, 0)` = (0, 0, 8, 0) | rows 5, 7 |
+| C4, C6 | `Insets(0, 0, Spacing.xs, 0)` | rows 6, 8 |
+
+#### The two variants
+
+| Variant | Row C0 glyph | Glyph color | Verb (see §Copywriting Contract) |
+|---------|--------------|-------------|----------------------------------|
+| Session-denied (**required**) | ✖ U+2716 | `Colors.statusError` | `Blocked automatically — you denied this tool for this chat` |
+| Session-approved (**optional**, FLAG-22-03) | ✔ U+2714 | `Colors.statusSuccess` | `Ran without asking — approved for this chat` |
+
+Rows C1–C6 are byte-identical between the two variants.
 
 ---
 
@@ -401,9 +560,17 @@ correctly.
 
 | Stage | Toggle label | Content shown | Footer |
 |-------|--------------|---------------|--------|
-| **Collapsed** (default for `CONFIRM`) | `▶ Show arguments (N characters)` | args area `isVisible = false` | none |
-| **Preview** (default for `CONFIRM_EACH`) | `▼ Hide arguments` | first **40 source lines** or **3200 characters**, whichever bites first | if truncated: footer + `Show all N characters` button |
-| **Full** | `▼ Hide arguments` | entire sanitized args | `Showing all N characters.`; the button is removed |
+| **Collapsed** (default for `CONFIRM`, and for every compact row) | `▶ Show arguments (N characters)` | args area `isVisible = false` | none |
+| **Preview** (default for `CONFIRM_EACH`) | `▼ Hide arguments` | first **40 source lines** or **3200 characters**, whichever bites first | if truncated: footer + a show-all button (label below) |
+| **Full**, `total ≤ 40 000` | `▼ Hide arguments` | entire sanitized args | `Showing all N characters.`; the button is removed |
+| **Full**, `total > 40 000` | `▼ Hide arguments` | first 40 000 characters — the absolute ceiling | ceiling footer (below); the button is removed |
+
+Show-all button label, chosen so the button never promises more than it delivers:
+
+| Condition | Button label |
+|-----------|--------------|
+| `total ≤ 40 000` | `Show all {N} characters` |
+| `total > 40 000` | `Show first {cap} characters` (`{cap}` = 40 000) |
 
 Glyphs U+25B6 / U+25BC match `AccordionPanel.kt:103`, so the affordance reads the same as everywhere
 else in the extension. `ActionCard`'s label text ("Show payload preview") is not reused because
@@ -420,19 +587,31 @@ which keeps the `getMaximumSize` wrapper at `ChatPanel.kt:1681` correct.
 | Preview source lines | **40** | Tightens `ActionCard.limitLines(raw, 50)` (`ActionCard.kt:106,118`). 40 is chosen so worst-case preview height ≈ 40 rows ≈ 680 px at base 13 pt — large, but finite, and only reached by a genuinely huge payload, which D-07 wants conspicuous. |
 | Preview characters | **3200** | ≈ 40 rows × 80 columns, so the two caps bite at roughly the same visual height instead of one always winning. Covers a typical POST body (500–2000 chars) without truncating. |
 | Tool ID inline cap | **120** | Same class of cap as `MAX_HEADER_VALUE_LENGTH = 200` (`McpBlockedRequestReporter.kt:17`), tightened because the field is single-line and narrow. Long enough for any legitimate `ext:<server>:<tool>` triple; short enough that a model cannot use the ID as a canvas. |
-| Absolute ceiling (Full stage) | **`Defaults.MAX_CONTEXT_TOTAL_CHARS` = 40 000** (`Defaults.kt:47`) | Defensive only. The args come from model output, which is requested at `Defaults.CHAT_MAX_OUTPUT_TOKENS = 4096` ≈ 16 000 chars (`Defaults.kt:48`), so in practice this can never bite. It exists because a **local** backend may ignore the output cap. |
+| Absolute ceiling (Full stage) | **`Defaults.MAX_CONTEXT_TOTAL_CHARS` = 40 000** (`Defaults.kt:47`) | Defensive only. The args come from model output, which is requested at `Defaults.CHAT_MAX_OUTPUT_TOKENS = 4096` ≈ 16 000 chars (`Defaults.kt:48`), so in practice this can never bite. It exists because a **local** backend may ignore the output cap. **When it does bite, the Full stage says so** — the copy is below, and `Showing all N characters.` must never appear in that case. |
 
 ### Truncation must be honest
 
-When the preview stage truncates, an extension-derived `helpLabel` (`Components.kt:331`) sits directly
-under the args box, **outside** it:
+There are **two** truncation points, and each needs its own extension-derived `helpLabel`
+(`Components.kt:331`) sitting directly under the args box, **outside** it.
+
+**Preview truncated** (the common case — the preview caps bit, more is available on this card):
 
 > `Showing the first 3200 of 41003 characters. The full arguments are sent to the tool if you approve.`
 
-A bare `…` is **forbidden** here. On a card whose whole purpose is authorisation, an ellipsis reads as
-"nothing important follows". The second sentence is the load-bearing one: **the display cap is a
-display limit, not an execution limit** — `McpToolExecutor.executeTool` receives the full args string
-regardless of what the card renders.
+**Full stage truncated** (the 40 000 ceiling engaged — no more is available on this card):
+
+> `Showing the first 40000 of 41003 characters. This is the maximum this card will display. The full arguments are sent to the tool if you approve.`
+
+A bare `…` is **forbidden** in both places. On a card whose whole purpose is authorisation, an ellipsis
+reads as "nothing important follows". Each sentence is load-bearing:
+
+1. The **counts** are honest — this is exactly the case where `Showing all N characters.` would be a
+   false statement, so that string is reserved for `total ≤ 40 000` and never generated otherwise.
+2. The **middle sentence of the ceiling footer** explains why no show-all button is present. Without it
+   the user waits for a control that does not exist.
+3. The **last sentence** is the one that carries the security property: **the display cap is a display
+   limit, not an execution limit** — `McpToolExecutor.executeTool` receives the full args string
+   regardless of what the card renders.
 
 ### Wrap behaviour is mandatory, not cosmetic
 
@@ -511,12 +690,49 @@ menu. Guard it on ownership so a mouse click does not yank focus from wherever t
 
 ### Accessibility
 
-Set `AccessibleContext.accessibleDescription` on the card root to an extension-derived sentence naming
-the tool, the tier, and the fact that the quoted text is model-supplied. It must embed only the
-**inline-sanitized** tool ID (Rule T-6) — this is the one place where a sanitized model string is
-concatenated into extension text, and it is acceptable because the accessible description is not a
-rendered surface. It is the only channel through which a screen-reader user receives the trust
-distinction that sighted users get from the box.
+The card root carries an extension-derived `AccessibleContext.accessibleDescription`. It is the only
+channel through which a screen-reader user receives the trust distinction that sighted users get from
+the box, so it is specified **verbatim**, not by content description.
+
+**Why this needs its own rule.** Rule T-2 row 5 forbids concatenating a model string into extension
+text. The accessible description is the single sanctioned exception, and the obvious justification for
+it — *"it is not a rendered surface"* — is **wrong**: for a blind user the accessible description **is**
+the rendered surface. What actually makes concatenation survivable in a `JLabel` is the position-0 rule
+(`BasicHTML.isHTMLString` fires only at offset 0, so a model string that is not first cannot install a
+renderer — see Rule T-2), and **that rule has no screen-reader analogue.** A screen reader has no notion
+of position; it simply reads on. A model string placed mid-sentence would therefore be followed by
+extension-authored audio, and `scope_check. Press Approve once to continue` would be indistinguishable
+from narration this extension wrote. The mitigation is positional in a different way: put the model
+string **last** and let nothing follow it.
+
+**Three conditions. All three are required; the description is unsafe if any one is dropped.**
+
+1. The tool ID is **inline-sanitized** (Rule T-6) — control characters removed, whitespace collapsed,
+   capped at 120 characters with a `…` suffix. A multi-line ID cannot exist here, so it cannot be read
+   as several sentences.
+2. The tool ID is the **final element of the string**, with **no character after it** — no trailing
+   period, no button summary, no punctuation. This is mechanically checkable:
+   `description.endsWith(sanitizedToolId)` must be `true`.
+3. The tool ID is immediately preceded by the extension-derived disclosure clause below, so the
+   attribution is heard **before** the attacker-influenceable text, never after it.
+
+**Verbatim templates.**
+
+| Card state | `accessibleDescription` |
+|------------|--------------------------|
+| Pending, known tool | `The AI asked to run a tool. Tier: {TIER}. {catalog title}. The following tool name was written by the AI, not by this extension: {inline-sanitized tool ID}` |
+| Pending, unknown tool | `The AI asked to run a tool. Tier: {TIER}. Not a known tool — this call will fail if you approve it. The following tool name was written by the AI, not by this extension: {inline-sanitized tool ID}` |
+| Resolved card, or compact resolved row | `{outcome line, minus its leading glyph}. The following tool name was written by the AI, not by this extension: {inline-sanitized tool ID}` |
+
+- `{TIER}` renders the badge's own text token exactly — `CONFIRM` or `CONFIRM EACH` — so the audio and
+  the badge (channel 1, §Tier Legibility) say the same word.
+- The two pending templates differ only in the title clause, which is row 1's copy verbatim. The
+  unknown-tool title already ends in a period, which is why it is spelled out rather than substituted
+  into `{catalog title}.` — substitution would produce `it..`.
+- **Update the description when the card mutates.** A resolved card that still announces "The AI asked
+  to run a tool" is a false statement made to the one user who cannot see that the buttons are gone.
+- Nothing else is added. The four buttons carry their own accessible names from their labels
+  (§Copywriting Contract), so restating them here would only lengthen the audio in front of the tool ID.
 
 ---
 
@@ -555,13 +771,28 @@ a pending decision.
 | Property | Value |
 |----------|-------|
 | Text | `Awaiting approval` |
-| Font | `Typography.caption` |
-| Foreground | `Colors.statusWarning`, **except when selected**, where it follows `list.selectionForeground` exactly as the two existing labels do (`ChatPanel.kt:1631`, `:1639`) |
+| Font | `label.font.deriveFont((label.font.size - 2).toFloat())` — **not** `Typography.caption`; see below |
+| Foreground | `DesignTokens.Colors.statusWarning`, **except when selected**, where it follows `list.selectionForeground` exactly as the two existing labels do (`ChatPanel.kt:1631`, `:1639`) |
 | Refresh | the existing `refreshSessionList()` (`ChatPanel.kt:1248-1257`) — it re-sets every model element, which re-runs the renderer. Call it when a decision is created and when it resolves. |
+
+**Why the font is the one place this phase does not name a `DesignTokens` role.** The marker is stacked
+directly beneath two existing labels in the same `BoxLayout.Y_AXIS` column: `titleLabel` at `label.font`
+(`ChatPanel.kt:1630`) and `backendLabel` at `label.font.deriveFont((label.font.size - 2).toFloat())`
+(`:1638`). `Typography.caption` is `baseSize * 0.9f` (`DesignTokens.kt:104`) — at a base of 13 that is
+**11.7 pt stacked against the sibling's 11 pt**. Two small sizes differing by 0.7 pt in one narrow column
+read as a rendering defect, not as a hierarchy, and Rule 5 (§Light/Dark Compliance) forbids migrating the
+neighbours to fix it from the other side. So the new label matches its sibling instead.
+
+This is **not** a new typography role: no derivation is added to `DesignTokens.Typography` and the
+declared maximum of 5 roles stands. `ChatSessionRenderer` is pre-existing `UiTheme`-era code
+(`ChatPanel.kt:1639` reads `UiTheme.Colors.onSurfaceVariant`) whose type scale comes from the `JList`
+renderer's own font, not from `DesignTokens`. The **color** still comes from `DesignTokens`: colors
+resolve through the same `UIManager` keys down both paths, so there is nothing visually divergent to
+match — fonts do diverge visibly, which is the entire point.
 
 Text-first, color redundant. Cheap fallback if adding a label to the renderer is judged too invasive:
 append `"  ·  Awaiting approval"` to the existing info string at `ChatPanel.kt:1636` (the `·` separator
-is already in use there).
+is already in use there). The fallback raises no font question at all, because it reuses `backendLabel`.
 
 ---
 
@@ -578,7 +809,7 @@ is already in use there).
 │ │
 │ │  row 0   The AI asked to run a tool          [Tier: CONFIRM EACH]     sectionTitle + badge
 │ │  row 1   Send HTTP/1.1 request                                        body / onSurface
-│ │  row 2   Approving for this chat is not offered for this tool.        caption / onSurfaceVariant
+│ │  row 2   This tool is approved one call at a time. A session-wide …   caption / onSurfaceVariant
 │ │  row 3   2nd request for this tool in this chat                       caption / statusWarning
 │ │  row 4   AI-supplied — this extension did not write the text below:   caption / onSurfaceVariant
 │ │  row 5  ┌───────────────────────────────────────────────────────┐     JTextField, mono, boxed
@@ -595,6 +826,15 @@ is already in use there).
 │ └
 └
 ```
+
+**The diagram is illustrative, not normative.** Where a line is too wide for the box it is cut with `…`
+— rows 2, 8 and 10 above are all truncated this way. **§Copywriting Contract is the single source for
+every user-facing string on this card**, and where the two appear to differ, the Copywriting Contract
+wins by definition.
+
+The compact resolved row (states 2 and 3) has its own structure, insets and rationale in
+§"The compact resolved row"; it reuses this card's layout manager, border, opacity and size contract
+unchanged.
 
 ### Layout managers
 
@@ -634,19 +874,30 @@ All on the 4 px grid. Horizontal insets are **0** — horizontal padding comes f
 
 ## Spacing
 
-Inherited from `DesignTokens.Spacing` (`DesignTokens.kt:40-75`). **No new value is declared.**
+Inherited from `DesignTokens.Spacing` (`DesignTokens.kt:40-75`). **No new spacing value is declared, and
+no new off-grid value is introduced.**
 
 | Token | Value | Use in this phase |
 |-------|-------|-------------------|
-| `xs` | 4 | Row gaps (rows 0–4, 6, 8, 10); glyph-to-text gap in the outcome row |
+| `xs` | 4 | Row gaps (rows 0–4, 6, 8, 10; compact rows C0–C2, C4, C6); glyph-to-text gap in the outcome row |
 | `sm` | 8 | Card border top/bottom; gap around model regions; gap between sibling buttons; title-to-badge gap |
 | `md` | 12 | Card border left/right |
 | `lg` | 16 | **Gap between the deny group and the approve group** |
 | `xl` | 24 | not used |
 
-Exceptions: the accent strip is **3 px** (`MatteBorder(0, 3, 0, 0, accent)`), matching
-`SubtleNotice.kt:117` exactly. It is a border weight, not a spacing step — the same status `09-UI-SPEC`
-gives `ToggleSwitch`'s 44×22 fixed size.
+### Off-grid values present on this card — both inherited, neither declared here
+
+| Value | Where | Kind | Status |
+|-------|-------|------|--------|
+| **3 px** | accent strip, `MatteBorder(0, 3, 0, 0, accent)` | border weight | Matches `SubtleNotice.kt:117` exactly. A border weight is not a spacing step — the same status `09-UI-SPEC` gives `ToggleSwitch`'s 44×22 fixed size. |
+| **`EmptyBorder(2, 6, 2, 6)`** | tier badge internal padding | component-internal constant | Adopted **transitively** by specifying the badge as "structured exactly like `toolBadge`" (`Components.kt:470`). Off the 4 px grid. **Kept, not corrected:** changing it would make the tier badge visually inconsistent with the build-provenance badges that already ship from the same builder. |
+
+**Why this is not the same as the `ActionCard` insets this document refuses.** `ActionCard`'s
+`Insets(8,10,0,10)` / `Insets(4,10,0,10)` / `Insets(6,10,10,10)` (`ActionCard.kt:72,77,87,91`) are
+**layout spacing between rows** — precisely the quantity §"Row insets" declares, on the grid, for this
+card. Copying them would put off-grid values into a table this document owns. The badge's `2, 6, 2, 6`
+is **internal to a component this document does not own**; it arrives with `toolBadge`'s structure and
+is listed here for completeness rather than declared. The distinction is ownership, not size.
 
 ---
 
@@ -658,10 +909,15 @@ declared maximum of 5 roles stands.
 | Role | Derivation | Weight | Use in this phase |
 |------|-----------|--------|-------------------|
 | `sectionTitle` | `base.deriveFont(BOLD, base * 1.2f)` | Bold | Card heading (row 0) |
-| `body` | `base.deriveFont(PLAIN, base)` | Regular | Catalog title (row 1); all button labels; args toggle; outcome glyph |
-| `caption` | `base.deriveFont(PLAIN, base * 0.9f)` | Regular | Tier reason (row 2); repeat counter (row 3); trust label (row 4); truncation footer (row 8); session-scope footer (row 10); outcome timestamp; tier badge; session-list pending marker |
+| `body` | `base.deriveFont(PLAIN, base)` | Regular | Catalog title (row 1 / C1); all button labels; args toggle; outcome glyph |
+| `caption` | `base.deriveFont(PLAIN, base * 0.9f)` | Regular | Tier reason (row 2); repeat counter (row 3); trust label (rows 4 / C2); truncation footer (rows 8 / C6); session-scope footer (row 10); outcome timestamp; tier badge |
 | `label` | `base.deriveFont(BOLD, base)` | Bold | Outcome verb |
 | `mono` | `UIManager.getFont("TextArea.font")` | Regular | **All model-supplied text** — Rule T-3 |
+
+**One deliberate exception, outside `DesignTokens`:** the session-list pending marker uses the `JList`
+renderer's own sibling font — `label.font.deriveFont((label.font.size - 2).toFloat())` — and **not**
+`Typography.caption`. See §"From outside the session" for the measurement (11.7 pt against a sibling's
+11 pt) and the reasoning. It is a font *match* inside legacy renderer code, not a new role.
 
 **Line height:** Swing exposes none (`09-UI-SPEC.md` §Typography). The equivalent contract for this
 card is `lineWrap = true` + `wrapStyleWord = true` on the args area, height content-driven, and `rows`
@@ -683,7 +939,7 @@ literal, no `Font(...)` constructor.**
 |-------|-------|-------|
 | **60 % dominant** | `surface` | The transcript this card sits in (`ChatPanel.kt:1658`) — the card does not repaint it |
 | **30 % secondary** | `cardSurface` | The card body; the tier badge background |
-| | `inputBackground` | Model-supplied regions (rows 5, 7) |
+| | `inputBackground` | Model-supplied regions (rows 5, 7 / C3, C5) |
 | | `border` / `borderSubtle` | Card outline; model-region outlines; resolved accent strip |
 | **10 % accent** | **`primary` is NOT used on this card** | See below |
 
@@ -697,9 +953,9 @@ action — the opposite of §"Anti-Habituation".
 | Token | Use | Redundant with |
 |-------|-----|----------------|
 | `statusWarning` | 3 px accent strip on a pending `CONFIRM` card; tier badge border; repeat-counter caption; session-list pending marker | The badge **text** ("Tier: CONFIRM"), the button count, the caption text |
-| `statusError` | 3 px accent strip on a pending `CONFIRM_EACH` card; tier badge border; denied outcome glyph | The badge text ("Tier: CONFIRM EACH"), the button count, the outcome verb |
-| `statusSuccess` | Approved outcome glyph; `AUTO` tier badge border (unreachable this phase) | The outcome verb |
-| `borderSubtle` | Accent strip on every **resolved** card | The presence of an outcome row instead of buttons |
+| `statusError` | 3 px accent strip on a pending `CONFIRM_EACH` card; tier badge border; denied outcome glyph (full card and compact row) | The badge text ("Tier: CONFIRM EACH"), the button count, the outcome verb |
+| `statusSuccess` | Approved outcome glyph (full card and compact row); `AUTO` tier badge border (unreachable this phase) | The outcome verb |
+| `borderSubtle` | Accent strip on every **resolved** card and every compact row | The presence of an outcome row instead of buttons |
 
 **Every colored element has a text or structural equivalent carrying the same meaning.** Remove all
 color and the card still reads correctly — which is the requirement for two themes plus color
@@ -708,8 +964,11 @@ blindness.
 ### Contrast
 
 The one contrast hazard is the tier badge; it is resolved by outlining rather than filling. See
-§"Tier Legibility" for the measured reasoning (`SafetyIndicator`'s white-on-`#F57C00` ≈ 2.9:1;
-`PrivacyPill`'s `onSurface` fix inverts in dark theme).
+§"Tier Legibility" for the computation — `SafetyIndicator`'s white on `#F57C00` is **≈2.70:1** at a WCAG
+relative luminance of **0.338** — and for why `PrivacyPill`'s `onSurface` fix inverts in dark theme. **No
+contrast number is claimed for the outlined badge itself:** it reuses the L&F's own `Label.foreground`
+over `Table.background` pairing and therefore adds no new obligation, which is a weaker and more honest
+claim than "the design system guarantees it".
 
 ### Destructive color
 
@@ -738,7 +997,9 @@ load-bearing; the glyph is redundant. Never the reverse.
 ## Copywriting Contract
 
 Sentence case. English only (CLAUDE.md §Constraints, AGENTS.md — non-negotiable). Every string below
-is extension-derived and appears **outside** every model region.
+is extension-derived and appears **outside** every model region. **This section is normative**; the
+ASCII diagrams elsewhere in this document truncate long strings with `…` for width and are illustrative
+only.
 
 ### Buttons — labels are locked by D-11, verbatim
 
@@ -758,22 +1019,32 @@ is extension-derived and appears **outside** every model region.
 | Heading (row 0) | `The AI asked to run a tool` |
 | Catalog title (row 1) — known tool | `{catalog title}` |
 | Catalog title (row 1) — unknown tool | `Not a known tool — this call will fail if you approve it.` |
+| Catalog title (row C1, compact) — unknown tool | `Not a known tool — no catalog entry matches this name.` |
 | Tier reason (row 2) — `CONFIRM` | `Approving for the session applies to this tool until this chat is deleted.` |
 | Tier reason (row 2) — `CONFIRM_EACH` | `This tool is approved one call at a time. A session-wide approval is not offered for it.` |
 | Repeat counter (row 3) | `{2nd \| 3rd \| Nth} request for this tool in this chat` |
-| Trust label (row 4) | `AI-supplied — this extension did not write the text below:` |
+| Trust label (rows 4 / C2) | `AI-supplied — this extension did not write the text below:` |
 | Args toggle — collapsed | `▶ Show arguments ({N} characters)` |
 | Args toggle — expanded | `▼ Hide arguments` |
-| Show-all button | `Show all {N} characters` |
-| Truncation footer (row 8) | `Showing the first {shown} of {total} characters. The full arguments are sent to the tool if you approve.` |
-| Full-args footer | `Showing all {N} characters.` |
+| Show-all button, `total ≤ 40 000` | `Show all {N} characters` |
+| Show-all button, `total > 40 000` | `Show first {cap} characters` |
+| Preview truncation footer (rows 8 / C6) | `Showing the first {shown} of {total} characters. The full arguments are sent to the tool if you approve.` |
+| Full-args footer, `total ≤ 40 000` | `Showing all {N} characters.` |
+| Full-args footer, `total > 40 000` (ceiling engaged) | `Showing the first {cap} of {total} characters. This is the maximum this card will display. The full arguments are sent to the tool if you approve.` |
 | Session-scope footer (row 10) | `"Session" means this chat. Approvals are forgotten when the chat is deleted, and are not restored when Burp restarts.` |
+
+`{cap}` is `Defaults.MAX_CONTEXT_TOTAL_CHARS` (`Defaults.kt:47`), currently 40 000. It is interpolated
+rather than typed literally so the copy cannot drift from the constant.
 
 **Row 10 is load-bearing, not filler.** D-11's button labels say "session" while the rest of the UI says
 "chat" ("Chat 1", "Clear Chat", "clear this chat history" — `ChatPanel.kt:976`). The locked labels are
 not renamed; this one sentence reconciles the vocabulary **and** records the measured fact that
 `restoreSessions()` builds a fresh `ToolSessionState` (`ChatPanel.kt:1475`), so approvals do not survive
 a Burp restart (22-RESEARCH.md §7).
+
+**The compact unknown-tool title is a separate string on purpose.** Row 1's pending wording ends
+"…if you approve it", which names a button that does not exist on a compact row, and it is tense-wrong in
+both compact states — state 2's call already ran and failed, state 3's was never run at all.
 
 ### Outcome lines
 
@@ -784,8 +1055,10 @@ a Burp restart (22-RESEARCH.md §7).
 | Denied | `✖ Denied — {time}` |
 | Denied for session | `✖ Denied for this chat — {time}` |
 | Implicitly denied (new message) | `✖ Denied automatically — you sent a new message ({time})` |
-| Suppressed — session-approved (compact row) | `✔ Ran without asking — approved for this chat ({time})` |
-| Suppressed — session-denied (compact row) | `✖ Blocked automatically — you denied this tool for this chat ({time})` |
+| Suppressed — session-approved (compact row C0) | `✔ Ran without asking — approved for this chat ({time})` |
+| Suppressed — session-denied (compact row C0) | `✖ Blocked automatically — you denied this tool for this chat ({time})` |
+
+Each line splits across the outcome row's three labels by the rule in §"Outcome row".
 
 ### Empty / error states
 
@@ -809,6 +1082,7 @@ button.
 | UI element | Component / builder | Source | Status |
 |------------|---------------------|--------|--------|
 | Approval card | `ToolApprovalCard` | `ui/components/ToolApprovalCard.kt` | **NEW** |
+| Compact resolved row | `ToolApprovalCard` in resolved-only mode | §"The compact resolved row" | **NEW** — same class, same layout manager, no second component |
 | Card insertion | `SessionPanel.addComponent(JComponent)` | `ChatPanel.kt:1677` | existing, unchanged |
 | Scroll to a pending card | `SessionPanel.scrollToComponent(JComponent)` | `ChatPanel.kt` (near `:1711`) | **NEW** — one method |
 | Session-list pending marker | third `JLabel` in `ChatSessionRenderer` | `ChatPanel.kt:1625-1627` | **MODIFIED** — one label |
@@ -849,7 +1123,9 @@ inherit.
    `:458-465`, flagged there as FLAG-10-01).
 5. **Do not migrate neighbouring legacy code.** `ChatPanel` and `ActionCard` keep their `UiTheme`
    imports. This phase adds a component; it does not restructure `ChatPanel.kt` (2248 lines, split
-   explicitly out of scope for v0.10.0).
+   explicitly out of scope for v0.10.0). This rule is why the session-list pending marker matches its
+   sibling's font instead of importing a second type scale into that column (§"From outside the
+   session").
 
 ---
 
@@ -860,12 +1136,12 @@ inherit.
 | No card | tier `AUTO`; user-originated calls (`:928`, `:2105`) | nothing added to the transcript |
 | Pending `CONFIRM` | transcript | `statusWarning` strip; 4 buttons; args collapsed |
 | Pending `CONFIRM_EACH` | transcript | `statusError` strip; 2 buttons; **args expanded** |
-| Approved once / for session | transcript | `borderSubtle` strip; outcome row (✔); args state preserved |
-| Denied / denied for session | transcript | `borderSubtle` strip; outcome row (✖); args state preserved |
+| Approved once / for session | transcript | `borderSubtle` strip; outcome row (✔) last; args state preserved |
+| Denied / denied for session | transcript | `borderSubtle` strip; outcome row (✖) last; args state preserved |
 | Implicitly denied (new message) | transcript | `borderSubtle` strip; outcome row naming the reason |
 | Implicitly denied (4 other paths) | — | **no surviving surface**; the SC3 audit event is the record |
-| Suppressed — session-denied | transcript | compact resolved row (required) |
-| Suppressed — session-approved | transcript | compact resolved row (recommended — FLAG-22-03) |
+| Suppressed — session-denied | transcript | compact resolved row, required (§"The compact resolved row") — outcome row (✖) **first**, 5 visible rows |
+| Suppressed — session-approved | transcript | compact resolved row, recommended — FLAG-22-03; identical layout, outcome row (✔) first |
 | Pending, background session | sessions list | `Awaiting approval` caption on that session's row |
 | Pending, on returning to the session | transcript | auto-scrolled into view; focus unchanged |
 
@@ -905,6 +1181,9 @@ is not run. This phase adds **zero** dependencies (22-RESEARCH.md §"Package Leg
 | Transcript disables horizontal scrolling | `ChatPanel.kt:1662` |
 | `refreshSessionList()` re-runs the cell renderer | `ChatPanel.kt:1248-1257` |
 | Chain cap of 8 → several cards in a row are expected | `ChatPanel.kt:1191` |
+| `JLabel` and `JButton` install the HTML renderer identically; `BasicHTML.isHTMLString` fires only at position 0; `JTextField` / `JTextArea` never do | measured, Temurin JDK 21 headless (§Rule T-2) |
+| White on `#F57C00` = relative luminance 0.338, contrast ≈2.70:1 | WCAG 2.x relative-luminance formula over `DesignTokens.kt:174`, `:186` |
+| Session-list sibling font is `label.font.deriveFont((label.font.size - 2).toFloat())` | `ChatPanel.kt:1638` |
 
 ---
 
@@ -925,13 +1204,16 @@ is not run. This phase adds **zero** dependencies (22-RESEARCH.md §"Package Leg
   (otherwise the denial is completely invisible and the chain appears to stall). **Recommended but
   optional** for session-approved, where the existing "Tool result: …" message already shows that
   something ran. Symmetry argues for it; transcript noise argues against. Executor's call — but the
-  choice must be deliberate and recorded, not defaulted by omission.
+  choice must be deliberate and recorded, not defaulted by omission. §"The compact resolved row" now
+  designs both variants; they differ by a single `when` branch, so the cost of shipping the optional one
+  is known rather than estimated.
 
 - **FLAG-22-04 — Preview caps (40 lines / 3200 chars) are a judgement, not a measurement.** They are
   anchored to `ActionCard`'s existing 50-line cap and to a ~80-column wrap, and they bound the worst-case
   preview at ≈40 rows. If live UAT shows real `http1_request` args routinely exceeding 3200 characters,
   raise the character cap and keep the line cap — the truncation footer and the `Show all` stage mean
-  the security property does not depend on the exact number.
+  the security property does not depend on the exact number. The 40 000 absolute ceiling is a different
+  quantity and is not a judgement: it is `Defaults.MAX_CONTEXT_TOTAL_CHARS`, and its copy is specified.
 
 - **FLAG-22-05 — Tier badge stays private to `ToolApprovalCard.kt`.** Not promoted to a public builder
   in `Components.kt` while there is one caller (Phase 13's "avoid premature generalisation" stance). If
