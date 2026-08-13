@@ -205,9 +205,21 @@ green untouched; `hkdfMatchesRfc5869Vector` is SC6's named vector and `Redaction
 5. A tool call the **user** initiated through `ToolInvocationDialog` is not double-prompted — the gate applies to model-originated calls, and the two paths are distinguishable in code.
 6. Read-only tools versus state-mutating tools (`http1_request`, `http2_request`, `repeater_tab`, `scope_include`, `scope_exclude`, intruder) are treated per the ADR's classification, not with one blanket rule chosen at implementation time.
 
-**Plans**: TBD
+**Plans**: 9 plans in 6 waves
 
-**Open question for `/gsd-discuss-phase`**: whether the gate defaults to prompting for all tools or only for the mutating set. This is a usability-vs-safety trade with no obvious right answer — it should be decided with the maintainer, not assumed.
+Plans:
+
+- [ ] 22-01-PLAN.md — Wave 0 test seam: headless `ChatPanel` guard, shared harness, and the pre-fix SEC-06 defect characterization (wave 1)
+- [ ] 22-02-PLAN.md — `SecTier` enum, the required non-defaulted `secTier` on all 59 catalog tools, and the tier parity test (wave 1)
+- [ ] 22-03-PLAN.md — Shared `canonicalToolId`, `ToolApprovalGate` types, `ext:`/unknown tier resolution and the display/audit sanitizers (wave 2)
+- [ ] 22-04-PLAN.md — Gate decision state machine: per-session memory, four actions, the D-12 denial constant, monotone budget helpers (wave 3)
+- [ ] 22-05-PLAN.md — `ToolDecisionReporter`: ordered `mcp_tool_decision` payload, hash-by-default, Output line, `MCP_TOOL_CALL` metadata (wave 3)
+- [ ] 22-06-PLAN.md — `ToolApprovalCard`: trust typography, tier badge, args disclosure, resolution and the compact resolved rows (wave 3)
+- [ ] 22-07-PLAN.md — The gate lands: required `origin` on `executeTool`, card wiring, parked continuation, inverted SC4 acceptance gate (wave 4)
+- [ ] 22-08-PLAN.md — Pending-decision lifecycle across all five teardown paths, SC3 audit wiring, session-list marker (wave 5)
+- [ ] 22-09-PLAN.md — ADR-15, the ADR guard test, `CONCERNS.md` corrections and `22-HUMAN-UAT.md` (wave 6)
+
+**Open question for `/gsd-discuss-phase`** (answered): whether the gate defaults to prompting for all tools or only for the mutating set. Resolved by `22-CONTEXT.md` D-01/D-02/D-05 — neither. SEC-06 gets its own three-tier classification independent of `unsafeOnly`, and `AUTO` requires read-only **and** bounded output, so bulk-read tools such as `proxy_http_history` prompt too.
 
 ---
 

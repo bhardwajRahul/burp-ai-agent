@@ -1,9 +1,9 @@
 ---
 phase: 22
 slug: agent-tool-call-trust-boundary
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: planned
+nyquist_compliant: true
+wave_0_complete: false  # 22-01 lands it (wave 1)
 created: 2026-08-13
 ---
 
@@ -21,7 +21,7 @@ created: 2026-08-13
 |----------|-------|
 | **Framework** | JUnit Jupiter 6.0.3 + `kotlin("test")` + mockito-kotlin 5.4.0 (all already present — no install needed) |
 | **Config file** | `build.gradle.kts` (`tasks.test`, lines 152-172) — `useJUnitPlatform()`, `jvmArgs("-ea")` |
-| **Quick run command** | `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test --tests "*ToolGate*" --tests "*SecTier*" --tests "*TierParity*"` |
+| **Quick run command** | `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test --tests "*ToolGate*" --tests "*ToolApproval*" --tests "*ToolDecision*" --tests "*SecTier*" --tests "*TierParity*" --tests "*DecisionsAdr*"` |
 | **Full suite command** | `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test` |
 | **Phase gate command** | `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew ktlintCheck detekt test` |
 | **Estimated runtime** | ~15 s quick / full suite is 669 tests as of Phase 21 close |
@@ -39,7 +39,7 @@ created: 2026-08-13
 
 ## Sampling Rate
 
-- **After every task commit:** Run the quick run command
+- **After every task commit:** Run the quick run command. `ToolApprovalGateTest`, `ToolDecisionReporterTest`, `ToolApprovalCardTest` and `DecisionsAdrTest` do NOT contain the substring `ToolGate`, which is why the filter above names them explicitly.
 - **After every plan wave:** Run `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew ktlintCheck detekt test`
 - **Before `/gsd-verify-work`:** Full suite green, plus the detekt baseline unchanged from milestone start (1096 entries)
 - **Max feedback latency:** ~15 seconds (quick), well inside the sampling requirement
@@ -48,23 +48,36 @@ created: 2026-08-13
 
 ## Per-Task Verification Map
 
-Task IDs are assigned at planning. Until then this maps success criteria to their
-automated command and the Wave-0 file that must exist first.
+Task IDs assigned by `/gsd-plan-phase` on 2026-08-13. `➡️ 22-NN` in the File Exists
+column means the file is created by that plan. Every Gradle command below must be
+prefixed with `JAVA_HOME=$(/usr/libexec/java_home -v 21)`.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | 0 | SEC-06 / SC4 | Indirect prompt injection → tool selection | Headless guard on `ChatPanel.kt:377-380` lets a real `ChatPanel` construct under test | infra | `./gradlew test --tests "*ChatPanelToolGate*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | SEC-06 / SC6 | Fail-closed access control | All 59 catalog tools declare a `secTier`; the `AUTO` set is exactly the enumerated 19 | unit | `./gradlew test --tests "*McpToolCatalogTierParityTest*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | SEC-06 / SC6 | Fail-closed access control | `ext:server:tool` → `CONFIRM_EACH`; unknown → `CONFIRM_EACH`; all ten aliases resolve to their canonical tool's tier; gate and executor share one canonicalisation | unit | `./gradlew test --tests "*SecTierResolutionTest*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | SEC-06 / SC2 | Human authorisation of the action | Approve once executes; Approve for session suppresses the next card for that tool; Deny returns the D-12 constant; Deny for session denies instantly with no card | unit (AWT-free seam) | `./gradlew test --tests "*ToolApprovalGateTest*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | SEC-06 / SC4 | DoS through the safety control | 8 denials send at most 8 turns and terminate — monotone counter (D-13) | unit | `./gradlew test --tests "*ToolApprovalGateTest*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | SEC-06 / SC3 | Log injection (CWE-117) + audit confidentiality | Model-supplied args hashed, never plaintext, with `verboseAudit = false`; control chars stripped, length capped | unit | `./gradlew test --tests "*ToolApprovalGateTest*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | SEC-06 / SC4 | **ACCEPTANCE GATE** — must be RED against today's code | A model-emitted tool call does **not** reach Burp before a decision: `verify(api.scope(), never()).isInScope("http://evil.example/")` | integration (real `ChatPanel`, real Send button) | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | SEC-06 / SC2 | Human authorisation of the action | A `CONFIRM` model call adds an approval card and does not execute until resolved; denial sends a followup turn rather than erroring the session | integration | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | SEC-06 / SC5 | No double-prompt on user-originated calls | `ToolInvocationDialog` (`ChatPanel:928`) and `/tool` (`:2105`) execute with no card | integration | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | SEC-06 / SC5 | Unforgeable authorisation | A `ModelApproved` origin cannot be constructed outside the gate; the gate mints one | unit + KDoc negative-compilation note | `./gradlew test --tests "*ToolApprovalGateTest*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | SEC-06 / SC3 | Non-repudiation | Every decision emits `MCP_TOOL_CALL` metadata carrying `toolName`, `decision`, `secTier`, `step`, plus an `AuditLogger` event and one Output-tab line | integration (metadata capture) | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 3 | SEC-06 / SC1 | Threat model is written down and inheritable | ADR-15 exists in `DECISIONS.md`, numbered 15, containing D-05's `AUTO` sentence verbatim | doc assertion **or** human UAT — see Manual-Only below | `./gradlew test --tests "*DecisionsAdrTest*"` | ❌ W0 | ⬜ pending |
+| 22-01 T1 | 22-01 | 1 | SEC-06 / SC4 | T-22-13 | Headless guard on `ChatPanel.kt:377-380` lets a real `ChatPanel` construct under test; `tasks.test` runs headless | infra | `./gradlew test` | ➡️ 22-01 | ⬜ pending |
+| 22-01 T2 | 22-01 | 1 | SEC-06 / SC4 | T-22-13 | Shared harness constructs a real `ChatPanel` from deep stubs and drives the real Send button | infra | `./gradlew compileTestKotlin` | ➡️ 22-01 | ⬜ pending |
+| 22-01 T3 | 22-01 | 1 | SEC-06 / SC4 | T-22-01 | **Pre-fix baseline** — a model-emitted call reaches Burp with no decision (GREEN today; 22-07 T3 inverts it) | integration | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ➡️ 22-01 | ⬜ pending |
+| 22-02 T1 | 22-02 | 1 | SEC-06 / SC6 | T-22-14, T-22-15 | All 59 catalog tools declare a required non-defaulted `secTier`; omitting one does not compile | unit + compile | `./gradlew test` | ➡️ 22-02 | ⬜ pending |
+| 22-02 T2 | 22-02 | 1 | SEC-06 / SC6 | T-22-02, T-22-15 | The `AUTO` set is exactly the enumerated 19; no `unsafeOnly` tool is `AUTO`; `ai_analyze`/`ai_passive_scan` prove the axes are independent | unit | `./gradlew test --tests "*McpToolCatalogTierParityTest*"` | ➡️ 22-02 | ⬜ pending |
+| 22-03 T1 | 22-03 | 2 | SEC-06 / SC6 | T-22-12 | Gate and executor consume one `canonicalToolId`; no alias map exists under `ui/` | unit | `./gradlew test` | ➡️ 22-03 | ⬜ pending |
+| 22-03 T2 | 22-03 | 2 | SEC-06 / SC5, SC6 | T-22-11, T-22-16 | `ext:` derives `CONFIRM_EACH`; unknown fails closed; the model-approved origin is unconstructible outside the gate file | compile + grep | `./gradlew compileKotlin` | ➡️ 22-03 | ⬜ pending |
+| 22-03 T3 | 22-03 | 2 | SEC-06 / SC6 | T-22-12, T-22-16 | All ten aliases resolve to their canonical tool's tier; all 59 built-ins resolve; unknown never returns `AUTO` | unit | `./gradlew test --tests "*SecTierResolutionTest*"` | ➡️ 22-03 | ⬜ pending |
+| 22-04 T1 | 22-04 | 3 | SEC-06 / SC2, SC4 | T-22-08, T-22-18, T-22-21 | Three-tier `evaluate`/`resolve`, per-session memory, D-12 constant, monotone budget helpers; no opt-out parameter exists | compile | `./gradlew compileKotlin` | ➡️ 22-04 | ⬜ pending |
+| 22-04 T2 | 22-04 | 3 | SEC-06 / SC2, SC4 | T-22-08, T-22-18, T-22-19, T-22-22 | Approve-once/for-session/deny/deny-for-session behave per D-11; `CONFIRM_EACH` never gains session memory; 8 denials terminate | unit | `./gradlew test --tests "*ToolApprovalGateTest*"` | ➡️ 22-04 | ⬜ pending |
+| 22-05 T1 | 22-05 | 3 | SEC-06 / SC3 | T-22-06, T-22-09, T-22-23 | One `mcp_tool_decision` event + one Output line + the `MCP_TOOL_CALL` metadata map, from a single construction | compile | `./gradlew compileKotlin` | ➡️ 22-05 | ⬜ pending |
+| 22-05 T2 | 22-05 | 3 | SEC-06 / SC3 | T-22-06, T-22-19, T-22-23, T-22-24 | Payload key order pinned; args hashed by default; denial is `status = denied`; `secTier` present on every event; Output line single-line and sanitized | unit | `./gradlew test --tests "*ToolDecisionReporterTest*"` | ➡️ 22-05 | ⬜ pending |
+| 22-06 T1 | 22-06 | 3 | SEC-06 / SC2 | T-22-07, T-22-29 | Model text only in boxed `JTextField`/`JTextArea`; four or two actions per tier; token-only styling | compile | `./gradlew compileKotlin` | ➡️ 22-06 | ⬜ pending |
+| 22-06 T2 | 22-06 | 3 | SEC-06 / SC2 | T-22-27, T-22-30 | Resolution removes buttons for an outcome row; both compact resolved variants; accessible description ends with the sanitized tool ID | compile | `./gradlew compileKotlin` | ➡️ 22-06 | ⬜ pending |
+| 22-06 T3 | 22-06 | 3 | SEC-06 / SC2 | T-22-07, T-22-26, T-22-27 | `getClientProperty("html")` is null on every `JLabel`/`AbstractButton`; unknown tool labelled; button counts per tier | unit (headless Swing) | `./gradlew test --tests "*ToolApprovalCardTest*"` | ➡️ 22-06 | ⬜ pending |
+| 22-07 T1 | 22-07 | 4 | SEC-06 / SC5 | T-22-11, T-22-19 | `executeTool` requires a non-defaulted origin at all eleven call sites; the gate runs before the executor; every non-`Run` outcome is fail-closed | unit + compile | `./gradlew test` | ➡️ 22-07 | ⬜ pending |
+| 22-07 T2 | 22-07 | 4 | SEC-06 / SC2 | T-22-01, T-22-31 | The card supplies the decision; `AWAITING_DECISION` parks `onCompleted`; no branch leaves it undischarged; no new EDT marshalling | unit | `./gradlew test` | ➡️ 22-07 | ⬜ pending |
+| 22-07 T3 | 22-07 | 4 | SEC-06 / SC2, SC4, SC5 | T-22-01, T-22-32 | **ACCEPTANCE GATE — must be RED against pre-gate code.** A `CONFIRM` model call never reaches Burp before a decision; `AUTO` still runs silently; neither user path is double-prompted | integration (real `ChatPanel`, real Send button) | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ➡️ 22-07 | ⬜ pending |
+| 22-08 T1 | 22-08 | 5 | SEC-06 / SC2 | T-22-10, T-22-33, T-22-36 | All five teardown paths route through one `resolvePending`; no implicit denial starts a backend turn; `:342` discarded-fallback fixed | unit | `./gradlew test` | ➡️ 22-08 | ⬜ pending |
+| 22-08 T2 | 22-08 | 5 | SEC-06 / SC3 | T-22-09 | Every resolved branch — including `AUTO` and all five implicit-denial reasons — reports; the metadata map is merged, not duplicated | unit | `./gradlew test` | ➡️ 22-08 | ⬜ pending |
+| 22-08 T3 | 22-08 | 5 | SEC-06 / SC2, SC3 | T-22-34, T-22-35 | `Awaiting approval` marker; scroll-to-pending on session switch; four lifecycle/audit integration tests | integration | `./gradlew test --tests "*ChatPanelToolGateTest*"` | ➡️ 22-08 | ⬜ pending |
+| 22-09 T1 | 22-09 | 6 | SEC-06 / SC1 | T-22-37, T-22-39, T-22-40 | ADR-15 records the threat model, qualifies ADR-11's marker, carries D-05 verbatim, and closes with `Residual:` bullets | doc + human UAT | `./gradlew test --tests "*DecisionsAdrTest*"` | ➡️ 22-09 | ⬜ pending |
+| 22-09 T2 | 22-09 | 6 | SEC-06 / SC1 | T-22-37, T-22-38 | ADR-15 exists, is the highest-numbered ADR, and its `AUTO` sentence matches the `SecTier` KDoc byte-for-byte | doc assertion | `./gradlew test --tests "*DecisionsAdrTest*"` | ➡️ 22-09 | ⬜ pending |
+| 22-09 T3 | 22-09 | 6 | SEC-06 / SC1, SC2 | T-22-38 | `CONCERNS.md` corrected; `22-HUMAN-UAT.md` carries the four manual verifications with `result: [pending]` | doc + manual | `test -f .planning/phases/22-agent-tool-call-trust-boundary/22-HUMAN-UAT.md` | ➡️ 22-09 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -116,12 +129,12 @@ if the harness ships first.
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 20s
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies (23/23 tasks carry an `<automated>` command)
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify (every task has one)
+- [x] Wave 0 covers all MISSING references (plan 22-01 lands the guard, the harness and the baseline test in wave 1)
+- [x] No watch-mode flags
+- [x] Feedback latency < 20s
 - [ ] SC4's acceptance gate confirmed RED against pre-fix `maybeExecuteToolCall` before the fix lands
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** task IDs assigned by `/gsd-plan-phase` on 2026-08-13; SC4's red-before-green proof is enforced as an acceptance criterion of 22-07 Task 3.
