@@ -374,10 +374,30 @@ class ChatPanel(
         inputArea.margin = java.awt.Insets(8, 10, 8, 10)
         val inputMap = inputArea.getInputMap(JComponent.WHEN_FOCUSED)
         val actionMap = inputArea.actionMap
+        // SEC-06 / SC4 headless guard — do not remove as dead code.
+        // `Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx` is the ONLY headless-hostile call in the
+        // whole ChatPanel construction path: under `-Djava.awt.headless=true` it throws from
+        // `sun.awt.HeadlessToolkit.getMenuShortcutKeyMaskEx`, which alone made the constructor
+        // unreachable from a test. The SC4 acceptance gate in `ChatPanelToolGateTest` needs a REAL
+        // ChatPanel headlessly so the model-emitted tool-call trust boundary can be asserted against
+        // the real production path rather than a modelled stand-in.
+        // The fallback is not degraded UX: `CTRL_DOWN_MASK` is the correct accelerator modifier on
+        // Linux and Windows, and on macOS (the only platform where the Cmd mask differs) a real Burp
+        // UI is never headless, so the fallback branch is unreachable there.
         val menuMask =
-            java.awt.Toolkit
-                .getDefaultToolkit()
-                .menuShortcutKeyMaskEx
+            if (java.awt.GraphicsEnvironment.isHeadless()) {
+                InputEvent.CTRL_DOWN_MASK
+            } else {
+                try {
+                    java.awt.Toolkit
+                        .getDefaultToolkit()
+                        .menuShortcutKeyMaskEx
+                } catch (_: java.awt.HeadlessException) {
+                    // Narrow by design (RESEARCH Pitfall 8): a broad runCatching would also swallow a
+                    // genuine toolkit misconfiguration on a user's machine.
+                    InputEvent.CTRL_DOWN_MASK
+                }
+            }
         inputMap.put(javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "sendMessage")
         inputMap.put(javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.SHIFT_DOWN_MASK), "insert-break")
         inputMap.put(javax.swing.KeyStroke.getKeyStroke(KeyEvent.VK_T, menuMask), "openToolDialog")
