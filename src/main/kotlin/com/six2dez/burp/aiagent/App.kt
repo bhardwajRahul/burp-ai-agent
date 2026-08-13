@@ -18,6 +18,7 @@ import com.six2dez.burp.aiagent.config.toPreprocessorSettings
 import com.six2dez.burp.aiagent.context.ContextCollector
 import com.six2dez.burp.aiagent.mcp.McpSupervisor
 import com.six2dez.burp.aiagent.redact.Redaction
+import com.six2dez.burp.aiagent.redact.SafeRegex
 import com.six2dez.burp.aiagent.scanner.ActiveAiScanner
 import com.six2dez.burp.aiagent.scanner.AiPassiveScanCheck
 import com.six2dez.burp.aiagent.scanner.AiScanCheck
@@ -90,9 +91,26 @@ object App {
         // active immediately on launch — NOT only after the user re-saves Settings. Without this,
         // compiledCustomPatterns resets to empty on every Burp restart and the secrets the user
         // configured the tool to strip would be sent to the AI backend until the next manual Save.
-        // Safe to call unconditionally: persisted patterns were already validated by isPatternSafe
-        // on save, and setCustomPatterns silently drops any uncompilable entry.
-        Redaction.setCustomPatterns(settings.customRedactionPatterns)
+        // That rationale is unchanged and load-bearing: seeding still happens, unconditionally.
+        //
+        // WR-07 / T-21-64 — WHAT CHANGED IS THE TRUST. This call used to be justified with
+        // "persisted patterns were already validated by isPatternSafe on save", which is exactly the
+        // assumption WR-07 falsifies. Burp preferences are a user-editable store: an entry can be
+        // hand-edited, can predate isPatternSafe existing at all, and — now that the probe corpus is
+        // a thing that GROWS (it went from one probe to six in this phase) — can predate the corpus
+        // that would reject it. Since D-05 a custom pattern runs in EVERY privacy mode including OFF
+        // and bodyStage fails CLOSED, so one accepted-but-pathological persisted entry burns
+        // MAX_REDACTION_BUDGET_MS and drops real content behind markers on every call. Re-validating
+        // here is what stops a stale preferences file from doing that.
+        //
+        // COST: at most (patterns x probes x SafeRegex.DEFAULT_TIMEOUT_MS) once per launch, and a
+        // realistic ten-pattern list measured 2.2 ms because benign patterns complete in
+        // microseconds against every probe. This runs on the extension-load thread, NOT on the
+        // EDT-critical path — the EDT exposure is the save path, tracked for Phase 23 / REL-05.
+        //
+        // setCustomPatterns still silently drops uncompilable entries; this filter is about
+        // pathological-but-compilable ones, which it cannot see.
+        Redaction.setCustomPatterns(settings.customRedactionPatterns.filter { SafeRegex.isPatternSafe(it) })
         AgentProfileLoader.setActiveProfile(settings.agentProfile)
         aiRequestLogger.enabled = settings.aiRequestLoggerEnabled
         aiRequestLogger.maxEntries = settings.aiRequestLoggerMaxEntries
@@ -228,6 +246,27 @@ object App {
         }
         safeShutdownStep("Alerting client") { Alerting.shutdownClient() }
         safeShutdownStep("Redaction mappings") { Redaction.clearMappings() }
+        // (PRIV-06) WR-04 / W-08 / T-21-66: unwire the truncation sink beside clearMappings(), so
+        // both pieces of Redaction's global state are released together. The lambda set in
+        // initialize() captures `api`, and Redaction is a singleton that outlives this extension
+        // instance, so leaving it wired hands a torn-down api.logging() to whatever redaction is
+        // still in flight on a Burp scanner thread or an MCP tool thread. Every other global sink
+        // here is already unwired — BackendDiagnostics.retry above, AuditLogger's emitter below —
+        // and this was the one addition that was set and never cleared.
+        //
+        // WHAT CHANGED SINCE PLAN 21-12 DEFERRED THIS. The deferral called it a teardown-race
+        // robustness issue, accurate at the time: maybeLogTruncation was only reachable from
+        // windowedScan's budget-exhaustion branch and dropOrRetry, i.e. oversized bodies. This phase
+        // added a third call site inside redactCookieSections, which runs in the HEADER stage of
+        // every Redaction.apply where stripCookies is true — the default BALANCED mode, on every MCP
+        // tool call and every passive scan, not only on oversized bodies. The window is now reachable
+        // far more often than when it was recorded.
+        //
+        // This step is SOURCE-ASSERTED, not test-asserted: shutdown() needs a live MontoyaApi, so no
+        // unit test exercises it. The defence that IS automated is maybeLogTruncation's runCatching
+        // (RedactionTest.truncationLoggerThatThrowsDoesNotAbortRedaction), which keeps the race
+        // harmless even if this line is ever removed.
+        safeShutdownStep("Redaction truncation sink") { Redaction.truncationLogger = null }
         AuditLogger.registerGlobalEmitter(null)
     }
 

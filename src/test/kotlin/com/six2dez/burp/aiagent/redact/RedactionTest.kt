@@ -1904,6 +1904,87 @@ class RedactionTest {
         )
     }
 
+    // (PRIV-06) WR-04 / W-08 / T-21-65: A FAILING DIAGNOSTICS SINK MUST NEVER ABORT A REDACTION PASS.
+    //
+    // THE RACE. App.initialize sets Redaction.truncationLogger to a lambda that CAPTURES `api`
+    // (App.kt:69). App.shutdown() unwires every other global sink — BackendDiagnostics.retry,
+    // AuditLogger's global emitter, Redaction.clearMappings() — and this phase's task 3 now unwires
+    // this one too. But a redaction already in flight on a Burp scanner thread or an MCP tool thread
+    // during teardown can still reach the sink between the extension being torn down and the field
+    // being nulled, and `api.logging()` on a torn-down API throws. Without the wrap, that throw
+    // propagates out through redactCookieSections -> apply -> the caller, turning a lost log line
+    // into a failed redaction. The truncationLogger KDoc already promises "a missing sink costs the
+    // user visibility, never correctness"; this is what makes the same true of a FAILING sink.
+    //
+    // WHY THE EXPOSURE GREW ENOUGH TO STOP DEFERRING IT. Plan 21-12 deferred WR-04 as a teardown-race
+    // robustness issue, which was accurate when written: the only maybeLogTruncation call sites were
+    // in windowedScan's budget-exhaustion branch and dropOrRetry, i.e. oversized bodies only. This
+    // phase added a THIRD call site inside redactCookieSections, which runs in the HEADER stage of
+    // every Redaction.apply where stripCookies is true — the default BALANCED mode, on every MCP tool
+    // call and every passive scan. The window is now reachable far more often than when it was
+    // recorded.
+    //
+    // FIXTURE REACHABILITY is exact, and the seam is what makes it exact. testRedactCookieSections
+    // bypasses Redaction.apply entirely, so no other rule runs, and budgetMs = 0 is deterministically
+    // expired on the first iteration (the ">= 0L" comparison, see redactCookieSections). The deadline
+    // branch is therefore the ONLY maybeLogTruncation call site this call can reach, so an escaping
+    // exception can only have come from the sink invocation — not from any other part of the pass.
+    //
+    // The throwing sink is restored in a finally so it cannot bleed into another test through the
+    // Redaction singleton; @AfterEach resetTruncationSignal is the second layer.
+    @Test
+    fun truncationLoggerThatThrowsDoesNotAbortRedaction() {
+        Redaction.resetTruncationWindowForTest()
+        val blob = Redaction.COOKIE_SECTION_HEADER + "\nabtest_bucket=OPAQUE_VALUE_XYZ"
+        val t0Real = System.currentTimeMillis()
+
+        val output: String
+        try {
+            Redaction.truncationLogger = { throw IllegalStateException("Extension has been unloaded") }
+            output = Redaction.testRedactCookieSections(blob, budgetMs = 0L)
+        } finally {
+            Redaction.truncationLogger = null
+        }
+
+        assertTrue(
+            output.contains("REDACTION INCOMPLETE"),
+            "A throwing truncation sink must not stop the pass from emitting its drop marker",
+        )
+        assertFalse(
+            output.contains("OPAQUE_VALUE_XYZ"),
+            "A throwing truncation sink must not weaken the fail-closed drop of the unscanned remainder",
+        )
+
+        // THE LIMITER'S ACCOUNTING MUST SURVIVE THE THROW. The fix wraps the sink invocation; a wrap
+        // placed one line wider would also swallow the compareAndSet and the getAndSet, so the window
+        // would never actually open and every later notice would emit instead of being suppressed.
+        // These two assertions are what tell those two placements apart (mutation M5).
+        //
+        // Offsets mirror the T0 / T_INSIDE_WINDOW / T_AFTER_WINDOW convention above — 5 s inside the
+        // 10 s window, 11 s past it — but are taken relative to the real clock, because the call
+        // above went through redactCookieSections, which reads System.currentTimeMillis() itself.
+        val lines = CopyOnWriteArrayList<String>()
+        Redaction.truncationLogger = { lines += it }
+
+        Redaction.maybeLogTruncation(t0Real + 5_000L, 1_000L)
+        assertEquals(
+            0,
+            lines.size,
+            "The throwing call must still have OPENED the rate-limiter window: a notice 5 s later must be suppressed",
+        )
+
+        Redaction.maybeLogTruncation(t0Real + 11_000L, 2_000L)
+        assertEquals(
+            1,
+            lines.size,
+            "A notice 11 s later, past the window, must still emit — the throw must not have frozen the limiter",
+        )
+        assertTrue(
+            lines[0].contains("Further notices suppressed since the previous line: 1"),
+            "The suppressed COUNT must survive the throwing call too; got: ${lines[0]}",
+        )
+    }
+
     // (PRIV-06) SC4 / T-21-02: a body above the old size cap must not smuggle a secret past the
     // body stage.
     //
@@ -1954,10 +2035,11 @@ class RedactionTest {
     // produce a MARKER, never passthrough.
     //
     // This is the fail-CLOSED half of SC4 and the explicit guard against treating
-    // SafeRegex.replaceAllSafe's return value as success: on timeout that facade returns the input
-    // unchanged, byte-identical to "the pattern matched nothing", so a body stage built on it would
-    // silently emit unscanned bytes while looking correct. Only the timedOut flag from
-    // replaceAllSafeReporting can tell the two apart.
+    // SafeRegex.replaceAllSafeReporting(...).text as success without checking timedOut: on timeout
+    // that text is the input unchanged, byte-identical to "the pattern matched nothing", so a body
+    // stage that assigned it blind would silently emit unscanned bytes while looking correct. Only
+    // the timedOut flag tells the two apart. (WR-03 deleted the String-returning replaceAllSafe
+    // façade this comment used to name, so the hazard is now spelled out in the form that ships.)
     //
     // (a+)+$ is the classic catastrophic-backtracking pattern and 2 000 'a' characters followed by
     // '!' is the input shape SafeRegexTest already proves trips the 50 ms deadline on JDK 21. It is
@@ -2013,10 +2095,10 @@ class RedactionTest {
     // width too, not only above it.
     //
     // The sibling above covers oversized input. This one covers the single-pass path, which plan
-    // 21-06 shipped assigning SafeRegex.replaceAllSafe's return value: that facade returns its
-    // input unchanged on timeout, byte-identical to "the pattern matched nothing", so a rule that
-    // overran the 50 ms deadline was silently skipped and its unredacted content passed straight
-    // through. That is fail-OPEN, one size class below the defect the phase exists to remove, and
+    // 21-06 shipped assigning the return value of the since-deleted SafeRegex.replaceAllSafe façade
+    // (WR-03): that value was replaceAllSafeReporting's .text, which on timeout is the input
+    // unchanged, byte-identical to "the pattern matched nothing", so a rule that overran the 50 ms
+    // deadline was silently skipped and its unredacted content passed straight through. That is fail-OPEN, one size class below the defect the phase exists to remove, and
     // it is what this test pins shut. The fix discards the partial result and re-scans the ORIGINAL
     // input through the windowed path, which already drops unscannable content behind a marker.
     //

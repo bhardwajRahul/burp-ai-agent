@@ -27,8 +27,16 @@ class SafeRegexTest {
         assertTrue(SafeRegex.isPatternSafe("\\d+"), "Benign pattern \\d+ must be accepted")
     }
 
-    // PRIV-02 / SC3: replaceAllSafe on a catastrophic pattern with a long matching-resistant
-    // input must return the original input unchanged (fail-open) and not hang.
+    // PRIV-02 / SC3 / WR-03: THE TEXT HALF of the bounded-replacement contract — on timeout the
+    // returned text is the ORIGINAL input, unchanged and uncorrupted, and the call does not hang.
+    //
+    // This assertion used to run against the deleted replaceAllSafe façade. WR-03 removed that
+    // façade (see SafeReplaceResult's KDoc); the fail-soft TEXT behaviour it pinned is unchanged and
+    // is still a real, separately-stated guarantee, so the assertion moved onto
+    // replaceAllSafeReporting(...).text rather than being dropped. D-14's clause that
+    // "SafeRegexTest:44 stays green unchanged" described plan 21-02's scope, and is superseded by
+    // the maintainer's 2026-08-12 decision to close WR-03 — the behaviour survives, the façade does
+    // not.
     @Test
     fun catastrophicPatternTimesOutAndReturnsInput() {
         // 2 000 'a' characters followed by '!' — on JDK 21 this reliably triggers the 50 ms
@@ -38,18 +46,24 @@ class SafeRegexTest {
         val pattern = Pattern.compile("(a+)+\$")
 
         val start = System.currentTimeMillis()
-        val result = SafeRegex.replaceAllSafe(input, pattern, "[REDACTED]")
+        val result = SafeRegex.replaceAllSafeReporting(input, pattern, "[REDACTED]").text
         val elapsed = System.currentTimeMillis() - start
 
-        assertEquals(input, result, "On timeout replaceAllSafe must return the original input unchanged (fail-open)")
-        assertTrue(elapsed < 200L, "replaceAllSafe must return within 200 ms; took $elapsed ms")
+        assertEquals(
+            input,
+            result,
+            "On timeout replaceAllSafeReporting(...).text must be the original input unchanged (fail-soft on the text)",
+        )
+        assertTrue(elapsed < 200L, "replaceAllSafeReporting must return within 200 ms; took $elapsed ms")
     }
 
-    // PRIV-06 / D-14: the pair of tests is deliberate. catastrophicPatternTimesOutAndReturnsInput
-    // above pins the fail-open FAÇADE (replaceAllSafe returns the input, and callers depend on it);
-    // this one pins the SIGNAL that makes fail-closed possible. The returned text is identical in
-    // both the "no matches" and the "timed out" cases, so timedOut is the only way a body-redaction
-    // caller can tell that a window was never fully scanned and must be dropped rather than sent.
+    // PRIV-06 / D-14: the pair of tests is deliberate, and stays a pair after WR-03.
+    // catastrophicPatternTimesOutAndReturnsInput above pins the TEXT half ("what you get back is
+    // safe"); this one pins the FLAG half ("you can tell that you got it back for the wrong
+    // reason"), which is what makes fail-closed possible. The returned text is identical in both the
+    // "no matches" and the "timed out" cases, so timedOut is the only way a body-redaction caller
+    // can tell that a window was never fully scanned and must be dropped rather than sent. Merging
+    // the two would lose exactly that distinction.
     @Test
     fun catastrophicPatternReportsTimedOut() {
         // Same input and pattern as catastrophicPatternTimesOutAndReturnsInput — 2 000 'a'
@@ -96,15 +110,163 @@ class SafeRegexTest {
         }
     }
 
-    // PRIV-02: replaceAllSafe on a benign pattern must apply the replacement correctly.
+    // WR-07: ANTI-VACUITY PRECONDITION for the three rejection tests below, hoisted into its own
+    // assertion so a reader can see it was checked rather than assumed.
+    //
+    // Every catastrophic candidate below must be rejected BY THE PROBE DEADLINE, not by WR-01's
+    // zero-width guard, which runs first and would make the rejection tests green for entirely the
+    // wrong reason. A candidate that matched the empty string would be rejected before a single
+    // probe ran, and the test would pass identically with the corpus widening reverted. That is
+    // exactly the vacuity class this phase has hit nine times.
+    @Test
+    fun wr07CandidatesAreNotRejectedByTheZeroWidthGuard() {
+        val candidates = listOf("(\\d+)+@", "(\\d+)+!", "([a-z]+)+!", "([A-Z]+)+!", "(\\w+\\s?)+\$")
+        for (p in candidates) {
+            assertFalse(
+                Pattern.compile(p).matcher("").find(),
+                "WR-07 candidate must NOT match the empty string, or WR-01's guard rejects it before any probe runs: $p",
+            )
+        }
+    }
+
+    // WR-07 (a): catastrophic on DIGITS. RED before the probe corpus widened — the single
+    // all-lowercase probe contains no digit at all, so (\d+)+@ finds nothing and completes in
+    // microseconds, and isPatternSafe ACCEPTED it. Feed it 2 000 digits with no '@' and it is the
+    // classic nested-quantifier blow-up.
+    //
+    // This is WR-07's own first example, verified accepted-today before the change rather than taken
+    // on trust: rejectedBy=[digit! digit-] after the widening, safeBEFORE=true.
+    @Test
+    fun catastrophicOnDigitsIsRejected() {
+        assertFalse(
+            SafeRegex.isPatternSafe("(\\d+)+@"),
+            "WR-07: (\\d+)+@ is catastrophic on a run of digits and must be rejected; " +
+                "the all-lowercase probe alone accepts it because it contains no digit",
+        )
+        assertFalse(
+            SafeRegex.isPatternSafe("(\\d+)+!"),
+            "WR-07: (\\d+)+! is catastrophic on a digit run NOT terminated by '!' and must be rejected; " +
+                "every '!'-terminated probe accepts it because the trailing literal matches",
+        )
+    }
+
+    // WR-07 (b): catastrophic on LOWERCASE — and the reason the corpus needs more than one
+    // TERMINATOR, not merely more than one character class.
+    //
+    // ([a-z]+)+! is WR-07's own second example. It escapes the original probe not because that probe
+    // lacks lowercase but because that probe ENDS IN '!', which is this pattern's trailing literal:
+    // the greedy match succeeds immediately and never backtracks. Measured: it survives every
+    // '!'-terminated probe, including the digit, mixed-alphanumeric and space-separated-word probes
+    // the review proposed. Only a lowercase run with a DIFFERENT terminator forces the failure that
+    // triggers the blow-up. That finding is why the shipped corpus is (class x terminator) rather
+    // than the four probes WR-07 suggested. rejectedBy=[lower-], safeBEFORE=true.
+    @Test
+    fun catastrophicOnLowercaseWithNonMatchingTerminatorIsRejected() {
+        assertFalse(
+            SafeRegex.isPatternSafe("([a-z]+)+!"),
+            "WR-07: ([a-z]+)+! must be rejected; it survives EVERY '!'-terminated probe because its " +
+                "own trailing literal is '!', so the corpus must terminate a lowercase run some other way",
+        )
+    }
+
+    // WR-07 (c): catastrophic on UPPERCASE. Not one of WR-07's three examples — added because the
+    // same (class x terminator) analysis showed uppercase-only patterns escaping every probe the
+    // review proposed, and realistic user patterns are full of uppercase token shapes
+    // (AKIA…, INTERNAL-…, ghp_…). rejectedBy=[upper-], safeBEFORE=true.
+    @Test
+    fun catastrophicOnUppercaseIsRejected() {
+        assertFalse(
+            SafeRegex.isPatternSafe("([A-Z]+)+!"),
+            "WR-07: ([A-Z]+)+! is catastrophic on a run of uppercase and must be rejected; " +
+                "no lowercase or digit probe reaches it",
+        )
+    }
+
+    // WR-07 (d): REGRESSION PIN, NOT A NEW GUARD — labelled as such deliberately.
+    //
+    // (\w+\s?)+$ is WR-07's third example, and screening it BEFORE the change showed it was ALREADY
+    // rejected by the single original probe (safeBEFORE=false): \w matches 'a', so 2 000 'a'
+    // characters followed by '!' already defeats the $ anchor and blows up. It is therefore green on
+    // both sides of the widening and proves nothing about the corpus. It ships anyway, because the
+    // property is real and worth pinning, but it is recorded here as an already-green pin so that
+    // nobody later reads it as evidence the corpus works. The three tests above are the evidence.
+    @Test
+    fun wordAndWhitespaceCatastrophicPatternStaysRejected() {
+        assertFalse(
+            SafeRegex.isPatternSafe("(\\w+\\s?)+\$"),
+            "WR-07: (\\w+\\s?)+\$ must stay rejected (already rejected before the widening — regression pin)",
+        )
+    }
+
+    // WR-07: the counter-assertion the rejection tests are worthless without. A corpus that rejects
+    // everything would satisfy all four tests above and destroy the feature, so the realistic
+    // user-pattern shapes must all still be ACCEPTED after the widening.
+    //
+    // These are the shapes the Settings panel's custom-pattern field actually receives: cloud key
+    // prefixes, hex digests, bearer shapes, internal identifiers. Each was measured completing in
+    // microseconds against every probe in the corpus, so widening costs them nothing.
+    @Test
+    fun realisticUserPatternsSurviveTheWidenedProbeCorpus() {
+        val realistic =
+            listOf(
+                "\\d+",
+                "[A-Z]+",
+                "secret[0-9]+",
+                "AKIA[0-9A-Z]{16}",
+                "sk-[A-Za-z0-9]{20,}",
+                "ghp_[A-Za-z0-9]{36}",
+                "[a-f0-9]{32}",
+                "\\bpassword=\\S+",
+                "Bearer\\s+[A-Za-z0-9._-]+",
+                "INTERNAL-[A-Z0-9]{6}",
+            )
+        for (p in realistic) {
+            assertTrue(
+                SafeRegex.isPatternSafe(p),
+                "WR-07: a realistic user pattern must still be accepted after the probe corpus widened: $p",
+            )
+        }
+    }
+
+    // WR-07 / WR-01: the two rejection paths must stay DISTINCT. A zero-width pattern has to be
+    // rejected by the WR-01 guard BEFORE any probe runs, not by a probe timing out — otherwise
+    // widening the corpus would have quietly swallowed a separately documented control and its
+    // distinct save-path rejection message.
+    //
+    // Asserted by cost, which is the only externally visible difference: the guard returns in
+    // microseconds while any probe timeout costs at least DEFAULT_TIMEOUT_MS (50 ms). Nine
+    // empty-matchers, so a corpus-driven rejection could not hide inside the bound.
+    @Test
+    fun zeroWidthPatternsAreRejectedWithoutRunningAnyProbe() {
+        val emptyMatchers = listOf("a*", "\\d*", "[0-9]*", "\\s*", "x?", "(foo)?", ".*", "(abc)*", "a|")
+
+        val start = System.currentTimeMillis()
+        for (p in emptyMatchers) {
+            assertFalse(SafeRegex.isPatternSafe(p), "Empty-matching pattern must be rejected: $p")
+        }
+        val elapsed = System.currentTimeMillis() - start
+
+        assertTrue(
+            elapsed < SafeRegex.DEFAULT_TIMEOUT_MS,
+            "WR-01's zero-width guard must reject before any probe runs: ${emptyMatchers.size} empty-matchers " +
+                "took $elapsed ms, which is at least one probe deadline (${SafeRegex.DEFAULT_TIMEOUT_MS} ms)",
+        )
+    }
+
+    // PRIV-02 / WR-03: the counter-assertion to catastrophicPatternTimesOutAndReturnsInput — a
+    // benign pattern must actually APPLY its replacement. Without it, "returns the input unchanged"
+    // would be satisfiable by a function that never replaces anything at all. Moved onto
+    // replaceAllSafeReporting(...).text when WR-03 deleted the un-reporting façade; the guarantee is
+    // unchanged.
     @Test
     fun benignReplaceAppliesReplacement() {
         val result =
-            SafeRegex.replaceAllSafe(
-                "id=12345",
-                Pattern.compile("\\d+"),
-                "[REDACTED]",
-            )
+            SafeRegex
+                .replaceAllSafeReporting(
+                    "id=12345",
+                    Pattern.compile("\\d+"),
+                    "[REDACTED]",
+                ).text
         assertEquals("id=[REDACTED]", result)
     }
 }
