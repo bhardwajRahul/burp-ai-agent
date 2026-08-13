@@ -110,14 +110,23 @@ object SafeRegex {
         }
 
     /**
-     * Returns true if [regex] compiles successfully AND finishes matching the adversarial probe
-     * within [timeoutMs] milliseconds.
+     * Returns true if [regex] compiles successfully AND finishes matching EVERY probe in
+     * [ADVERSARIAL_PROBES] within [timeoutMs] milliseconds each.
      *
      * Returns false if:
      *   - the regex fails to compile (PatternSyntaxException), or
-     *   - the match against the adversarial probe times out (RegexTimeoutException).
+     *   - the regex can match the empty string (WR-01 — its own distinct rejection, below), or
+     *   - the match against ANY probe times out (RegexTimeoutException). The first timeout rejects;
+     *     the remaining probes are not run.
      *
-     * Used by the custom-pattern save-validation path (PrivacyConfigPanel) per SC3.
+     * Used by the custom-pattern save-validation path (`SettingsPanel.validateAndCollectCustomPatterns`,
+     * on the EDT) per SC3, and by `App.initialize`'s startup re-validation of the persisted list
+     * (WR-07 / T-21-64).
+     *
+     * COST. Benign patterns complete in microseconds against every probe — a realistic ten-pattern
+     * list measured 0.44 ms across the single old probe and 2.2 ms across the whole corpus. Only a
+     * pathological pattern pays the deadline, and it pays it at most once per probe before the first
+     * timeout ends the loop. See [ADVERSARIAL_PROBES] for the worst-case bound and the EDT note.
      */
     fun isPatternSafe(
         regex: String,
@@ -131,11 +140,21 @@ object SafeRegex {
             // and bloating the outbound context (a 44-char body explodes to ~490 chars). Fail-safe
             // for secrecy, but a foreseeable footgun for non-expert regex users, so reject it up
             // front and surface a distinct rejection message in the save path.
+            //
+            // This check stays ABOVE the probe loop and keeps its own separate return, so a
+            // zero-width pattern is still rejected for BEING zero-width rather than for timing out.
+            // Guard: SafeRegexTest.zeroWidthPatternsAreRejectedWithoutRunningAnyProbe, which asserts
+            // it by cost — nine empty-matchers must return in less than one probe deadline.
             if (compiled.matcher("").find()) {
                 false
             } else {
-                val deadline = System.nanoTime() + timeoutMs * 1_000_000L
-                compiled.matcher(DeadlineCharSequence(ADVERSARIAL_PROBE, deadline)).find()
+                // WR-07: EVERY probe, and the first timeout rejects. Each probe gets its own fresh
+                // deadline: a shared deadline across the corpus would let a pattern that is merely
+                // slow on probe 1 exhaust the budget and be rejected on probe 2 for the wrong reason.
+                for (probe in ADVERSARIAL_PROBES) {
+                    val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+                    compiled.matcher(DeadlineCharSequence(probe, deadline)).find()
+                }
                 true
             }
         } catch (_: PatternSyntaxException) {
@@ -144,11 +163,64 @@ object SafeRegex {
             false
         }
 
-    // Catastrophic-backtracking probe for isPatternSafe.
-    // On JDK 21 the classic (a+)+$ pattern requires ~2 000+ characters before the timeout
-    // fires within the 50 ms budget (JDK 21 has improved its NFA engine for shorter inputs).
-    // Using 2 000 'a' characters followed by '!' reliably triggers the 50 ms deadline for
-    // truly pathological patterns while benign patterns (\d+, [A-Z]+, etc.) complete in
-    // microseconds on the same probe.
-    private val ADVERSARIAL_PROBE: String = "a".repeat(2_000) + "!"
+    // (PRIV-02) WR-07 / T-21-63: the catastrophic-backtracking probe corpus for isPatternSafe.
+    //
+    // WHY THIS IS A SECURITY CONTROL AND NOT A TIDY-UP. Before this phase, a custom pattern that
+    // was accepted but slow degraded gracefully: custom patterns ran only inside the redactTokens
+    // branch and an overrunning one was simply skipped. D-05 changed both halves of that. Custom
+    // patterns now run in EVERY privacy mode INCLUDING OFF (they are a "never send this, ever" list,
+    // independent of the mode — see Redaction.bodyRules), and bodyStage now fails CLOSED. So an
+    // accepted-but-slow pattern no longer degrades: it spends Defaults.MAX_REDACTION_BUDGET_MS and
+    // drops real content behind markers on EVERY call, including the calls a user in OFF mode
+    // believes are unfiltered. The blast radius of a bad accept grew in both directions during this
+    // phase without the gate being strengthened. This corpus is the strengthening.
+    //
+    // THE DESIGN PRINCIPLE IS (CHARACTER CLASS x TERMINATOR), and the terminator half is the part
+    // WR-07 missed. Catastrophic backtracking in the (X+)+L family needs a long run of X that is
+    // NOT followed by L, so the match fails and the engine explores the run's partitions. WR-07
+    // proposed varying only the character class, all four probes still ending in '!'. Measured, that
+    // does not reject WR-07's OWN second example: ([a-z]+)+! survives a lowercase probe ending in
+    // '!' because the greedy match SUCCEEDS immediately and never backtracks, and survives the digit,
+    // mixed-alphanumeric and space-separated-word probes because none of them contains a long
+    // lowercase run. Only a lowercase run with a different terminator rejects it.
+    //
+    // Hence three classes x two terminators. Every realistic user-pattern class — hex [a-f0-9],
+    // base64 [A-Za-z0-9+/=], \w, [a-z], [A-Z], \d, \S, '.' — contains 'a', '1' or 'A', so each is
+    // reachable by at least one probe under at least one non-matching terminator.
+    //
+    // NO WHITESPACE PROBE, deliberately, and this is a measurement rather than an omission. WR-07
+    // proposed ("x"*50 + " ")*40 + "!". Eleven whitespace-targeting candidates were screened against
+    // it — (x+ ?)+$, (x+ )+$, ([a-z]+ )+$, (\w+ )+$, ([a-z]+ )+#, (x+ )+@, (x+\s)+!, (\w+\s)+$,
+    // (\S+\s)+$, ([a-z ]+)+#, ([a-z]+\s?)+# — and NOT ONE is rejected by that probe alone: the ones
+    // it catches are already caught by the lowercase probes, and the rest are not catastrophic at
+    // all, because a MANDATORY separator inside the group removes the ambiguity that drives the
+    // blow-up. Adding it would have cost a probe's worth of worst case for coverage that could not
+    // be demonstrated — the "named guard pointing at nothing" defect this round exists to close. If
+    // someone later finds a genuine whitespace-only fixture, add the probe WITH that fixture.
+    //
+    // SIZING. The first entry is the original single probe, kept BYTE-FOR-BYTE, so no pattern
+    // rejected before this widening changes verdict for an unrelated reason. Its note still holds
+    // and applies to all six: on JDK 21 the classic (a+)+$ shape needs ~2 000 characters before the
+    // 50 ms deadline fires (JDK 21's NFA engine handles shorter inputs without blow-up), so every
+    // probe carries a run of that length.
+    //
+    // WORST CASE, stated rather than assumed: ADVERSARIAL_PROBES.size * DEFAULT_TIMEOUT_MS = 6 * 50
+    // = 300 ms for ONE pattern, and it is only reachable by a pattern that is slow-but-completing on
+    // five probes and pathological on the sixth. Measured reality: a pattern rejected by the sixth
+    // probe cost 50 ms end-to-end, because the five it survives complete in microseconds.
+    //
+    // EDT NOTE — REPORTED, NOT FIXED HERE (T-21-67, Phase 23 / REL-05). isPatternSafe runs ON THE
+    // EDT at save time via SettingsPanel.validateAndCollectCustomPatterns, so this widening
+    // multiplies that path's worst case by the probe count. Phase 23 owns EDT confinement; this is
+    // measured and reported there rather than restructured here. The startup seeding path in
+    // App.initialize is NOT on the EDT-critical path.
+    private val ADVERSARIAL_PROBES: List<String> =
+        listOf(
+            "a".repeat(2_000) + "!", // original probe, verbatim — lowercase run, '!' terminator
+            "a".repeat(2_000) + "-", // lowercase run, non-'!' terminator: rejects ([a-z]+)+!
+            "1".repeat(2_000) + "!", // digit run: rejects (\d+)+@
+            "1".repeat(2_000) + "-", // digit run, non-'!' terminator: rejects (\d+)+!
+            "A".repeat(2_000) + "!", // uppercase run
+            "A".repeat(2_000) + "-", // uppercase run, non-'!' terminator: rejects ([A-Z]+)+!
+        )
 }
