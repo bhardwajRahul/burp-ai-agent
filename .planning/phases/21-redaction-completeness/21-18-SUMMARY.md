@@ -361,3 +361,24 @@ None.
 ## Threat Flags
 
 None. No new network endpoint, auth path, file access pattern or schema change was introduced. All five threat-register mitigations (`T-21-62` … `T-21-67`) are implemented as dispositioned, with `T-21-66` and `T-21-64` recorded as source-asserted rather than test-asserted.
+
+---
+
+## Self-Check: PASSED
+
+Commits (all six verified present in `git log --all`):
+`ee714f5`, `0977226`, `83818ec`, `110bcbf`, `66b3e80`, `95aab12`.
+
+`must_haves` artifacts and key_links verified on disk, not by recollection:
+
+| Claim | Verification |
+|---|---|
+| `SafeRegex.kt` contains `ADVERSARIAL_PROBES` | 5 occurrences |
+| `SafeRegex.kt` no longer declares `replaceAllSafe` | `grep 'fun replaceAllSafe('` → 0 hits |
+| `App.kt` contains `truncationLogger` | 3 occurrences |
+| `App.shutdown` → `Redaction.truncationLogger` via a `safeShutdownStep` beside `clearMappings()` | `App.kt:269` — `safeShutdownStep("Redaction truncation sink") { Redaction.truncationLogger = null }`, immediately after the `Redaction mappings` step |
+| `App.initialize` → `SafeRegex.isPatternSafe` re-validating before `setCustomPatterns` | 3 `isPatternSafe` occurrences; call site is `settings.customRedactionPatterns.filter { SafeRegex.isPatternSafe(it) }` |
+| `Redaction.kt` wraps `maybeLogTruncation`'s sink invocation only | `git diff -U0` shows one executable line changed |
+| `21-18-SUMMARY.md` exists | 28 905 bytes on disk, committed in `95aab12` |
+| STATE.md / ROADMAP.md / REQUIREMENTS.md untouched | `git diff --stat a2523c0 HEAD -- <those three>` → empty |
+| Working tree clean, no stranded mutation | `git status --short` → empty |
