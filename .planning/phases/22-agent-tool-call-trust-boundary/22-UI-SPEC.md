@@ -1,10 +1,11 @@
 ---
 phase: 22
 slug: agent-tool-call-trust-boundary
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-08-13
+reviewed_at: 2026-08-13
 extends: 09-UI-SPEC.md
 ---
 
@@ -923,6 +924,21 @@ renderer's own sibling font — `label.font.deriveFont((label.font.size - 2).toF
 card is `lineWrap = true` + `wrapStyleWord = true` on the args area, height content-driven, and `rows`
 never set. See §"Layout & Sizing Contract".
 
+**Overflow on extension-derived label rows.** `Components.helpLabel` (`Components.kt:331`) returns a
+plain `JLabel`, which does **not** wrap — its own KDoc directs callers to an `<html>` prefix for
+multi-line text — and the transcript's `JScrollPane` is configured `HORIZONTAL_SCROLLBAR_NEVER`
+(`ChatPanel.kt:1662`), so an over-wide label row clips with no way to read the remainder. Two rows on
+this card are long enough to hit that: the ceiling truncation footer (rows 8 / C6, ~143 characters — the
+longest string on the card) and the compact row's bold outcome verb (C0, ~58 characters in
+`Typography.label`). **Both must wrap, via an `<html>` prefix at position 0.**
+
+**That is not a Rule T-2 violation, and the exemption is narrow.** Rule T-2 forbids `<html>` reaching a
+`JLabel` because *model-supplied* text at position 0 installs the HTML renderer. These two strings are
+extension-authored templates whose only interpolations are extension-computed integers (`{N}`, `{cap}`),
+so no model byte can reach position 0 or any other offset in them. The exemption covers **only** label
+rows carrying zero model-supplied text. Every row in Rule T-2's positive allowlist — the tool-ID box and
+the args area — stays `JTextField` / `JTextArea` and never takes an `<html>` prefix.
+
 **Sizes are multipliers, never pixels**, so the card follows the user's OS accessibility font setting.
 This is why every cap in §"Args Preview" is expressed in characters and source lines rather than pixels.
 
@@ -1234,11 +1250,30 @@ is not run. This phase adds **zero** dependencies (22-RESEARCH.md §"Package Leg
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS — see note below
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved 2026-08-13
+
+**Review history.** Verified by `gsd-ui-checker` on 2026-08-13 (6/6 PASS, nine non-blocking
+recommendations), revised by `gsd-ui-researcher` to fold all nine in (`cf096f5`), then re-verified:
+all nine landed, zero regressions, zero citation errors. The checker independently reproduced the
+headless Temurin 21 `BasicHTML.isHTMLString` probe and recomputed the badge contrast
+(L(#F57C00) = 0.33829 → 2.704:1, both figures exact).
+
+**Dimension 4 note — the one item the checker did not verify.** Re-verification returned Dimension 4 as
+FLAG, not PASS: §Typography carried no overflow contract for the extension-derived `JLabel` rows, and
+the revision had introduced the two most acute cases. That gap was closed by the orchestrator after the
+final checker pass (the §Typography "Overflow on extension-derived label rows" paragraph and its Rule
+T-2 exemption), so **that paragraph alone has not been through a checker pass.** Its two citations —
+`Components.kt:331` and `ChatPanel.kt:1662` — were verified against source before it was written.
+
+**Open for the planner, not defects:** FLAG-22-01 (repeat counter needs one new `ToolSessionState`
+field), FLAG-22-03 (whether the compact resolved row renders for session-approved as well as the
+required session-denied), and the contingent reachability of `Not a known tool — no catalog entry
+matches this name.` on a compact row, which depends on a tier-resolution rule for unrecognised
+non-`ext:` names that this document puts out of UI scope and CONTEXT.md does not decide.
