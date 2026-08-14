@@ -2735,8 +2735,11 @@ class ChatPanel(
      * Runs a tool call the SEC-06 gate approved, then chains the followup turn.
      *
      * [origin] cannot have come from anywhere but [ToolApprovalGate] — the model-approved variant is
-     * file-private to `ToolApprovalGate.kt` and unconstructible elsewhere — so reaching this function
-     * with one in hand IS the evidence that a decision was reached (T-22-11).
+     * file-private to `ToolApprovalGate.kt` and unconstructible elsewhere, and the factory that mints it
+     * is `private` to the gate object, so `evaluate` and `resolve` are the only code that can call it —
+     * so reaching this function with one in hand IS the evidence that a decision was reached (T-22-11).
+     * The residual, recorded in that file's header rather than left implied: `ToolCallOrigin` is sealed
+     * to package `mcp`, not to one file, so the guarantee covers accidental bypass, not a deliberate one.
      */
     private fun executeApprovedToolCall(
         sessionId: String,

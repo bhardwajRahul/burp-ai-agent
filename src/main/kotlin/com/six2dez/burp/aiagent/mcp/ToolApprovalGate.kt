@@ -17,6 +17,31 @@ import com.six2dez.burp.aiagent.mcp.tools.McpToolExecutor
 // compile-time mechanism that binds minting to the gate is FILE-PRIVATE visibility, and that requires
 // the origin implementation and the gate to be declared in the same file. Splitting this file back
 // into two would silently downgrade the SC5 control to a comment.
+//
+// State the control at the strength the COMPILER actually enforces, because a claim the compiler does
+// not check is worse than a weaker accurate one. Two boundaries, not one:
+//
+//   1. MINTING is file-scoped, and this is enforced. `ModelApproved` is top-level `private`, so no
+//      other file can name or construct it, and `ToolApprovalGate.approvedOrigin` is `private` to the
+//      object, so no other file can call it either. It was `internal` until this was measured: any file
+//      in the main source set could write `ToolApprovalGate.approvedOrigin(SecTier.AUTO,
+//      ToolDecision.AUTO)` and hand the result to `executeTool` with no card and no audit record, which
+//      made the file-private class decorative. Verified by compiling a probe file in this package: the
+//      call is now rejected with "Cannot access 'fun approvedOrigin': it is private".
+//   2. IMPLEMENTING `ToolCallOrigin` is PACKAGE-scoped, and this is a real residual. Kotlin seals a
+//      `sealed interface` to the same package AND module, never to a file, so a NEW FILE under
+//      `com.six2dez.burp.aiagent.mcp` can declare `object X : ToolCallOrigin { override val wireValue =
+//      "model_approved" }` and pass it to `executeTool`. Also verified by compiling a probe, which
+//      succeeded. There is no idiomatic file-scoped seal in Kotlin: an unnameable marker member
+//      (`val seal: PrivateInFileType`) does close it, but only behind three `@Suppress`ed
+//      EXPOSED_PROPERTY_TYPE compiler ERRORS, which trades a checked property for a suppressed
+//      diagnostic that a future Kotlin release can change under us. It was tried and rejected.
+//
+// So the honest SC5 statement is: an ACCIDENTAL bypass is impossible — a new parse-and-execute call
+// site cannot compile without an origin, and cannot obtain the model one without going through
+// `evaluate` or `resolve`. A DELIBERATE bypass by someone editing package `mcp` is not prevented by
+// the type system; nothing in a single-module Kotlin codebase could prevent it, and the controls
+// against it are code review and the audit record.
 
 /** Cap for [sanitizeInline]. A named constant because MagicNumber is active and QUAL-07 forbids growing detekt-baseline.xml. */
 private const val INLINE_MAX_LENGTH = 120
@@ -115,7 +140,15 @@ internal enum class ImplicitDenyReason(
  * The two user-originated variants are public because a user who picked the tool and typed the args
  * themselves has already authorised it; there is nothing for the gate to decide. The model-originated
  * variant is deliberately NOT declared here — it is a file-private class, unnameable and
- * unconstructible outside this file, and reachable only through [ToolApprovalGate.approvedOrigin].
+ * unconstructible outside this file, and minted only by the object-private `approvedOrigin`, which
+ * `evaluate` and `resolve` are the only code that can call.
+ *
+ * **The seal is a PACKAGE boundary, not a file boundary, and the difference is written down here
+ * rather than glossed.** Kotlin permits an implementation of a `sealed interface` in any file of the
+ * same package and module, so a new file under `com.six2dez.burp.aiagent.mcp` can declare its own
+ * `ToolCallOrigin` — including one whose `wireValue` reads `"model_approved"`. That is a deliberate
+ * act, not an accident, and it is the residual the file header explains; do not read "sealed" as
+ * "only this file".
  */
 internal sealed interface ToolCallOrigin {
     val wireValue: String
@@ -135,9 +168,13 @@ internal sealed interface ToolCallOrigin {
  * Parsed from model output AND authorised by the SEC-06 gate.
  *
  * Top-level `private`, which in Kotlin means FILE-private: no other file in the module can construct
- * this class or even name its type. That is the whole SC5 mechanism (T-22-11). It carries the proof of
- * the decision that produced it — the resolved [tier] and the [decision] a human (or the AUTO rule)
- * reached — so an audit record can be written from the origin alone.
+ * this class or even name its type. That is HALF the SC5 mechanism (T-22-11); the other half is that
+ * [ToolApprovalGate.approvedOrigin], the only thing that constructs it, is object-private. Either half
+ * alone is decorative — the class was file-private from the first commit while the factory was
+ * `internal`, and a module-wide factory for a file-private type is simply a module-wide factory.
+ *
+ * It carries the proof of the decision that produced it — the resolved [tier] and the [decision] a
+ * human (or the AUTO rule) reached — so an audit record can be written from the origin alone.
  *
  * `internal` would NOT work here: Kotlin's `internal` is module-wide, so every file in the main source
  * set could mint one. Do not widen this to `internal` and do not move it to its own file.
@@ -329,12 +366,21 @@ internal object ToolApprovalGate {
     }
 
     /**
-     * Mints the unforgeable model origin. The ONLY way to obtain one, and it exists only in this file.
+     * Mints the model origin. **Object-private**: [evaluate] and [resolve] are the only callers that
+     * can exist, because no code outside this object body can name this function at all.
+     *
+     * `private`, not `internal`, and the distinction is the control rather than a style preference.
+     * Kotlin's `internal` is module-wide, so an `internal` factory let any file in the main source set
+     * write `ToolApprovalGate.approvedOrigin(SecTier.AUTO, ToolDecision.AUTO)` and hand the result
+     * straight to `McpToolExecutor.executeTool` — no card, no session-memory consultation, no audit
+     * record. Making the *class* file-private bought nothing while the *factory* was module-visible.
+     * Do not widen this back to `internal` to make a test reach it: a test that needs a model origin
+     * should obtain one the way production does, from [evaluate] or [resolve].
      *
      * Returns the [ToolCallOrigin] interface, never the implementing type, so callers pass the value on
      * without ever being able to name — or reconstruct — what they are holding.
      */
-    internal fun approvedOrigin(
+    private fun approvedOrigin(
         tier: SecTier,
         decision: ToolDecision,
     ): ToolCallOrigin = ModelApproved(tier, decision)

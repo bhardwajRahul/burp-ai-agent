@@ -1023,10 +1023,17 @@ object McpToolExecutor {
      * **[origin] is DECLARED, not consumed (SEC-06 / SC5, T-22-11).** Nothing below branches on it and
      * no byte of the returned text depends on it. The enforcement is the *type*, not a check: the
      * model-originated variant of [ToolCallOrigin] is a file-private class inside `ToolApprovalGate.kt`,
-     * unnameable and unconstructible anywhere else, and reachable only through
-     * `ToolApprovalGate.approvedOrigin` — which is called only from `evaluate` and `resolve`. A caller
-     * therefore cannot obtain one without going through the decision. A hypothetical fourth
-     * parse-and-execute call site cannot reach Burp by writing `origin = MODEL`; it has to ask.
+     * unnameable and unconstructible anywhere else, and minted only by `ToolApprovalGate.approvedOrigin`
+     * — which is `private` to that object, so `evaluate` and `resolve` are the only code that CAN call
+     * it, rather than merely the only code that does today. A caller therefore cannot obtain one without
+     * going through the decision, and a hypothetical fourth parse-and-execute call site cannot reach Burp
+     * by writing `origin = MODEL`; it has to ask.
+     *
+     * Stated at the strength the compiler actually checks: what is closed is the ACCIDENTAL bypass.
+     * `ToolCallOrigin` is sealed to its PACKAGE rather than its file — Kotlin has no file-scoped seal —
+     * so a new file in `com.six2dez.burp.aiagent.mcp` could still declare its own implementation and pass
+     * it here. That is a deliberate act visible in a diff, not something a call site can do by omission.
+     * The header of `ToolApprovalGate.kt` records the probe that measured both halves.
      *
      * The parameter deliberately has **NO default value** (the `ContextPreviewDialog.kt:21-23`
      * convention): a default is exactly how a future call site silently inherits the ungated path.
