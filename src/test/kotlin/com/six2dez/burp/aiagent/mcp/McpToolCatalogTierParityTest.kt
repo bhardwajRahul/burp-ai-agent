@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test
 class McpToolCatalogTierParityTest {
     /**
      * The catalog size is asserted, not derived, because the tier sets below are exhaustive
-     * partitions of it: 19 AUTO + 26 CONFIRM + 14 CONFIRM_EACH = 59.
+     * partitions of it: 19 AUTO + 25 CONFIRM + 15 CONFIRM_EACH = 59.
      *
      * Note for whoever sees this fail: `grep -c 'McpToolDescriptor('` reports 60, not 59, because it
      * also counts the `data class` declaration line. 59 is the number of construction sites. If this
@@ -74,14 +74,19 @@ class McpToolCatalogTierParityTest {
     }
 
     @Test
-    fun confirmEachTierIsExactlyTheEnumeratedFourteen() {
+    fun confirmEachTierIsExactlyTheEnumeratedFifteen() {
         val expected =
             setOf(
                 // Sends attacker-influenceable traffic; args are the whole attack surface.
                 "http1_request",
                 "http2_request",
+                // Stages attacker-chosen traffic one click from the wire — ADR-15's "or stage it for
+                // one click" clause. `repeater_tab` was CONFIRM until Phase 22's verification (WARN-2)
+                // measured that it stages a model-authored HttpRequest exactly as intruder_prepare
+                // does, so one session grant covered every later call with different request content.
                 "intruder",
                 "intruder_prepare",
+                "repeater_tab",
                 // Starts real Burp activity against a target.
                 "scan_audit_start",
                 "scan_audit_start_mode",
