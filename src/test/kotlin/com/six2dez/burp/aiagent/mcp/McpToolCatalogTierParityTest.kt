@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test
 class McpToolCatalogTierParityTest {
     /**
      * The catalog size is asserted, not derived, because the tier sets below are exhaustive
-     * partitions of it: 19 AUTO + 25 CONFIRM + 15 CONFIRM_EACH = 59.
+     * partitions of it: 19 AUTO + 24 CONFIRM + 16 CONFIRM_EACH = 59.
      *
      * Note for whoever sees this fail: `grep -c 'McpToolDescriptor('` reports 60, not 59, because it
      * also counts the `data class` declaration line. 59 is the number of construction sites. If this
@@ -74,19 +74,22 @@ class McpToolCatalogTierParityTest {
     }
 
     @Test
-    fun confirmEachTierIsExactlyTheEnumeratedFifteen() {
+    fun confirmEachTierIsExactlyTheEnumeratedSixteen() {
         val expected =
             setOf(
                 // Sends attacker-influenceable traffic; args are the whole attack surface.
                 "http1_request",
                 "http2_request",
                 // Stages attacker-chosen traffic one click from the wire — ADR-15's "or stage it for
-                // one click" clause. `repeater_tab` was CONFIRM until Phase 22's verification (WARN-2)
-                // measured that it stages a model-authored HttpRequest exactly as intruder_prepare
-                // does, so one session grant covered every later call with different request content.
+                // one click" clause. Both repeater tools were CONFIRM until Phase 22's verification
+                // (WARN-2) measured that they stage a model-authored HttpRequest exactly as
+                // intruder_prepare does, so one session grant covered every later call with different
+                // request content. The _with_payload variant substitutes model-supplied payloads into
+                // that content first, which widens the grant rather than narrowing it.
                 "intruder",
                 "intruder_prepare",
                 "repeater_tab",
+                "repeater_tab_with_payload",
                 // Starts real Burp activity against a target.
                 "scan_audit_start",
                 "scan_audit_start_mode",

@@ -270,11 +270,11 @@ object McpToolCatalog {
                 category = "Requests",
                 defaultEnabled = false,
                 unsafeOnly = true,
-                // Still CONFIRM while `repeater_tab` directly above is CONFIRM_EACH. That asymmetry is a KNOWN residual, not a reasoned
-                // distinction: McpToolExecutorImpl.kt:259-274 stages a request the same way, differing only in that placeholder substitution
-                // runs first — which does not make the staged request any less model-authored. Recorded as a Residual in ADR-15; do not read
-                // the gap as a finding that this variant is safer.
-                secTier = SecTier.CONFIRM,
+                // CONFIRM_EACH for the same ADR-15 clause as `repeater_tab` above, and with slightly more reason: McpToolExecutorImpl.kt:261
+                // runs applyReplacements(input.content, input.replacements) BEFORE staging, so the request content and the substituted
+                // payloads are both model-supplied. Placeholder substitution running first does not make the staged request any less
+                // model-authored — it widens what one approve-for-session click would have covered.
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "intruder",
