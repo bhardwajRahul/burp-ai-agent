@@ -19,6 +19,7 @@ import com.six2dez.burp.aiagent.mcp.ToolApprovalMemory
 import com.six2dez.burp.aiagent.mcp.ToolApprovalOutcome
 import com.six2dez.burp.aiagent.mcp.ToolCallOrigin
 import com.six2dez.burp.aiagent.mcp.ToolDecision
+import com.six2dez.burp.aiagent.mcp.ToolDecisionReporter
 import com.six2dez.burp.aiagent.mcp.tools.McpToolExecutor
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.redact.SecretTripwire
@@ -134,6 +135,21 @@ class ChatPanel(
      */
     @GuardedBy("EDT")
     private val pendingDecisions = linkedMapOf<String, PendingToolDecision>()
+
+    /**
+     * The SC3 decision record, built once and pointed at all three destinations.
+     *
+     * ONE instance for the panel rather than one per call, because the point of the shape is that the
+     * `mcp_tool_decision` audit event, the Burp Output line and the `MCP_TOOL_CALL` metadata all come
+     * from a single construction and therefore cannot disagree (T-22-09). The Output sink is a lambda
+     * rather than the Burp API handle — the `McpBlockedRequestReporter` convention — which is what
+     * keeps the reporter assertable with no Montoya mock.
+     *
+     * The hash-by-default seam stays at its default. Model-supplied values are digested unless a
+     * verbose-audit flag turns them into plaintext, and there is still no such flag anywhere in the
+     * repo; CLAUDE.md's "hashes only unless verbose is on" is therefore satisfied by construction.
+     */
+    private val toolDecisionReporter = ToolDecisionReporter(logToOutput = { line -> api.logging().logToOutput(line) })
     private var mcpAvailable = true
     private var activeSessionId: String? = null
     private var suppressDraftSync = false
@@ -2289,7 +2305,7 @@ class ChatPanel(
                     remainingToolIterations = remainingToolIterations,
                     traceId = traceId,
                     onCompleted = onCompleted,
-                    origin = outcome.origin,
+                    approved = outcome,
                 )
             }
             is ToolApprovalOutcome.Ask ->
@@ -2314,6 +2330,7 @@ class ChatPanel(
                     remainingToolIterations = remainingToolIterations,
                     traceId = traceId,
                     onCompleted = onCompleted,
+                    denied = outcome,
                 )
             }
         }
@@ -2346,6 +2363,20 @@ class ChatPanel(
 
     /** `null` means the model named a tool with no catalog entry; the card renders its unknown-tool line. */
     private fun catalogTitleFor(canonicalId: String): String? = McpToolCatalog.all().firstOrNull { it.id == canonicalId }?.title
+
+    /**
+     * Whether the canonical ID names something this extension recognises — SC3's `knownTool`.
+     *
+     * The reporter deliberately holds no catalog dependency, so this is the caller's to compute, and
+     * it applies exactly the test [ToolApprovalGate.tierFor] applies: a catalog entry, or an `ext:`
+     * name belonging to a configured external server. Answering it differently here from the way the
+     * tier was resolved is how an audit record ends up hashing the name of a tool that ran perfectly
+     * well — so it is one function, called from every reporting branch, not a repeated expression.
+     */
+    private fun isKnownTool(canonicalId: String): Boolean = canonicalId.startsWith("ext:") || McpToolCatalog.all().any { it.id == canonicalId }
+
+    /** SC3's 1-based chain step. Derived once so no two telemetry branches can compute it differently. */
+    private fun chainStepFor(remainingToolIterations: Int): Int = (MAX_AUTO_TOOL_ITERATIONS - remainingToolIterations + 1).coerceAtLeast(1)
 
     /**
      * Puts the decision in front of the user and PARKS the chain (D-06, SC2).
@@ -2436,6 +2467,23 @@ class ChatPanel(
         if (panel == null) {
             // The transcript is gone. There is nowhere to chain to, so discharge the parked
             // continuation here rather than dropping it (T-22-31).
+            //
+            // SC3 still owes a record, and this is the one branch where that is easy to miss: a HUMAN
+            // clicked. The decision was made and only the place to run it disappeared, so the event
+            // carries the decision that was actually reached, with an error run status because
+            // nothing executed. Skipping it would leave a click with no audit trail at all.
+            val canonicalId = McpToolExecutor.canonicalToolId(pending.call.tool)
+            toolDecisionReporter.report(
+                rawToolName = pending.call.tool,
+                canonicalId = canonicalId,
+                knownTool = isKnownTool(canonicalId),
+                tier = ToolApprovalGate.tierFor(pending.call.tool),
+                decision = decision,
+                argsJson = pending.call.argsJson,
+                traceId = pending.traceId,
+                chainStep = chainStepFor(pending.remainingToolIterations),
+                runStatus = "error",
+            )
             pending.onCompleted?.invoke(ToolApprovalGate.DENIAL_RESULT, null)
         } else {
             dispatchResolvedToolCall(pending, panel, resolved)
@@ -2481,7 +2529,21 @@ class ChatPanel(
         // opposite of consent, and that rule belongs in the gate, not in five teardown paths.
         ToolApprovalGate.resolve(pending.call.tool, state.approvalMemory, ToolDecision.IMPLICIT_DENY)
         pending.card.resolve(ToolDecision.IMPLICIT_DENY, reason)
-        // Plan 22-08 Task 2 wires the SC3 decision record at this single call site.
+        // SC3. For four of the five paths the transcript is about to be destroyed, so this record is
+        // the ONLY surviving evidence that the model asked for a capability and never got it — which
+        // is why the reason rides along: "nobody answered" is otherwise unattributable.
+        val canonicalId = McpToolExecutor.canonicalToolId(pending.call.tool)
+        toolDecisionReporter.report(
+            rawToolName = pending.call.tool,
+            canonicalId = canonicalId,
+            knownTool = isKnownTool(canonicalId),
+            tier = ToolApprovalGate.tierFor(pending.call.tool),
+            decision = ToolDecision.IMPLICIT_DENY,
+            argsJson = pending.call.argsJson,
+            traceId = pending.traceId,
+            chainStep = chainStepFor(pending.remainingToolIterations),
+            implicitDenyReason = reason,
+        )
         // The parked continuation, discharged rather than dropped (T-22-31). Same shape as the
         // context-preview cancel at startSessionFromContext, but the second argument stays null: a
         // denial is a policy outcome, not a malfunction (D-12), so no throwable is constructed here.
@@ -2515,7 +2577,7 @@ class ChatPanel(
                     remainingToolIterations = pending.remainingToolIterations,
                     traceId = pending.traceId,
                     onCompleted = pending.onCompleted,
-                    origin = resolved.origin,
+                    approved = resolved,
                 )
             is ToolApprovalOutcome.Denied ->
                 denyToolCall(
@@ -2526,6 +2588,7 @@ class ChatPanel(
                     remainingToolIterations = pending.remainingToolIterations,
                     traceId = pending.traceId,
                     onCompleted = pending.onCompleted,
+                    denied = resolved,
                 )
             // Unreachable: resolve() maps the four D-11 actions plus IMPLICIT_DENY onto Run or Denied
             // and throws on everything else. Exhaustive rather than `else` so a future outcome fails
@@ -2550,11 +2613,28 @@ class ChatPanel(
         remainingToolIterations: Int,
         traceId: String,
         onCompleted: ((String, Throwable?) -> Unit)?,
+        denied: ToolApprovalOutcome.Denied,
     ): ToolCallOutcome {
         val backendId = sessionsById[sessionId]?.lastBackendId ?: getSettings().preferredBackendId
-        val chainStep = (MAX_AUTO_TOOL_ITERATIONS - remainingToolIterations + 1).coerceAtLeast(1)
-        // Temporary: reuses the existing tool-chain call shape so a refusal is never silent. Plan 22-08
-        // replaces this with the SC3 ToolDecisionReporter record.
+        val canonicalId = McpToolExecutor.canonicalToolId(call.tool)
+        // SC3. The refusal status rule is the reporter's and is deliberately NOT recomputed here: a
+        // refusal is a policy outcome, not a malfunction (D-12), and putting that rule in two places
+        // is how one of them ends up recording a decision as a tool failure.
+        //
+        // Reported BEFORE the log call, never inside its argument list: `aiRequestLogger` is nullable,
+        // so `?.log(report(...))` would skip the audit event and the Output line entirely whenever the
+        // AI Activity log happens to be absent — SC3 must not depend on another sink being wired.
+        val metadata =
+            toolDecisionReporter.report(
+                rawToolName = call.tool,
+                canonicalId = canonicalId,
+                knownTool = isKnownTool(canonicalId),
+                tier = denied.tier,
+                decision = denied.decision,
+                argsJson = call.argsJson,
+                traceId = traceId,
+                chainStep = chainStepFor(remainingToolIterations),
+            )
         supervisor.aiRequestLogger?.log(
             type = ActivityType.MCP_TOOL_CALL,
             source = "chat",
@@ -2562,14 +2642,7 @@ class ChatPanel(
             sessionId = sessionId,
             detail = "Tool ${call.tool} not authorised",
             durationMs = 0,
-            metadata =
-                mapOf(
-                    "operation" to "tool_chain",
-                    "status" to "denied",
-                    "traceId" to traceId,
-                    "step" to chainStep.toString(),
-                    "toolName" to call.tool,
-                ),
+            metadata = metadata,
         )
         // The user sees the outcome in the transcript whether or not a card was ever shown.
         panel.addMessage("Tool result: ${call.tool}", ToolApprovalGate.DENIAL_RESULT)
@@ -2620,37 +2693,46 @@ class ChatPanel(
         remainingToolIterations: Int,
         traceId: String,
         onCompleted: ((String, Throwable?) -> Unit)?,
-        origin: ToolCallOrigin,
+        approved: ToolApprovalOutcome.Run,
     ): ToolCallOutcome {
         val backendId = sessionsById[sessionId]?.lastBackendId ?: getSettings().preferredBackendId
-        val chainStep = (MAX_AUTO_TOOL_ITERATIONS - remainingToolIterations + 1).coerceAtLeast(1)
+        val chainStep = chainStepFor(remainingToolIterations)
+        val canonicalId = McpToolExecutor.canonicalToolId(call.tool)
         val startedAt = System.currentTimeMillis()
-        val resultOutcome = runCatching { McpToolExecutor.executeTool(call.tool, call.argsJson, context, origin) }
+        val resultOutcome = runCatching { McpToolExecutor.executeTool(call.tool, call.argsJson, context, approved.origin) }
         val durationMs = System.currentTimeMillis() - startedAt
         if (resultOutcome.isFailure) {
-            val errorMessage = resultOutcome.exceptionOrNull()?.message ?: "Unknown MCP tool error"
-            supervisor.aiRequestLogger?.log(
-                type = ActivityType.MCP_TOOL_CALL,
-                source = "chat",
-                backendId = backendId,
+            return reportFailedToolCall(
                 sessionId = sessionId,
-                detail = "Tool ${call.tool} failed: $errorMessage",
+                call = call,
+                panel = panel,
+                approved = approved,
+                traceId = traceId,
+                chainStep = chainStep,
                 durationMs = durationMs,
-                metadata =
-                    mapOf(
-                        "operation" to "tool_chain",
-                        "status" to "error",
-                        "traceId" to traceId,
-                        "step" to chainStep.toString(),
-                        "toolName" to call.tool,
-                        "errorClass" to (resultOutcome.exceptionOrNull()?.javaClass?.simpleName ?: "Exception"),
-                    ),
+                failure = resultOutcome.exceptionOrNull(),
+                backendId = backendId,
             )
-            panel.addMessage("Tool result: ${call.tool}", "Error: $errorMessage")
-            return ToolCallOutcome.NOT_CHAINED
         }
         val result = resultOutcome.getOrThrow()
         val status = if (result.startsWith("Error:")) "error" else "ok"
+        // SC3, and this is the branch that makes "which calls ran with no decision at all?" answerable
+        // from a historical log: an AUTO run reports too, carrying its tier and its AUTO decision, so
+        // it is distinguishable from a pre-gate call that nobody classified. Reported before the log
+        // call because `aiRequestLogger` is nullable — see denyToolCall.
+        val metadata =
+            toolDecisionReporter.report(
+                rawToolName = call.tool,
+                canonicalId = canonicalId,
+                knownTool = isKnownTool(canonicalId),
+                tier = approved.tier,
+                decision = approved.decision,
+                argsJson = call.argsJson,
+                traceId = traceId,
+                chainStep = chainStep,
+                resultChars = result.length,
+                runStatus = status,
+            )
         supervisor.aiRequestLogger?.log(
             type = ActivityType.MCP_TOOL_CALL,
             source = "chat",
@@ -2658,15 +2740,7 @@ class ChatPanel(
             sessionId = sessionId,
             detail = "Tool ${call.tool} executed",
             durationMs = durationMs,
-            metadata =
-                mapOf(
-                    "operation" to "tool_chain",
-                    "status" to status,
-                    "traceId" to traceId,
-                    "step" to chainStep.toString(),
-                    "toolName" to call.tool,
-                    "resultChars" to result.length.toString(),
-                ),
+            metadata = metadata,
         )
         panel.addMessage("Tool result: ${call.tool}", result)
         val followup =
@@ -2692,6 +2766,55 @@ class ChatPanel(
             traceId = traceId,
         )
         return ToolCallOutcome.CHAINED
+    }
+
+    /**
+     * Records an APPROVED call whose tool then threw, and stops the chain.
+     *
+     * The easiest reporting branch in the file to miss, because it sits above the success emission and
+     * returns early — and missing it puts a hole in SC3 exactly where it hurts. The decision *was*
+     * made: a human clicked, or an earlier click was applied, or the tier auto-ran it. Reporting only
+     * the calls that succeeded would make an approved-then-broken call indistinguishable from one that
+     * was never authorised at all. The run status is the failure's, not the decision's, and
+     * `errorClass` rides along as an extra key the reporter does not own — merged onto the returned
+     * map rather than assembled beside it, so both sinks still come from one construction.
+     */
+    private fun reportFailedToolCall(
+        sessionId: String,
+        call: ParsedToolCall,
+        panel: SessionPanel,
+        approved: ToolApprovalOutcome.Run,
+        traceId: String,
+        chainStep: Int,
+        durationMs: Long,
+        failure: Throwable?,
+        backendId: String,
+    ): ToolCallOutcome {
+        val errorMessage = failure?.message ?: "Unknown MCP tool error"
+        val canonicalId = McpToolExecutor.canonicalToolId(call.tool)
+        val metadata =
+            toolDecisionReporter.report(
+                rawToolName = call.tool,
+                canonicalId = canonicalId,
+                knownTool = isKnownTool(canonicalId),
+                tier = approved.tier,
+                decision = approved.decision,
+                argsJson = call.argsJson,
+                traceId = traceId,
+                chainStep = chainStep,
+                runStatus = "error",
+            ) + ("errorClass" to (failure?.javaClass?.simpleName ?: "Exception"))
+        supervisor.aiRequestLogger?.log(
+            type = ActivityType.MCP_TOOL_CALL,
+            source = "chat",
+            backendId = backendId,
+            sessionId = sessionId,
+            detail = "Tool ${call.tool} failed: $errorMessage",
+            durationMs = durationMs,
+            metadata = metadata,
+        )
+        panel.addMessage("Tool result: ${call.tool}", "Error: $errorMessage")
+        return ToolCallOutcome.NOT_CHAINED
     }
 
     private fun buildToolPreamble(
