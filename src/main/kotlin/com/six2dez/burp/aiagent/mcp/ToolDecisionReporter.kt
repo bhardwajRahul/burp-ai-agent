@@ -2,6 +2,7 @@ package com.six2dez.burp.aiagent.mcp
 
 import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.audit.Hashing
+import com.six2dez.burp.aiagent.config.Defaults
 
 // SEC-06 / SC3 / ADR-15: the RECORD half of the tool-call trust boundary. ToolApprovalGate decides;
 // this file writes the decision down and nothing else.
@@ -67,8 +68,8 @@ private const val OUTPUT_NONE = "none"
  *
  * **Output sink is a lambda, not the Burp API handle.** The caller passes
  * `{ line -> api.logging().logToOutput(line) }`; tests capture into a list. That keeps this class
- * testable with no Mockito deep stub and no display, and it is why the import list above is two entries
- * long.
+ * testable with no Mockito deep stub and no display, and it is why the import list above carries no
+ * Burp type, no Swing type and no AWT type — only the audit seam, the digest and a constants holder.
  *
  * **D-10 / [verboseAudit].** `AgentSettings` has `auditEnabled` but there is still no verbose-audit flag
  * anywhere in the repo (verified again this phase), so [verboseAudit] is a constructor seam that callers
@@ -225,15 +226,42 @@ internal class ToolDecisionReporter(
     }
 
     /**
-     * D-10: sanitize, then hash unless the caller opted into plaintext. Null in, null out — never hash
-     * the empty string, or "args absent" and "args empty" stop being distinguishable.
+     * D-10: hash the WHOLE value, or write the whole value under the verbose seam. Null in, null out —
+     * the caller drops blank args before calling, so "args absent" and "args empty" stay distinguishable
+     * without hashing the empty string.
      *
-     * Sanitizing BEFORE hashing is what makes the verbose path safe to write into a log line, and it is
-     * why this hash is not required to equal the one `McpTool.runTool` records under the same key name:
-     * that one digests the trimmed raw string. The key name is shared so an analyst reads both fields as
-     * "a digest of the arguments"; byte equality across the two records is not claimed.
+     * **The digest is taken over the value as given, and nothing is discarded first.** It used to run
+     * through [sanitizeInline], whose default cap is 120 characters, so `argsSha256` identified a
+     * whitespace-collapsed 120-character PREFIX of the arguments rather than the arguments. Two
+     * `http1_request` calls differing only in the request body — the method, path, headers and body all
+     * live past character 120 in the argument order the executor uses — produced a byte-identical
+     * digest, so an exfiltration request was indistinguishable in the audit trail from a benign one by
+     * keeping the prefix constant. Per D-07 the args are exactly where exfiltration hides, which makes a
+     * prefix digest worse than no digest: it looks like an answer to "which arguments ran?".
+     *
+     * Sanitization is applied only to the form that is actually RENDERED. A hex digest is safe by
+     * construction — 64 characters of `[0-9a-f]`, nothing model-authored survives it — so the default
+     * path needs no sanitizer at all. The verbose path does, and it uses [sanitizeBlock] rather than
+     * [sanitizeInline] for the reason [sanitizeInline]'s own KDoc gives: `\p{Cntrl}` includes `\n` and
+     * `\t`, so the inline form flattens JSON into one unreadable line. The cap is the extension's
+     * established ceiling for model-supplied context, the same one the approval card uses for its full
+     * args stage, so the record can hold everything the card could have shown. Neither form ever reaches
+     * [outputLine] — the Output tab carries no arguments at all — and both audit sinks are Jackson-
+     * serialized, so a preserved newline cannot forge a record line.
+     *
+     * This hash is still not required to equal the one `McpTool.runTool` records under the same key
+     * name: that one digests the *trimmed* string, and the executor may normalise args before it. The
+     * key name is shared so an analyst reads both fields as "a digest of the arguments"; byte equality
+     * across the two records is not claimed.
      */
-    private fun auditValue(value: String?): String? = sanitizeInline(value)?.let { if (verboseAudit) it else Hashing.sha256Hex(it) }
+    private fun auditValue(value: String?): String? =
+        value?.let {
+            if (verboseAudit) {
+                sanitizeBlock(it, maxChars = Defaults.MAX_CONTEXT_TOTAL_CHARS, maxLines = Int.MAX_VALUE)
+            } else {
+                Hashing.sha256Hex(it)
+            }
+        }
 
     /**
      * Exactly one line per invocation, carrying **sanitized plaintext and never a hash** — the Output tab

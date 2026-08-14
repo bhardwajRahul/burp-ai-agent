@@ -23,6 +23,21 @@ private const val CHAIN_STEP = 3
 /** Distinctive enough that its absence from the payload is provable by marker rather than by eye. */
 private const val ARGS_JSON = """{"url":"http://evil.example/SECRETMARKER"}"""
 
+/**
+ * `sanitizeInline`'s default cap, restated here because `INLINE_MAX_LENGTH` is file-private to
+ * `ToolApprovalGate.kt`. The number is what the fixtures below are built around: it is the boundary the
+ * args digest used to be taken at, so a test that differs only past it is the one that can see the bug.
+ */
+private const val INLINE_CAP = 120
+
+/**
+ * The opening of a real `http1_request` argument object, padded past [INLINE_CAP]. Everything that
+ * constitutes the security question — method, path, headers, body — lives after this prefix, which is
+ * exactly the shape that made a prefix digest useless.
+ */
+private val LONG_ARGS_PREFIX =
+    """{"targetHostname":"example.com","targetPort":443,"usesHttps":true,"content":"""" + "x".repeat(80)
+
 /** The same idea for a tool name the catalog cannot resolve. */
 private const val UNRESOLVABLE_TOOL = "pretend_tool_MARKER"
 
@@ -205,6 +220,46 @@ class ToolDecisionReporterTest {
         report(reporter = verboseReporter(), argsJson = ARGS_JSON)
 
         assertEquals(ARGS_JSON, payloadAt(0)["argsSha256"])
+    }
+
+    @Test
+    fun argsDigestDistinguishesPayloadsThatDifferPastTheInlineCap() {
+        report(argsJson = LONG_ARGS_PREFIX + """benign"}""")
+        report(argsJson = LONG_ARGS_PREFIX + """malicious"}""")
+
+        // The digest used to be taken over sanitizeInline's 120-character prefix, so two http1_request
+        // calls differing only in the request body hashed identically — and per D-07 the args are
+        // exactly where exfiltration hides. An attacker only had to keep the first 120 characters
+        // constant, which the argument key order makes trivial.
+        assertTrue(LONG_ARGS_PREFIX.length > INLINE_CAP, "the fixture must differ only PAST the old cap")
+        assertNotEquals(
+            payloadAt(0)["argsSha256"],
+            payloadAt(1)["argsSha256"],
+            "two payloads differing only past character $INLINE_CAP produced the same digest",
+        )
+    }
+
+    @Test
+    fun argsDigestCoversTheWholeArgumentStringNotAPrefixOfIt() {
+        val args = LONG_ARGS_PREFIX + """benign"}"""
+        report(argsJson = args)
+
+        // Exact, so a future truncation, trim or whitespace collapse anywhere in the audit path is red
+        // rather than merely different. ARGS_JSON cannot catch that: it is 42 clean characters, which
+        // every one of those transformations returns unchanged.
+        assertEquals(Hashing.sha256Hex(args), payloadAt(0)["argsSha256"])
+        assertNotEquals(Hashing.sha256Hex(sanitizeInline(args).orEmpty()), payloadAt(0)["argsSha256"])
+    }
+
+    @Test
+    fun verboseArgsKeepTheirJsonStructureRatherThanBeingFlattenedToOneCappedLine() {
+        val args = "{\n  \"content\": \"GET /x HTTP/1.1\",\n  \"marker\": \"" + "y".repeat(INLINE_CAP) + "\"\n}"
+        report(reporter = verboseReporter(), argsJson = args)
+
+        // The verbose seam is the only form that is ever rendered, so it is the only one that is
+        // sanitized — with the BLOCK form, because the inline form flattens JSON into one unreadable
+        // line, which is the opposite of D-07's rule that the full args are shown.
+        assertEquals(args, payloadAt(0)["argsSha256"])
     }
 
     @Test
