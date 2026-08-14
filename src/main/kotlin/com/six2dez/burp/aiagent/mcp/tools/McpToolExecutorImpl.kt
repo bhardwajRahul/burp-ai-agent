@@ -138,7 +138,7 @@ object McpToolExecutor {
         argsJson: String?,
         context: McpToolContext,
     ): CallToolResult {
-        val resolvedName = resolveAlias(name)
+        val resolvedName = canonicalToolId(name)
 
         // Phase 16 (CAP-02 / D-04): route ext:-prefixed tool calls to ExternalMcpClientManager.
         // Built-in Burp tools ALWAYS win when name does not start with "ext:" — the early return
@@ -1034,7 +1034,7 @@ object McpToolExecutor {
         return if (isError && text.isNotBlank()) {
             "Error: $text"
         } else {
-            text.ifBlank { "Tool executed: ${resolveAlias(name)}" }
+            text.ifBlank { "Tool executed: ${canonicalToolId(name)}" }
         }
     }
 
@@ -1111,7 +1111,24 @@ object McpToolExecutor {
         }
     }
 
-    private fun resolveAlias(toolName: String): String =
+    /**
+     * SEC-06: the SINGLE canonicalisation seam. Public — not private — because [ToolApprovalGate.tierFor]
+     * and this executor's own routing both consume it, so the tier shown on the approval card, the
+     * `toolName` written to the audit record and the tool that actually executes cannot disagree.
+     *
+     * The concrete failure this prevents: a model writing `{"tool":"history"}` executes as
+     * `proxy_http_history`, but a gate that skipped canonicalisation would label that call "unknown tool",
+     * mislabel the card and corrupt the audit record. Copying this ten-entry table into the gate would
+     * create exactly the two-lists-to-keep-in-sync shape D-03 rejects.
+     *
+     * **Warning sign:** a `when` block or a `mapOf` of tool aliases appearing anywhere under `ui/` means
+     * this seam has been bypassed. There must be one alias table in the codebase, and it is this one.
+     *
+     * Deliberately NOT paired with a tier marker in [describeTools] / [buildToolPreamble] alongside the
+     * existing `unsafe` / `pro` / `external` markers — advertising which tools run silently hands an
+     * injected prompt a target map. ADR-15 records that omission as deliberate.
+     */
+    fun canonicalToolId(toolName: String): String =
         when (toolName.trim().lowercase()) {
             "history", "proxy_history", "requests" -> "proxy_http_history"
             "history_regex", "proxy_history_regex" -> "proxy_http_history_regex"
