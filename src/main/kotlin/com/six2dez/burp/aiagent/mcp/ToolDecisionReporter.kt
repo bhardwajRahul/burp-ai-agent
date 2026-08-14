@@ -95,8 +95,11 @@ internal class ToolDecisionReporter(
      *
      * @param rawToolName the name exactly as the model emitted it — attacker-influenceable, never
      *   written to either sink unsanitized, and never written to the audit payload in plaintext.
-     * @param canonicalId the result of `McpToolExecutor.canonicalToolId(rawToolName)`. Extension-derived
-     *   once [knownTool] is true, because it then names a catalog entry.
+     * @param canonicalId the result of `McpToolExecutor.canonicalToolId(rawToolName)`. **Not
+     *   necessarily extension-derived, even when [knownTool] is true**: `canonicalToolId` returns the
+     *   model's string verbatim for anything its alias table does not rewrite, so an `ext:<server>:<tool>`
+     *   name is model-authored text that merely carries a recognised prefix. It is therefore sanitized
+     *   on every path out of this class, on both branches of [knownTool] — see [outputToolName].
      * @param knownTool whether [canonicalId] resolved to something the extension recognises. False
      *   flips the tool name to a hash: an unresolvable name is model-controlled text.
      * @param tier the resolved [SecTier]. Emitted on EVERY event, including `AUTO`.
@@ -187,9 +190,18 @@ internal class ToolDecisionReporter(
             "status" to if (denied) STATUS_DENIED else runStatus ?: STATUS_OK,
             "traceId" to traceId,
             "step" to chainStep.toString(),
-            // The canonical ID came from the catalog, so it is extension-derived and safe in plaintext.
-            // An unresolvable name did not, so it is replaced by a placeholder and hashed below.
-            "toolName" to if (knownTool) canonicalId else UNKNOWN_TOOL_NAME,
+            // A recognised name is written in plaintext, because a hashed tool name would make the
+            // record useless — but it is SANITIZED first, and unconditionally. `canonicalToolId` is not
+            // a validator: it returns the model's string unchanged for every name its alias table does
+            // not rewrite, so a "known" `ext:<server>:<tool>` name is model-authored text of unbounded
+            // length. [sanitizeInline] caps it and strips control characters; for a catalog ID it is the
+            // identity. An unresolvable name is replaced by a placeholder and hashed below.
+            "toolName" to
+                if (knownTool) {
+                    sanitizeInline(canonicalId).orEmpty().ifBlank { UNKNOWN_TOOL_NAME }
+                } else {
+                    UNKNOWN_TOOL_NAME
+                },
         ).apply {
             if (!knownTool) {
                 put("toolNameSha256", Hashing.sha256Hex(sanitizeInline(rawToolName).orEmpty()))
@@ -227,10 +239,10 @@ internal class ToolDecisionReporter(
      * Exactly one line per invocation, carrying **sanitized plaintext and never a hash** — the Output tab
      * is where a human diagnoses, and a digest diagnoses nothing.
      *
-     * Every field but the tool name is extension-derived. The tool name for an unresolved call is
-     * model-authored, so it goes through [sanitizeInline]: control characters are REMOVED, whitespace is
-     * collapsed and the value is capped, which is what makes a model-authored newline unable to forge a
-     * second Output line (CWE-117). The args JSON is never interpolated here at all.
+     * Every field but the tool name is extension-derived. The tool name is not, on EITHER branch of
+     * `knownTool`, so it goes through [sanitizeInline] unconditionally: control characters are REMOVED,
+     * whitespace is collapsed and the value is capped, which is what makes a model-authored newline
+     * unable to forge a second Output line (CWE-117). The args JSON is never interpolated here at all.
      */
     @Suppress("LongParameterList")
     private fun outputLine(
@@ -245,11 +257,25 @@ internal class ToolDecisionReporter(
         "[SEC-06] decision=${decision.wireValue} tier=${tier.wireValue} " +
             "tool=${outputToolName(rawToolName, canonicalId, knownTool)} step=$chainStep trace=$traceId"
 
+    /**
+     * The tool name as it appears on the Output line: sanitized on BOTH branches, never one of them.
+     *
+     * The earlier shape returned `canonicalId` verbatim when [knownTool] was true, on the reasoning that
+     * a recognised name is a catalog ID. That reasoning does not hold: `ChatPanel.isKnownTool` accepts
+     * any `ext:`-prefixed string and `McpToolExecutor.canonicalToolId` passes unmatched names through
+     * untouched, so `"ext:x\n[SEC-06] decision=approve_once …"` was a recognised name whose newline
+     * forged a second `[SEC-06]` line in Burp's Output tab (CWE-117) — on approve, on deny and on
+     * implicit deny alike, because every decision branch reports.
+     *
+     * Sanitizing unconditionally is the narrow fix: it costs nothing for a catalog ID, which
+     * [sanitizeInline] returns unchanged, and it removes the class of bug rather than one entry point
+     * into it. It does not depend on `isKnownTool` being right, which is what makes it the control.
+     */
     private fun outputToolName(
         rawToolName: String,
         canonicalId: String,
         knownTool: Boolean,
-    ): String = if (knownTool) canonicalId else sanitizeInline(rawToolName).orEmpty().ifBlank { OUTPUT_NONE }
+    ): String = sanitizeInline(if (knownTool) canonicalId else rawToolName).orEmpty().ifBlank { OUTPUT_NONE }
 
     /**
      * Which decisions refused the call. An exhaustive `when` over the enum rather than a boolean
