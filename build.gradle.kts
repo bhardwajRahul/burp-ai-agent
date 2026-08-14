@@ -150,7 +150,11 @@ tasks.build {
 
 tasks.test {
     useJUnitPlatform()
-    jvmArgs("-ea") // Enable JVM assertions so EDT assert() fires in CI (REL-01 SC1 gate)
+    jvmArgs("-ea", "-Djava.awt.headless=true") // Enable JVM assertions so EDT assert() fires in CI (REL-01 SC1 gate)
+    // The headless flag above serves the Phase 22 SC4 harness (ChatPanelTestHarness), which
+    // constructs a REAL ChatPanel and drives its REAL Send button. ubuntu-latest is headless anyway;
+    // forcing the flag makes a developer Mac behave identically instead of silently taking the
+    // windowed path and hiding a CI-only failure.
     // The generated BuildFlags.STORE_BUILD offers no other seam a test can compare against, so
     // McpBuildFlagsVersionTest used to assert a literal false — which made `-PstoreBuild=true`, the
     // BApp Store artifact build path, fail its own test suite. Passing the already-resolved
