@@ -5,6 +5,7 @@ import com.six2dez.burp.aiagent.mcp.ToolApprovalGate
 import com.six2dez.burp.aiagent.ui.components.ToolApprovalCard
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -25,6 +26,9 @@ import java.io.File
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import javax.swing.AbstractButton
+import javax.swing.JLabel
+import javax.swing.JList
+import javax.swing.ListCellRenderer
 import javax.swing.SwingUtilities
 
 /**
@@ -424,6 +428,37 @@ class ChatPanelToolGateTest {
         assertEquals("denied", decisions[1]["status"], "A denial is a third status value, never an error.")
     }
 
+    @Test
+    fun sessionRowMarksAPendingDecisionAndClearsItOnResolution() {
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        assertFalse(
+            sessionRowLabels(h).contains(PENDING_MARKER),
+            "A session with nothing outstanding must not claim to be awaiting anything.",
+        )
+
+        ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+        ChatPanelTestHarness.drainEdt()
+
+        // T-22-35: the marker is the only signal that a background session has parked a chain. Without
+        // it the user sees a session that simply stopped talking and concludes the model gave up.
+        assertTrue(
+            sessionRowLabels(h).contains(PENDING_MARKER),
+            "A session holding a pending decision must say so on its row.",
+        )
+
+        // Deny FOR SESSION, not a bare Deny. A bare denial sends the D-12 followup, the model re-emits
+        // the same call and a fresh card is raised — so the marker correctly stays up and the test
+        // would be asserting the wrong thing. A session denial resolves every later call with no card,
+        // which is the only way to reach "this session is waiting on nothing" inside one chain.
+        click(requireNotNull(liveApprovalCard(h.panel.root)) { NO_CARD }, "Deny for session")
+        ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
+
+        assertFalse(
+            sessionRowLabels(h).contains(PENDING_MARKER),
+            "The marker must clear when the decision is retired, or it becomes noise nobody reads.",
+        )
+    }
+
     // ── Audit capture plumbing ───────────────────────────────────────────────────────────
 
     private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
@@ -456,6 +491,31 @@ private const val LONG_DRAIN = 24
 
 /** The four D-11 labels, defined once so "is this a decision button?" is asked one way. */
 private val DECISION_LABELS = setOf("Deny", "Deny for session", "Approve once", "Approve for session")
+
+/** The session-list pending marker, verbatim from the UI-SPEC copywriting contract. */
+private const val PENDING_MARKER = "Awaiting approval"
+
+/**
+ * Every label the sessions-list renderer produces for the first session row.
+ *
+ * The renderer is invoked directly rather than waiting for a paint: a headless `JList` never paints,
+ * so the marker would otherwise be unassertable — and an unasserted UI affordance is exactly the kind
+ * of claim this phase is meant to stop making. This is the same production renderer the list uses,
+ * reached through `cellRenderer`, so nothing about it is modelled.
+ *
+ * Searched from `sessionsComponent()` rather than `root`: the sessions list is a SIBLING of the chat
+ * transcript, handed to `MainTab` separately, so it is not under `ChatPanel.root` at all.
+ */
+@Suppress("UNCHECKED_CAST")
+private fun sessionRowLabels(h: ChatPanelTestHarness.Harness): List<String> {
+    val list =
+        requireNotNull(ChatPanelTestHarness.find(h.panel.sessionsComponent(), JList::class.java)) {
+            "No JList under ChatPanel.sessionsComponent() — the sessions-list lookup is stale."
+        } as JList<Any?>
+    val renderer = list.cellRenderer as ListCellRenderer<Any?>
+    val row = renderer.getListCellRendererComponent(list, list.model.getElementAt(0), 0, false, false)
+    return allDescendants(row as Container).filterIsInstance<JLabel>().map { it.text }
+}
 
 /** The fenced payload shape `ToolCallParser.extractFirst` resolves (ToolCallParser.kt:80-108). */
 private fun toolCall(
