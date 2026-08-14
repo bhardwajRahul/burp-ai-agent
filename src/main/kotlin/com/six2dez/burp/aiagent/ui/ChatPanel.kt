@@ -13,6 +13,10 @@ import com.six2dez.burp.aiagent.context.ContextCapture
 import com.six2dez.burp.aiagent.mcp.McpRequestLimiter
 import com.six2dez.burp.aiagent.mcp.McpToolCatalog
 import com.six2dez.burp.aiagent.mcp.McpToolContext
+import com.six2dez.burp.aiagent.mcp.ToolApprovalGate
+import com.six2dez.burp.aiagent.mcp.ToolApprovalMemory
+import com.six2dez.burp.aiagent.mcp.ToolApprovalOutcome
+import com.six2dez.burp.aiagent.mcp.ToolCallOrigin
 import com.six2dez.burp.aiagent.mcp.tools.McpToolExecutor
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.redact.SecretTripwire
@@ -945,7 +949,10 @@ class ChatPanel(
         panel.addMessage("You", commandPreview)
         session.messages.add(ChatMessage("user", commandPreview))
 
-        val result = McpToolExecutor.executeTool(invocation.toolId, args, context)
+        // SC5: user-originated. The user picked the tool and typed the args in ToolInvocationDialog, so
+        // this call is deliberately UNGATED and consults no approval gate — double-prompting a decision
+        // the user just made trains them to click through (T-22-32).
+        val result = McpToolExecutor.executeTool(invocation.toolId, args, context, ToolCallOrigin.UserDialog)
         panel.addMessage("Tool result: ${invocation.toolId}", result)
         session.messages.add(ChatMessage("assistant", "Tool result (${invocation.toolId}):\n$result"))
         state.toolsMode = true
@@ -1208,7 +1215,13 @@ class ChatPanel(
     }
 
     companion object {
-        private const val MAX_AUTO_TOOL_ITERATIONS = 8
+        // `internal`, not `private`, so the module's test compilation can READ it. The one reason is
+        // ChatPanelToolGateTest.eightConsecutiveDenialsTerminateTheChainWithNoNinthTurn, which derives
+        // its expected turn count from this budget instead of hardcoding 8 — a stale literal silently
+        // passing is the one thing that must not happen to the phase's acceptance gate. `internal` is
+        // module-scoped, so it stays invisible to any consumer of the shipped JAR. Do not narrow it
+        // back without reading that test first.
+        internal const val MAX_AUTO_TOOL_ITERATIONS = 8
 
         fun formatSessionDate(epochMs: Long): String {
             val now = java.util.Calendar.getInstance()
@@ -1621,6 +1634,10 @@ class ChatPanel(
     private data class ToolSessionState(
         var toolsMode: Boolean = true,
         var toolCatalogSent: Boolean = false,
+        // D-10: the SEC-06 approve/deny memory is keyed on the CHAT session and dies with it — no new
+        // lifecycle, no persistence. An approval granted while reviewing target A must not silently
+        // apply when the user opens a new chat about target B (T-22-20).
+        val approvalMemory: ToolApprovalMemory = ToolApprovalMemory(),
     )
 
     private class ChatSessionRenderer : javax.swing.DefaultListCellRenderer() {
@@ -2122,7 +2139,9 @@ class ChatPanel(
             }
             val argsJson = split.getOrNull(1)
             val context = buildToolContext(settings, sessionId)
-            val result = McpToolExecutor.executeTool(toolName, argsJson, context)
+            // SC5: user-originated. The user typed `/tool <name> <json>` themselves, so this call is
+            // deliberately UNGATED and consults no approval gate (T-22-32).
+            val result = McpToolExecutor.executeTool(toolName, argsJson, context, ToolCallOrigin.UserSlashCommand)
             panel.addMessage("Tool result: $toolName", result)
             state.toolsMode = true
             state.toolCatalogSent = state.toolCatalogSent || argsJson != null
@@ -2143,13 +2162,145 @@ class ChatPanel(
         // REL-01: this function reads EDT-confined maps and calls panel.addMessage (Swing).
         // It must only be called from the EDT — enforced by assertEdt() under -ea.
         assertEdt()
-        if (remainingToolIterations <= 0) return false
-        val call = ToolCallParser.extractFirst(responseText) ?: return false
-        val panel = sessionPanels[sessionId] ?: return false
+        val call = if (remainingToolIterations > 0) ToolCallParser.extractFirst(responseText) else null
+        val panel = sessionPanels[sessionId]
+        if (call == null || panel == null) return false
+        val state = sessionStates.getOrPut(sessionId) { ToolSessionState() }
+        // SEC-06 / T-22-01 — THE trust boundary this whole phase exists to install. Model context is
+        // attacker-influenceable (proxy traffic sent via "Send to AI", passive-scan findings, external
+        // MCP tool results), so tool *selection* is attacker-influenceable too. The gate is consulted
+        // BEFORE anything here touches McpToolExecutor, and there is no path from this function to Burp
+        // that goes around it.
+        return when (val outcome = ToolApprovalGate.evaluate(call.tool, state.approvalMemory)) {
+            is ToolApprovalOutcome.Run ->
+                executeApprovedToolCall(
+                    sessionId = sessionId,
+                    userText = userText,
+                    call = call,
+                    panel = panel,
+                    context = context,
+                    remainingToolIterations = remainingToolIterations,
+                    traceId = traceId,
+                    onCompleted = onCompleted,
+                    origin = outcome.origin,
+                )
+            // TODO(22-07 Task 2): the approval card replaces this branch and turns Ask into a real
+            // decision. Until it lands, an Ask takes the denial path — so this intermediate commit is
+            // strict and fail-closed rather than briefly ungated.
+            is ToolApprovalOutcome.Ask ->
+                denyToolCall(
+                    sessionId = sessionId,
+                    userText = userText,
+                    call = call,
+                    panel = panel,
+                    remainingToolIterations = remainingToolIterations,
+                    traceId = traceId,
+                    onCompleted = onCompleted,
+                )
+            is ToolApprovalOutcome.Denied ->
+                denyToolCall(
+                    sessionId = sessionId,
+                    userText = userText,
+                    call = call,
+                    panel = panel,
+                    remainingToolIterations = remainingToolIterations,
+                    traceId = traceId,
+                    onCompleted = onCompleted,
+                )
+        }
+    }
+
+    /**
+     * Refuses a model-emitted tool call and keeps the conversation going (SC2, D-12, D-13).
+     *
+     * The refusal is NOT reported as a tool failure: [ToolApprovalGate.DENIAL_RESULT] carries no
+     * `Error:` prefix, because telling the model something broke invites a retry with different args —
+     * the exact loop SEC-06 exists to bound (T-22-19).
+     */
+    private fun denyToolCall(
+        sessionId: String,
+        userText: String,
+        call: ParsedToolCall,
+        panel: SessionPanel,
+        remainingToolIterations: Int,
+        traceId: String,
+        onCompleted: ((String, Throwable?) -> Unit)?,
+    ): Boolean {
+        val backendId = sessionsById[sessionId]?.lastBackendId ?: getSettings().preferredBackendId
+        val chainStep = (MAX_AUTO_TOOL_ITERATIONS - remainingToolIterations + 1).coerceAtLeast(1)
+        // Temporary: reuses the existing tool-chain call shape so a refusal is never silent. Plan 22-08
+        // replaces this with the SC3 ToolDecisionReporter record.
+        supervisor.aiRequestLogger?.log(
+            type = ActivityType.MCP_TOOL_CALL,
+            source = "chat",
+            backendId = backendId,
+            sessionId = sessionId,
+            detail = "Tool ${call.tool} not authorised",
+            durationMs = 0,
+            metadata =
+                mapOf(
+                    "operation" to "tool_chain",
+                    "status" to "denied",
+                    "traceId" to traceId,
+                    "step" to chainStep.toString(),
+                    "toolName" to call.tool,
+                ),
+        )
+        // The user sees the outcome in the transcript whether or not a card was ever shown.
+        panel.addMessage("Tool result: ${call.tool}", ToolApprovalGate.DENIAL_RESULT)
+        val followup =
+            buildString {
+                appendLine("The tool call to ${call.tool} was not authorised and did not run.")
+                appendLine(ToolApprovalGate.DENIAL_RESULT)
+                appendLine()
+                appendLine("User request:")
+                appendLine(userText)
+                appendLine()
+                // Deliberately NOT the success branch's closing line, which points the model at a tool
+                // result: nothing ran, so there is no result, and pointing the model at one that does
+                // not exist is how a refusal turns into a retry.
+                appendLine("Provide the final response using the information you already have.")
+            }.trim()
+        // D-13: a denied call decrements the budget exactly as an approved one does, through the SAME
+        // two helpers the success branch calls — so the counter is monotone by construction rather than
+        // by two copies of the same arithmetic. Free denials would let injected traffic walk the model
+        // through 59 different tools and produce 59 cards: a denial of service delivered through the
+        // safety control itself (T-22-08).
+        sendMessage(
+            sessionId,
+            followup,
+            contextJson = null,
+            allowToolCalls = ToolApprovalGate.allowsFurtherToolCalls(remainingToolIterations),
+            actionName = "Tool Followup",
+            onCompleted = onCompleted,
+            toolIterationsLeft = ToolApprovalGate.nextIterationBudget(remainingToolIterations),
+            traceId = traceId,
+        )
+        return true
+    }
+
+    /**
+     * Runs a tool call the SEC-06 gate approved, then chains the followup turn.
+     *
+     * [origin] cannot have come from anywhere but [ToolApprovalGate] — the model-approved variant is
+     * file-private to `ToolApprovalGate.kt` and unconstructible elsewhere — so reaching this function
+     * with one in hand IS the evidence that a decision was reached (T-22-11).
+     */
+    private fun executeApprovedToolCall(
+        sessionId: String,
+        userText: String,
+        call: ParsedToolCall,
+        panel: SessionPanel,
+        context: McpToolContext,
+        remainingToolIterations: Int,
+        traceId: String,
+        onCompleted: ((String, Throwable?) -> Unit)?,
+        origin: ToolCallOrigin,
+    ): Boolean {
         val backendId = sessionsById[sessionId]?.lastBackendId ?: getSettings().preferredBackendId
         val chainStep = (MAX_AUTO_TOOL_ITERATIONS - remainingToolIterations + 1).coerceAtLeast(1)
         val startedAt = System.currentTimeMillis()
-        val resultOutcome = runCatching { McpToolExecutor.executeTool(call.tool, call.argsJson, context) }
+        val resultOutcome = runCatching { McpToolExecutor.executeTool(call.tool, call.argsJson, context, origin) }
         val durationMs = System.currentTimeMillis() - startedAt
         if (resultOutcome.isFailure) {
             val errorMessage = resultOutcome.exceptionOrNull()?.message ?: "Unknown MCP tool error"
@@ -2203,14 +2354,16 @@ class ChatPanel(
                 appendLine()
                 appendLine("Provide the final response using the tool result.")
             }.trim()
+        // D-13: the same two helpers the denial branch calls, so both branches provably share ONE
+        // decrement. See denyToolCall for why a refusal is not free.
         sendMessage(
             sessionId,
             followup,
             contextJson = null,
-            allowToolCalls = remainingToolIterations > 1,
+            allowToolCalls = ToolApprovalGate.allowsFurtherToolCalls(remainingToolIterations),
             actionName = "Tool Followup",
             onCompleted = onCompleted,
-            toolIterationsLeft = (remainingToolIterations - 1).coerceAtLeast(0),
+            toolIterationsLeft = ToolApprovalGate.nextIterationBudget(remainingToolIterations),
             traceId = traceId,
         )
         return true

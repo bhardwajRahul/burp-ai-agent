@@ -5,6 +5,7 @@ import burp.api.montoya.core.BurpSuiteEdition
 import com.six2dez.burp.aiagent.mcp.McpRequestLimiter
 import com.six2dez.burp.aiagent.mcp.McpToolCatalog
 import com.six2dez.burp.aiagent.mcp.McpToolContext
+import com.six2dez.burp.aiagent.mcp.ToolCallOrigin
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -58,7 +59,10 @@ class McpToolParityTest {
                 maxBodyBytes = 1024,
             )
 
-        val text = McpToolExecutor.executeTool("missing_tool", null, context)
+        // ToolCallOrigin.UserSlashCommand: this test exercises the EXECUTOR's unknown-tool parity, not
+        // the SEC-06 gate. The origin is a declaration the type system requires (plan 22-07), not a
+        // behaviour switch — neither assertion below depends on which variant is passed.
+        val text = McpToolExecutor.executeTool("missing_tool", null, context, ToolCallOrigin.UserSlashCommand)
         val result = McpToolExecutor.executeToolResult("missing_tool", null, context)
 
         assertEquals("Unknown tool: missing_tool", text)

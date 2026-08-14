@@ -5,6 +5,7 @@ import burp.api.montoya.core.BurpSuiteEdition
 import com.six2dez.burp.aiagent.mcp.McpRequestLimiter
 import com.six2dez.burp.aiagent.mcp.McpToolCatalog
 import com.six2dez.burp.aiagent.mcp.McpToolContext
+import com.six2dez.burp.aiagent.mcp.ToolCallOrigin
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -19,6 +20,10 @@ import org.mockito.kotlin.whenever
  * aiAnalyze_returnsErrorWhenIsEnabledFalse and aiPassiveScan_returnsErrorWhenIsEnabledFalse
  * will fail red until Wave 2 implements the ai_analyze and ai_passive_scan handlers.
  * aiAnalyze_doesNotGateNonAiTool will fail red until Wave 2 implements redact_preview.
+ *
+ * Every `executeTool` call below declares [ToolCallOrigin.UserSlashCommand]. These tests exercise the
+ * EXECUTOR, not the SEC-06 gate: the origin is a declaration the type system requires (plan 22-07), not
+ * a behaviour switch, and no assertion here depends on which variant is passed.
  */
 class AiGateMcpToolTest {
     @Test
@@ -30,7 +35,7 @@ class AiGateMcpToolTest {
         whenever(supervisor.isAiEnabled()).thenReturn(false)
 
         val context = buildContext(api, supervisor)
-        val result = McpToolExecutor.executeTool("ai_analyze", """{"text":"test"}""", context)
+        val result = McpToolExecutor.executeTool("ai_analyze", """{"text":"test"}""", context, ToolCallOrigin.UserSlashCommand)
 
         assertTrue(
             result.contains("unavailable", ignoreCase = true),
@@ -47,7 +52,7 @@ class AiGateMcpToolTest {
         whenever(supervisor.isAiEnabled()).thenReturn(false)
 
         val context = buildContext(api, supervisor)
-        val result = McpToolExecutor.executeTool("ai_passive_scan", """{}""", context)
+        val result = McpToolExecutor.executeTool("ai_passive_scan", """{}""", context, ToolCallOrigin.UserSlashCommand)
 
         assertTrue(
             result.contains("unavailable", ignoreCase = true),
@@ -67,6 +72,7 @@ class AiGateMcpToolTest {
                 "redact_preview",
                 """{"text":"secret@example.com","mode":"STRICT"}""",
                 context,
+                ToolCallOrigin.UserSlashCommand,
             )
 
         assertFalse(
