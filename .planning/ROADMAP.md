@@ -224,7 +224,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 22-07-PLAN.md — The gate lands: required `origin` on `executeTool`, card wiring, parked continuation, the SC4 acceptance gate on a `CONFIRM`-tier tool (wave 4)
+- [x] 22-07-PLAN.md — The gate lands: required `origin` on `executeTool`, card wiring, parked continuation, the SC4 acceptance gate on a `CONFIRM`-tier tool (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
@@ -319,7 +319,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
 | 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
-| 22. Agent Tool-Call Trust Boundary | 6/9 | In Progress|  |
+| 22. Agent Tool-Call Trust Boundary | 7/9 | In Progress|  |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
 | 25. Secondary Hardening | 0/? | Not started | — |
