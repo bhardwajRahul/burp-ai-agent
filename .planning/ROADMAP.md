@@ -228,7 +228,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 22-08-PLAN.md — Pending-decision lifecycle across all five teardown paths, SC3 audit wiring, session-list marker (wave 5)
+- [x] 22-08-PLAN.md — Pending-decision lifecycle across all five teardown paths, SC3 audit wiring, session-list marker (wave 5)
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
@@ -319,7 +319,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
 | 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
-| 22. Agent Tool-Call Trust Boundary | 7/9 | In Progress|  |
+| 22. Agent Tool-Call Trust Boundary | 8/9 | In Progress|  |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
 | 25. Secondary Hardening | 0/? | Not started | — |
