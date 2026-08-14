@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
@@ -161,6 +162,21 @@ tasks.test {
     // `storeBuild` Boolean (configuration-cache-safe, exactly as tasks.shadowJar consumes it) lets
     // the test assert that the generated constant tracks the Gradle property under either build.
     systemProperty("storeBuild.expected", storeBuild.toString())
+    // SEC-06 / SC1: DecisionsAdrTest reads these two files from disk at runtime rather than from the
+    // compiled classpath, so Gradle cannot infer them. Without declaring them, a change to EITHER is
+    // invisible to the up-to-date check and the build cache — and a commit that edits only DECISIONS.md,
+    // or only the SecTier KDoc, produces byte-identical compiled output and therefore an identical
+    // cache key. The test task would be restored from cache and the guard would never run, in exactly
+    // the case it exists to catch. Measured: mutating the AUTO sentence left `./gradlew test` GREEN
+    // until `cleanTest` forced a re-run.
+    inputs
+        .file("DECISIONS.md")
+        .withPropertyName("adrRecord")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs
+        .file("src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpToolCatalog.kt")
+        .withPropertyName("secTierKdocSource")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     val excludeHeavyTests =
         (project.findProperty("excludeHeavyTests") as? String)
             ?.trim()
