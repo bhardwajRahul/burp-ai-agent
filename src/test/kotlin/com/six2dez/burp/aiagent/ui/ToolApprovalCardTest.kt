@@ -1,0 +1,327 @@
+package com.six2dez.burp.aiagent.ui
+
+import com.six2dez.burp.aiagent.mcp.SecTier
+import com.six2dez.burp.aiagent.mcp.ToolDecision
+import com.six2dez.burp.aiagent.ui.components.ToolApprovalCard
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import java.awt.Component
+import java.awt.Container
+import javax.swing.AbstractButton
+import javax.swing.JButton
+import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.JTextArea
+import javax.swing.JTextField
+import javax.swing.text.JTextComponent
+
+/**
+ * SEC-06 / SC2: proves the trust-typography rules of `ToolApprovalCard` mechanically.
+ *
+ * These run headless because `build.gradle.kts` passes `-Djava.awt.headless=true` (plan 22-01). A real
+ * Swing card is constructed, walked and clicked — no model of the card, and no modal, which is one of
+ * the reasons D-06 rejected a dialog: `JOptionPane.getRootFrame()` throws `HeadlessException`, so a
+ * modal decision surface would be untestable in CI.
+ *
+ * Note for anyone reading `ChatPanelConcurrencyTest`: its KDoc claims a real Swing component cannot be
+ * constructed headless. That premise was measured false in Phase 22 Wave 0. Do not model these
+ * assertions on that file.
+ *
+ * **What is deliberately NOT asserted here:** pixel positions, colours and fonts. Those are the human
+ * UAT items in `22-HUMAN-UAT.md`. What is asserted is structure, widget class, text content and callback
+ * wiring — which is what actually carries the security property.
+ *
+ * **Naming constraint (hard).** `build.gradle.kts` excludes `*IntegrationTest`, `*ConcurrencyTest`,
+ * `*BackpressureTest`, `*RestartPolicyTest` and `*SupervisionTest` under `-PexcludeHeavyTests=true`,
+ * which is exactly what the PR gate passes. This file must keep the plain `Test` suffix.
+ */
+class ToolApprovalCardTest {
+    @Test
+    fun confirmCardRendersFourDecisionButtons() {
+        val card = pendingCard(tier = SecTier.CONFIRM, offersSessionActions = true)
+
+        assertEquals(
+            listOf("Deny", "Deny for session", "Approve once", "Approve for session"),
+            decisionButtonsOf(card).map { it.text },
+            "A CONFIRM card must offer all four D-11 actions, in safe-action-first visual order. " +
+                "The button count is the structural channel that survives grayscale, low vision and a " +
+                "screenshot, and the order is what puts Deny on the first Tab stop.",
+        )
+
+        val args = requireNotNull(ChatPanelTestHarness.find(card, JTextArea::class.java))
+        assertFalse(
+            args.isVisible,
+            "A CONFIRM card starts with its arguments COLLAPSED (UI-SPEC anti-habituation rule A). " +
+                "Expanding on both tiers would remove the size difference that makes a CONFIRM_EACH " +
+                "card interrupt a run of CONFIRM cards.",
+        )
+    }
+
+    @Test
+    fun confirmEachCardRendersTwoDecisionButtons() {
+        val card = pendingCard(tier = SecTier.CONFIRM_EACH, offersSessionActions = false)
+
+        assertEquals(
+            listOf("Deny", "Approve once"),
+            decisionButtonsOf(card).map { it.text },
+            "CONFIRM_EACH has no session memory in either direction (D-02), so a session-wide action " +
+                "on its card would offer something the gate cannot honour.",
+        )
+        val everyLabel = descendantsOf(card).mapNotNull { textOf(it) }
+        assertFalse(
+            everyLabel.any { it == "Deny for session" || it == "Approve for session" },
+            "Neither session-scoped label may appear anywhere in a CONFIRM_EACH card's component tree.",
+        )
+
+        val args = requireNotNull(ChatPanelTestHarness.find(card, JTextArea::class.java))
+        assertTrue(
+            args.isVisible,
+            "A CONFIRM_EACH card expands its arguments by default (UI-SPEC rule A, the T-22-29 " +
+                "mitigation). D-02/D-04's whole argument for this tier is 'constant tool name and " +
+                "hostile args' — for it the args ARE the decision, so a payload cannot be approved " +
+                "from below a fold.",
+        )
+    }
+
+    @Test
+    fun modelSuppliedTextNeverInstallsTheHtmlRenderer() {
+        val toolId = "<html><b>Approved</b>"
+        val argsJson = "<html><i>safe</i>"
+        val card = pendingCard(toolId = toolId, args = argsJson)
+
+        // Rule T-2 made mechanical. BasicHTML.isHTMLString fires only at offset 0 and installs a
+        // renderer that both JLabel and AbstractButton route their text through, leaving a non-null
+        // "html" client property behind. This is the anti-spoofing assertion the whole card exists for.
+        descendantsOf(card).forEach { component ->
+            if (component is JLabel || component is AbstractButton) {
+                assertNull(
+                    (component as JComponent).getClientProperty("html"),
+                    "Swing's HTML renderer is installed on ${component.javaClass.simpleName} carrying " +
+                        "'${textOf(component)}'. A model-supplied string that reaches a JLabel or a " +
+                        "button can then paint itself as extension chrome at the exact moment the card " +
+                        "is asking for authorisation.",
+                )
+            }
+        }
+
+        val carriers = descendantsOf(card).filter { textOf(it)?.contains(toolId) == true || textOf(it)?.contains(argsJson) == true }
+        assertTrue(carriers.isNotEmpty(), "The model's strings must be rendered somewhere — the user has to see what was asked for.")
+        carriers.forEach { component ->
+            assertTrue(
+                component is JTextField || component is JTextArea,
+                "Model-supplied text reached a ${component.javaClass.simpleName}. The positive " +
+                    "allowlist is the primary control: it goes into JTextField / JTextArea and nothing " +
+                    "else, because neither ever installs the HTML renderer.",
+            )
+        }
+    }
+
+    @Test
+    fun modelSuppliedTextIsNeverConcatenatedIntoExtensionText() {
+        val toolId = "scope_check_but_actually_evil"
+        val card = pendingCard(toolId = toolId)
+
+        descendantsOf(card).forEach { component ->
+            if (component is JLabel || component is AbstractButton) {
+                assertFalse(
+                    textOf(component).orEmpty().contains(toolId),
+                    "One widget carries one trust class. A '\$prefix + modelString' concatenation puts " +
+                        "attacker-influenceable text inside a widget the user reads as extension chrome.",
+                )
+            }
+            if (component is JComponent) {
+                assertFalse(
+                    component.toolTipText.orEmpty().contains(toolId),
+                    "Swing renders HTML tooltips natively, so a model-authored tooltip is styled, " +
+                        "floating, extension-looking text.",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun toolIdIsSanitizedAndCapped() {
+        val card = pendingCard(toolId = "a\r\nInjected: line" + "x".repeat(PADDING_LENGTH))
+
+        val field = requireNotNull(ChatPanelTestHarness.find(card, JTextField::class.java))
+        assertFalse(field.text.contains('\r'), "Control characters must be stripped before display.")
+        assertFalse(field.text.contains('\n'), "A multi-line tool ID could occupy several lines and imitate an outcome row.")
+        assertTrue(
+            field.text.contains("aInjected: line"),
+            "Control characters are REMOVED, never replaced (CWE-117), so 'a\\r\\nInjected: line' " +
+                "collapses to 'aInjected: line' and a forged second line is impossible.",
+        )
+        assertTrue(
+            field.text.length <= TOOL_ID_CAP_WITH_ELLIPSIS,
+            "The inline cap is 120 characters plus the ellipsis. Without it a model can use the tool " +
+                "ID as a canvas. Rendered length was ${field.text.length}.",
+        )
+    }
+
+    @Test
+    fun unknownToolIsLabelledNeverShownBare() {
+        val toolId = "definitely_not_in_the_catalog"
+        val card = pendingCard(catalogTitle = null, toolId = toolId)
+
+        val labels = descendantsOf(card).filterIsInstance<JLabel>()
+        assertTrue(
+            labels.any { it.text == "Not a known tool — this call will fail if you approve it." },
+            "Rule T-7: an unrecognised tool is labelled as unknown. No catalog title is fabricated for it.",
+        )
+        labels.forEach {
+            assertFalse(
+                it.text.orEmpty().contains(toolId),
+                "The model's string still appears — sanitized, inside its box — but never as a title.",
+            )
+        }
+    }
+
+    @Test
+    fun resolutionRemovesButtonsAndAddsAnOutcomeRow() {
+        val received = mutableListOf<ToolDecision>()
+        val card = pendingCard(onDecision = { received.add(it) })
+
+        val approve = requireNotNull(decisionButtonsOf(card).firstOrNull { it.text == "Approve once" })
+        approve.doClick()
+        assertEquals(listOf(ToolDecision.APPROVE_ONCE), received, "Each button must carry its own ToolDecision to the single callback.")
+
+        card.resolve(ToolDecision.APPROVE_ONCE)
+
+        assertEquals(
+            0,
+            decisionButtonsOf(card).size,
+            "Buttons are REMOVED, not disabled. A disabled JButton is indistinguishable from " +
+                "'unavailable' months later and leaves permanent noise in a scrolling record.",
+        )
+        assertTrue(
+            descendantsOf(card).filterIsInstance<JLabel>().any { it.text == "Approved once" },
+            "The outcome row names the clicked action verbatim — that is what makes the card a record " +
+                "rather than a prompt that vanished.",
+        )
+        assertTrue(
+            descendantsOf(card).filterIsInstance<JButton>().any { it.text.orEmpty().contains("arguments") },
+            "The args region stays expandable after resolution. The args ARE the record of what was " +
+                "authorised; collapsing them for good would destroy the reason the card persists.",
+        )
+    }
+
+    @Test
+    fun accessibleDescriptionEndsWithTheSanitizedToolId() {
+        val toolId = "http1_request"
+        val resolved = pendingCard(toolId = toolId)
+        resolved.resolve(ToolDecision.DENY)
+
+        listOf(
+            "pending known tool" to pendingCard(toolId = toolId),
+            "pending unknown tool" to pendingCard(catalogTitle = null, toolId = toolId),
+            "resolved card" to resolved,
+        ).forEach { (state, card) ->
+            val description = card.accessibleContext.accessibleDescription
+            assertTrue(
+                description.endsWith(toolId),
+                "On a $state the accessible description must END with the model's tool ID and have " +
+                    "nothing after it. A screen reader has no notion of position, so anything following " +
+                    "the model string would be heard as narration this extension wrote. Got: $description",
+            )
+            assertTrue(
+                description.endsWith("The following tool name was written by the AI, not by this extension: $toolId"),
+                "The disclosure clause must come IMMEDIATELY before the ID, so attribution is heard " +
+                    "before the attacker-influenceable text, never after it. Got: $description",
+            )
+        }
+    }
+
+    @Test
+    fun compactRowRendersBothVariantsWithNoButtons() {
+        val denied = ToolApprovalCard.compact(ToolDecision.SESSION_DENIED, "Send HTTP/1.1 request", "http1_request", "{}")
+        val approved = ToolApprovalCard.compact(ToolDecision.SESSION_APPROVED, "Send HTTP/1.1 request", "http1_request", "{}")
+
+        assertTrue(
+            labelTextsOf(denied).any { it.contains("Blocked automatically — you denied this tool for this chat") },
+            "The session-denied row is REQUIRED: without it the denial is invisible and the chain " +
+                "appears to stall for no reason.",
+        )
+        assertTrue(
+            labelTextsOf(approved).any { it.contains("Ran without asking — approved for this chat") },
+            "The session-approved row ships too (FLAG-22-03): the card is a record, and a call that ran " +
+                "against the target with nobody asked is exactly what a record is for.",
+        )
+
+        listOf(denied, approved).forEach { card ->
+            assertEquals(0, decisionButtonsOf(card).size, "A compact row is a receipt, not a prompt — nothing was offered here.")
+            assertTrue(
+                labelTextsOf(card).any { it.contains("AI-supplied — this extension did not write the text below:") },
+                "Rule T-5 is not conditional on card kind: wherever a model region appears, the trust " +
+                    "label appears immediately above it.",
+            )
+            assertNotNull(
+                ChatPanelTestHarness.find(card, JTextField::class.java),
+                "The boxed tool-ID field stays: for an unknown tool the model's string is the only " +
+                    "identifying content in the whole record.",
+            )
+        }
+    }
+}
+
+/** 120-character inline cap plus the one ellipsis character `sanitizeInline` appends. */
+private const val TOOL_ID_CAP_WITH_ELLIPSIS = 121
+
+/** Enough padding to push a tool ID well past the inline cap. */
+private const val PADDING_LENGTH = 300
+
+/** The D-11 label set. Membership of it is what makes a button a *decision* control. */
+private val DECISION_LABELS = setOf("Deny", "Deny for session", "Approve once", "Approve for session")
+
+/**
+ * Builds a pending card. The model-supplied strings have defaults so each test overrides only the one
+ * it is about; [onDecision] defaults to a no-op because eight of the nine tests do not assert on it.
+ */
+private fun pendingCard(
+    tier: SecTier = SecTier.CONFIRM,
+    catalogTitle: String? = "Send HTTP/1.1 request",
+    toolId: String = "http1_request",
+    args: String? = "{\"host\":\"evil.example\"}",
+    offersSessionActions: Boolean = true,
+    repeatCount: Int = 1,
+    onDecision: (ToolDecision) -> Unit = { },
+): ToolApprovalCard =
+    ToolApprovalCard(
+        tier = tier,
+        catalogTitle = catalogTitle,
+        modelSuppliedToolId = toolId,
+        modelSuppliedArgsJson = args,
+        offersSessionActions = offersSessionActions,
+        repeatCount = repeatCount,
+        onDecision = onDecision,
+    )
+
+/**
+ * Every descendant of [root], depth first, in insertion order — so a returned list of buttons is also
+ * their visual order.
+ *
+ * `ChatPanelTestHarness.find` is reused for every single-component lookup in this file and is not
+ * duplicated here. It returns the FIRST match by design, and the assertions that carry the security
+ * property in this suite are counts and exhaustive sweeps ("exactly four buttons", "no JLabel anywhere
+ * has the HTML renderer"), which a first-match finder cannot express.
+ */
+private fun descendantsOf(root: Container): List<Component> =
+    root.components.flatMap { child ->
+        listOf(child) + if (child is Container) descendantsOf(child) else emptyList()
+    }
+
+/** The rendered text of any widget that has some, regardless of which trust class it belongs to. */
+private fun textOf(component: Component): String? =
+    when (component) {
+        is JTextComponent -> component.text
+        is AbstractButton -> component.text
+        is JLabel -> component.text
+        else -> null
+    }
+
+private fun decisionButtonsOf(card: Container): List<AbstractButton> = descendantsOf(card).filterIsInstance<AbstractButton>().filter { it.text in DECISION_LABELS }
+
+private fun labelTextsOf(card: Container): List<String> = descendantsOf(card).filterIsInstance<JLabel>().mapNotNull { it.text }
