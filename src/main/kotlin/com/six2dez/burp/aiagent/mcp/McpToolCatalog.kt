@@ -257,7 +257,10 @@ object McpToolCatalog {
                 category = "Requests",
                 defaultEnabled = false,
                 unsafeOnly = true,
-                // CONFIRM_EACH under ADR-15's "or stage it for one click" clause, the same clause that tiers intruder / intruder_prepare. McpToolExecutorImpl.kt:243-256 builds an HttpRequest from model-supplied `content` and hands it to sendToRepeater, so the request sits one Send click away. It shipped as CONFIRM, which let one approve-for-session click cover every later call with DIFFERENT request content in that chat; the request content is the whole attack surface, so per-call is the only defensible tier.
+                // CONFIRM_EACH under ADR-15's "or stage it for one click" clause — the same clause that tiers intruder / intruder_prepare.
+                // McpToolExecutorImpl.kt:243-256 builds an HttpRequest from model-supplied `content` and hands it to sendToRepeater, so the
+                // request sits one Send click from the wire. It shipped as CONFIRM, which let one approve-for-session click cover every later
+                // call with DIFFERENT request content in that chat; the content is the whole attack surface, so per-call is the only defensible tier.
                 secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
@@ -267,7 +270,10 @@ object McpToolCatalog {
                 category = "Requests",
                 defaultEnabled = false,
                 unsafeOnly = true,
-                // Still CONFIRM while `repeater_tab` directly above is CONFIRM_EACH, and the asymmetry is a KNOWN residual rather than a reasoned distinction — McpToolExecutorImpl.kt:259-274 stages a request the same way, after placeholder substitution. Recorded as a Residual in ADR-15; do not read the gap as a decision that this variant is safer.
+                // Still CONFIRM while `repeater_tab` directly above is CONFIRM_EACH. That asymmetry is a KNOWN residual, not a reasoned
+                // distinction: McpToolExecutorImpl.kt:259-274 stages a request the same way, differing only in that placeholder substitution
+                // runs first — which does not make the staged request any less model-authored. Recorded as a Residual in ADR-15; do not read
+                // the gap as a finding that this variant is safer.
                 secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
