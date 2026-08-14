@@ -294,3 +294,34 @@ shipped and been independently verified against the code. Six of the nine summar
 
 _Verified: 2026-08-14T11:43:20Z_
 _Verifier: Claude (gsd-verifier)_
+
+---
+
+## Addendum — post-verification remediation (2026-08-14)
+
+The findings above are preserved verbatim as the point-in-time record. Three of them
+have since been remediated on `main`, so the SC6 evidence row is now stale.
+
+| Finding | Status | Commits |
+|---|---|---|
+| WARN-1 — `toolNameSha256` truncated at 120 chars | **Resolved** | `a323980` |
+| WARN-2 — repeater tools contradict ADR-15's CONFIRM_EACH criterion | **Resolved** | `431db9d`, `8b42596`, `f396918` |
+| WARN-6 — CR-02 origin control had no regression test | **Resolved** | `600b976` |
+
+**Tier split changed.** SC6's evidence row cites `19 AUTO + 26 CONFIRM + 14 CONFIRM_EACH`,
+which was accurate when verified. Both `repeater_tab` and `repeater_tab_with_payload` were
+subsequently promoted to `CONFIRM_EACH` on the maintainer's decision — resolving WARN-2 by
+moving the table to match the ADR rather than weakening the ADR. The catalog now splits
+**19 AUTO / 24 CONFIRM / 16 CONFIRM_EACH**. SC6 remains VERIFIED; the classification is
+strictly stronger than when it was assessed.
+
+WARN-6's guard is pinned by two independent channels: a source-text assertion and a
+bytecode-reflection assertion (Kotlin mangles `internal` member names, so widening
+`approvedOrigin` back to `internal` yields `approvedOrigin$burp_ai_agent` and fails).
+
+Gate after remediation: `build test ktlintCheck detekt` exit 0, 742 tests / 110 classes /
+0 failures, `detekt-baseline.xml` unchanged.
+
+**Status is unchanged at `human_needed`** — the four items in `22-HUMAN-UAT.md` still require
+a live Burp instance. Remaining outstanding findings: WARN-3 (`isKnownTool` trusts the `ext:`
+prefix without validating against configured servers) and the other code-review warnings.
