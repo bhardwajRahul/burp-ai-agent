@@ -42,6 +42,18 @@ private val LONG_ARGS_PREFIX =
 private const val UNRESOLVABLE_TOOL = "pretend_tool_MARKER"
 
 /**
+ * An unresolvable tool name padded past [INLINE_CAP], so two variants of it can differ only where a
+ * capped digest cannot see.
+ *
+ * This is the tool-name analogue of [LONG_ARGS_PREFIX], and the branch it exercises is the one where
+ * the digest matters MOST: when the catalog cannot resolve a name, the plaintext `toolName` is replaced
+ * by the constant `"unknown"`, so `toolNameSha256` is the ONLY record in the durable payload of what the
+ * model actually asked for. A model that wants two different requests to be indistinguishable in the
+ * audit trail only has to keep the first 120 characters the same.
+ */
+private val LONG_UNRESOLVABLE_PREFIX = "pretend_tool_" + "z".repeat(INLINE_CAP)
+
+/**
  * A name the extension currently treats as RECOGNISED — `ChatPanel.isKnownTool` accepts any `ext:`
  * prefix and `McpToolExecutor.canonicalToolId` returns unmatched names verbatim — carrying the newline
  * and the second `[SEC-06]` record that a model would use to forge an approval in the Output tab.
@@ -283,6 +295,40 @@ class ToolDecisionReporterTest {
             listOf("operation", "status", "traceId", "step", "toolName", "toolNameSha256", "secTier", "decision"),
             payloadAt(0).keys.toList(),
         )
+    }
+
+    @Test
+    fun toolNameDigestDistinguishesUnresolvableNamesThatDifferPastTheInlineCap() {
+        report(rawToolName = LONG_UNRESOLVABLE_PREFIX + "_benign", knownTool = false, tier = SecTier.CONFIRM_EACH)
+        report(rawToolName = LONG_UNRESOLVABLE_PREFIX + "_exfiltrate", knownTool = false, tier = SecTier.CONFIRM_EACH)
+
+        // The same defect CR-03 fixed for argsSha256, on the narrower !knownTool branch: the digest was
+        // taken over sanitizeInline's 120-character prefix, so two unresolvable names sharing that
+        // prefix recorded identically — on the one branch where the hash is the whole record, because
+        // the plaintext name is replaced by the constant "unknown".
+        assertTrue(LONG_UNRESOLVABLE_PREFIX.length > INLINE_CAP, "the fixture must differ only PAST the old cap")
+        assertEquals("unknown", payloadAt(0)["toolName"], "the plaintext name must still be withheld")
+        assertNotEquals(
+            payloadAt(0)["toolNameSha256"],
+            payloadAt(1)["toolNameSha256"],
+            "two unresolvable tool names differing only past character $INLINE_CAP produced the same " +
+                "digest, so the audit trail cannot say which one the model asked for",
+        )
+    }
+
+    @Test
+    fun toolNameDigestCoversTheWholeNameNotAPrefixOfIt() {
+        val name = LONG_UNRESOLVABLE_PREFIX + "_benign"
+        report(rawToolName = name, knownTool = false, tier = SecTier.CONFIRM_EACH)
+
+        // Exact, so a future truncation, trim or whitespace collapse anywhere on this path is red rather
+        // than merely different. UNRESOLVABLE_TOOL cannot catch it: it is 19 clean characters, which
+        // every one of those transformations returns unchanged.
+        assertEquals(Hashing.sha256Hex(name), payloadAt(0)["toolNameSha256"])
+        assertNotEquals(Hashing.sha256Hex(sanitizeInline(name).orEmpty()), payloadAt(0)["toolNameSha256"])
+        // Dropping the sanitizer must not become a way for the raw name to reach the durable record:
+        // a hex digest is safe by construction, and the plaintext name stays behind the placeholder.
+        assertFalse(payloadAt(0).toString().contains("pretend_tool"), "a model-authored name reached the audit payload")
     }
 
     @Test

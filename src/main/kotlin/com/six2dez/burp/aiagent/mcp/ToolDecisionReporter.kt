@@ -205,7 +205,21 @@ internal class ToolDecisionReporter(
                 },
         ).apply {
             if (!knownTool) {
-                put("toolNameSha256", Hashing.sha256Hex(sanitizeInline(rawToolName).orEmpty()))
+                // D-10, and the SAME rule [auditValue] applies to the args: digest the WHOLE value.
+                //
+                // This used to run through [sanitizeInline], whose cap is 120 characters, so the digest
+                // identified a whitespace-collapsed PREFIX of the name rather than the name — two
+                // unresolvable names sharing a 120-character prefix recorded identically. It is a
+                // narrower instance of the defect fixed for `argsSha256`, but it lands on the branch
+                // where the hash carries the most: `toolName` above is the constant placeholder here, so
+                // this digest is the ONLY record in the durable payload of what the model asked for.
+                //
+                // Dropping the sanitizer costs nothing that was not already guaranteed elsewhere. A hex
+                // digest is 64 characters of `[0-9a-f]` by construction, so no model-authored character
+                // survives it and no forged record line is possible; and the only form of this name that
+                // is ever RENDERED is the Output line, which [outputToolName] sanitizes unconditionally
+                // on both branches of `knownTool`.
+                put("toolNameSha256", Hashing.sha256Hex(rawToolName))
             }
             // On EVERY event, including AUTO. Without it, a call that ran under the AUTO tier and a
             // pre-SEC-06 call that ran with no decision at all are indistinguishable in a historical
