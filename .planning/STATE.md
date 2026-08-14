@@ -4,8 +4,8 @@ milestone: v0.10.0
 milestone_name: — Security Correctness & Agent Trust
 status: executing
 stopped_at: Phase 22 UI-SPEC approved
-last_updated: "2026-08-13T13:58:20.923Z"
-last_activity: 2026-08-13 -- Phase 22 planning complete
+last_updated: "2026-08-13T14:17:54.414Z"
+last_activity: 2026-08-13 -- Phase 22 execution started
 progress:
   total_phases: 7
   completed_phases: 2
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-05)
 
 **Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable.
-**Current focus:** Phase 21 — redaction-completeness
+**Current focus:** Phase 22 — agent-tool-call-trust-boundary
 
 ## Current Position
 
-Phase: 22
-Plan: Not started
-Status: Ready to execute
+Phase: 22 (agent-tool-call-trust-boundary) — EXECUTING
+Plan: 1 of 9
+Status: Executing Phase 22
 Resume file: .planning/phases/22-agent-tool-call-trust-boundary/22-UI-SPEC.md
-Last activity: 2026-08-13 -- Phase 22 planning complete
+Last activity: 2026-08-13 -- Phase 22 execution started
 
 ## Milestone Origin
 
