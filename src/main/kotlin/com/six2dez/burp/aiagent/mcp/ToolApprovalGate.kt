@@ -150,12 +150,130 @@ private class ModelApproved(
 }
 
 /**
+ * Per-chat-session approve/deny memory (D-10), plus the FLAG-22-01 repeat counter.
+ *
+ * "Session" means the **chat session**, not the Burp session and not the current auto-chain. The
+ * decisive case, and the reason this is a per-chat holder rather than anything wider: an approval
+ * granted while reviewing target A must not silently apply when the user opens a new chat about
+ * target B. The memory dies with the chat session because the holder does — plan 22-07 stores one of
+ * these on ChatPanel.ToolSessionState (ChatPanel.kt:1621), beside `toolsMode` and `toolCatalogSent`,
+ * which is why this class must stay constructible with no arguments and hold only plain collections.
+ *
+ * Measured fact worth recording so a future contributor does not "fix" it: approvals do **not** survive
+ * a Burp restart. `restoreSessions()` builds a fresh `ToolSessionState` (ChatPanel.kt:1495) and that
+ * holder is in-memory only, so a chat session restored from disk comes back with no approvals. That is
+ * stricter than D-10 requires and is deliberate — do not persist the sets.
+ *
+ * All three fields are private, reached only through the narrow accessors below, so no caller can
+ * splice an entry in ad hoc. Every key is a **canonical** tool ID, never the raw model string
+ * (T-22-12): a gate that remembered `history` and an executor that ran `proxy_http_history` would
+ * disagree about what the user approved.
+ */
+internal class ToolApprovalMemory {
+    private val approvedForSession = mutableSetOf<String>()
+    private val deniedForSession = mutableSetOf<String>()
+    private val requestCounts = mutableMapOf<String, Int>()
+
+    /** True if an earlier `Approve for session` click covers this tool. CONFIRM tools only. */
+    internal fun isApprovedForSession(canonicalId: String): Boolean = key(canonicalId) in approvedForSession
+
+    /** True if an earlier `Deny for session` click covers this tool. CONFIRM tools only. */
+    internal fun isDeniedForSession(canonicalId: String): Boolean = key(canonicalId) in deniedForSession
+
+    /** Immutable view, for assertions and for any future "what has this chat granted?" surface. */
+    internal fun approvedSnapshot(): Set<String> = approvedForSession.toSet()
+
+    /** Immutable view, for assertions and for any future "what has this chat refused?" surface. */
+    internal fun deniedSnapshot(): Set<String> = deniedForSession.toSet()
+
+    /** Extends approval to the rest of the chat session. Called only from [ToolApprovalGate.resolve]. */
+    internal fun approveForSession(canonicalId: String) {
+        approvedForSession += key(canonicalId)
+    }
+
+    /** Extends denial to the rest of the chat session. Called only from [ToolApprovalGate.resolve]. */
+    internal fun denyForSession(canonicalId: String) {
+        deniedForSession += key(canonicalId)
+    }
+
+    /**
+     * Records one request for this tool and returns the 1-based count for this chat session.
+     *
+     * The anti-habituation signal the approval card needs (22-UI-SPEC.md mechanism B): without it the
+     * caption could only ever read "1st", and a user cannot see that the model is asking for the same
+     * capability for the fourth time. The only mutating method the UI calls directly.
+     */
+    internal fun recordRequest(canonicalId: String): Int {
+        val id = key(canonicalId)
+        val next = (requestCounts[id] ?: 0) + 1
+        requestCounts[id] = next
+        return next
+    }
+
+    /**
+     * Re-canonicalises every key through the executor's own function.
+     *
+     * The parameter is named for what the gate passes — [ToolApprovalGate.evaluate] and
+     * [ToolApprovalGate.resolve] both canonicalise first — but a UI caller holding the raw model string
+     * must not be able to open a second entry for the same tool. [McpToolExecutor.canonicalToolId] is
+     * idempotent for an already-canonical ID, so the normal path is unchanged and this costs nothing.
+     */
+    private fun key(canonicalId: String): String = McpToolExecutor.canonicalToolId(canonicalId)
+}
+
+/**
+ * What the gate decided about one model-emitted tool call, in the shape of
+ * mcp/McpAccessControlDecision.kt:93-101's [GateDecision]: a closed set of outcomes the caller must
+ * branch on, so no call site can forget a case.
+ *
+ * Rich enough to drive 22-UI-SPEC.md states 2-5 without the UI recomputing any policy. The card reads
+ * these fields; it must never re-derive them from the tier.
+ */
+internal sealed interface ToolApprovalOutcome {
+    /**
+     * Proceed. [origin] is the minted, unforgeable model-approved token — the only thing that will
+     * satisfy plan 22-07's `executeTool` origin parameter — and [decision] records whether a human
+     * clicked for *this* call or an earlier click was applied to it.
+     */
+    data class Run(
+        val origin: ToolCallOrigin,
+        val tier: SecTier,
+        val decision: ToolDecision,
+    ) : ToolApprovalOutcome
+
+    /**
+     * A human decision is required; render the card.
+     *
+     * [offersSessionActions] is D-11's four-buttons-versus-two rule, computed **here** rather than in
+     * the card: `true` for [SecTier.CONFIRM], `false` for [SecTier.CONFIRM_EACH]. Two surfaces deriving
+     * the same rule from the tier is exactly how one of them ends up offering a session grant for a
+     * tool that must never have one (T-22-18).
+     */
+    data class Ask(
+        val tier: SecTier,
+        val canonicalId: String,
+        val offersSessionActions: Boolean,
+    ) : ToolApprovalOutcome
+
+    /** Refuse. [result] is always [ToolApprovalGate.DENIAL_RESULT] — the one D-12 constant. */
+    data class Denied(
+        val tier: SecTier,
+        val decision: ToolDecision,
+        val result: String,
+    ) : ToolApprovalOutcome
+}
+
+/**
  * The pure SEC-06 decision core.
  *
  * Pure by contract, in the shape of mcp/McpAccessControlDecision.kt:103-114: no logging, no audit
- * events, no I/O, no side effects of any kind. Audit emission is a separate call the ChatPanel caller
+ * events, no I/O. Audit emission is a separate call the ChatPanel caller
  * makes from the resolved branch (plan 22-05's ToolDecisionReporter) — never from inside this object.
  * That separation is what makes every row of the tier matrix assertable with no Swing harness.
+ *
+ * The single exception to "no side effects" is [resolve] writing D-10's session memory, and it is
+ * confined to the two session-scoped actions on a [ToolApprovalMemory] the caller owns and passes in.
+ * The gate holds no state of its own, so two chat sessions cannot leak into one another through it.
  *
  * **Phase 20 D-09 aggregation-based rate limiting is deliberately NOT applied here**, and saying so is
  * better than leaving the omission unexamined. The flood vector D-09 answers was a remote,
@@ -165,6 +283,29 @@ private class ModelApproved(
  * repetition a user needs to see.
  */
 internal object ToolApprovalGate {
+    /**
+     * The one string a refused tool call returns to the model. Fixed, neutral, deterministic (D-12).
+     *
+     * **Deliberately not `Error:`-prefixed.** The tool-chain telemetry at ChatPanel.kt:2177 derives
+     * `status = "error"` from that prefix, and a refusal is a *policy outcome*, not a malfunction.
+     * Conflating the two tells the model something broke, which invites a retry with different args —
+     * the exact loop SEC-06 exists to bound — and it corrupts the audit record, which would then show
+     * a tool failure where a human actually made a decision (T-22-19).
+     *
+     * **Deterministic on purpose.** Stable templates are a shipped feature of this extension, so the
+     * refusal text has to be reproducible rather than composed per call. That is also why the user is
+     * not offered a free-text reason: user-authored text on a security path breaks determinism, leaks
+     * whatever the user types into the model's context, and turns a two-second decision into a writing
+     * task.
+     *
+     * One constant, four decisions. [ToolDecision.DENY], [ToolDecision.DENY_SESSION],
+     * [ToolDecision.SESSION_DENIED] and [ToolDecision.IMPLICIT_DENY] all return exactly this — the
+     * model must not be able to tell from the text whether the user clicked, an earlier click was
+     * applied, or nobody answered at all.
+     */
+    internal const val DENIAL_RESULT: String =
+        "This tool call was not authorised by the user. Do not retry it; continue with the information you already have."
+
     /**
      * Resolves the SEC-06 tier for a model-supplied tool name. Total: every input resolves, and no
      * input throws.
@@ -197,6 +338,120 @@ internal object ToolApprovalGate {
         tier: SecTier,
         decision: ToolDecision,
     ): ToolCallOrigin = ModelApproved(tier, decision)
+
+    /**
+     * The pre-card branch: decides whether this call runs, is refused outright, or needs a human.
+     *
+     * **These two parameters are the whole signature, and the omissions are the control.** There is no
+     * settings object, no on/off flag and no bypass argument, because D-09 ships neither an opt-out nor
+     * a tier downgrade — and a parameter that does not exist cannot be passed `false` by a future edit,
+     * a malicious settings import, or a call site that just wants the tests to go green (T-22-21). The
+     * absence of the parameter is what keeps ADR-15 a rule rather than a default. The escape hatch
+     * already exists and is the correct one: `ToolSessionState.toolsMode` stops the model calling tools
+     * at all, rather than un-gating the ones it calls.
+     *
+     * Order is fixed: canonicalise, resolve the tier, then consult memory — never the reverse. Session
+     * memory is only ever read for [SecTier.CONFIRM].
+     */
+    internal fun evaluate(
+        rawToolName: String,
+        memory: ToolApprovalMemory,
+    ): ToolApprovalOutcome {
+        val canonical = McpToolExecutor.canonicalToolId(rawToolName)
+        val tier = tierFor(rawToolName)
+        // One `when`, so the branch order below IS the evaluation order: a later branch cannot run
+        // unless every earlier one was false. That is what makes "CONFIRM_EACH touches no session set"
+        // a structural property of this function rather than a claim about it.
+        return when {
+            // D-02: AUTO runs with no decision and no record of one. D-05 makes it read-only AND
+            // bounded-output, so there is nothing for a human to weigh.
+            tier == SecTier.AUTO ->
+                ToolApprovalOutcome.Run(approvedOrigin(tier, ToolDecision.AUTO), tier, ToolDecision.AUTO)
+            // D-02: this tier consults NEITHER session set and writes to NEITHER, which is the whole
+            // reason a third tier exists. One click must not hand the model unlimited http1_request /
+            // http2_request / intruder / scan_audit_start for a whole chat (T-22-18). It also means an
+            // unrecognised name — which plan 22-03's fail-closed fallback lands here — can never enter
+            // either set.
+            tier == SecTier.CONFIRM_EACH ->
+                ToolApprovalOutcome.Ask(tier, canonical, offersSessionActions = false)
+            // Denied is checked BEFORE approved so a tool that somehow reached both sets fails closed.
+            memory.isDeniedForSession(canonical) ->
+                ToolApprovalOutcome.Denied(tier, ToolDecision.SESSION_DENIED, DENIAL_RESULT)
+            // SESSION_APPROVED, not APPROVE_ONCE: no human saw this invocation, and the audit record
+            // has to be able to say so.
+            memory.isApprovedForSession(canonical) ->
+                ToolApprovalOutcome.Run(approvedOrigin(tier, ToolDecision.SESSION_APPROVED), tier, ToolDecision.SESSION_APPROVED)
+            else -> ToolApprovalOutcome.Ask(tier, canonical, offersSessionActions = true)
+        }
+    }
+
+    /**
+     * Applies one user click (D-11's four actions) or a teardown-driven implicit denial.
+     *
+     * Accepts only what a human can actually cause. [ToolDecision.AUTO], [ToolDecision.SESSION_APPROVED]
+     * and [ToolDecision.SESSION_DENIED] are gate-derived outcomes, never clickable, so passing one is a
+     * caller bug the gate surfaces rather than absorbs.
+     *
+     * Session memory is written for exactly two of the five actions. `Approve once` and `Deny` are
+     * per-call by definition, and an implicit denial means nobody answered — inferring a lasting
+     * preference from silence is the opposite of consent.
+     */
+    internal fun resolve(
+        rawToolName: String,
+        memory: ToolApprovalMemory,
+        action: ToolDecision,
+    ): ToolApprovalOutcome {
+        require(action != ToolDecision.AUTO && action != ToolDecision.SESSION_APPROVED && action != ToolDecision.SESSION_DENIED) {
+            "$action is derived by the gate, not clickable; resolve() accepts only the four D-11 actions plus IMPLICIT_DENY."
+        }
+        val canonical = McpToolExecutor.canonicalToolId(rawToolName)
+        val tier = tierFor(rawToolName)
+        // The card never offers a session action for this tier, so a caller that passes one has already
+        // gone wrong somewhere the gate cannot see. Throwing keeps D-02's third tier un-short-circuitable.
+        require(tier != SecTier.CONFIRM_EACH || (action != ToolDecision.APPROVE_SESSION && action != ToolDecision.DENY_SESSION)) {
+            "$canonical is CONFIRM_EACH and has no session memory in either direction (D-02); $action must never be offered for it."
+        }
+        return when (action) {
+            ToolDecision.APPROVE_ONCE ->
+                ToolApprovalOutcome.Run(approvedOrigin(tier, action), tier, action)
+            ToolDecision.APPROVE_SESSION -> {
+                memory.approveForSession(canonical)
+                ToolApprovalOutcome.Run(approvedOrigin(tier, action), tier, action)
+            }
+            ToolDecision.DENY ->
+                ToolApprovalOutcome.Denied(tier, action, DENIAL_RESULT)
+            ToolDecision.DENY_SESSION -> {
+                memory.denyForSession(canonical)
+                ToolApprovalOutcome.Denied(tier, action, DENIAL_RESULT)
+            }
+            ToolDecision.IMPLICIT_DENY ->
+                ToolApprovalOutcome.Denied(tier, action, DENIAL_RESULT)
+            // Exhaustive rather than `else`, so adding a ninth ToolDecision fails the build here instead
+            // of silently falling into a default. Unreachable: the first require above rejects all three.
+            ToolDecision.AUTO, ToolDecision.SESSION_APPROVED, ToolDecision.SESSION_DENIED ->
+                error("Unreachable: $action was rejected by the clickable-action precondition.")
+        }
+    }
+
+    /**
+     * The iteration budget after this tool call, whatever the user clicked (D-13).
+     *
+     * Reproduces the arithmetic already at ChatPanel.kt:2213 so the denial branch and the success branch
+     * provably share ONE decrement. That is the entire proof that `MAX_AUTO_TOOL_ITERATIONS = 8` holds:
+     * the counter is monotone, so eight steps reach zero with no case analysis over what was clicked.
+     *
+     * Free denials were rejected, and the reason is not thrift: if refusing cost nothing, injected
+     * traffic could walk the model through 59 *different* tools and produce 59 cards — a user-facing
+     * denial of service delivered through the safety control itself (T-22-08).
+     *
+     * Claim only what ships: a session-denied tool still resolves instantly and still sends a followup
+     * turn, so a model that re-emits it can burn up to seven further backend round-trips with no card
+     * and no user interaction. Deny-for-session bounds the *prompting*, not the *token cost*.
+     */
+    internal fun nextIterationBudget(remaining: Int): Int = (remaining - 1).coerceAtLeast(0)
+
+    /** Whether the next turn may still call a tool. Mirrors ChatPanel.kt:2210 exactly, for the same reason. */
+    internal fun allowsFurtherToolCalls(remaining: Int): Boolean = remaining > 1
 }
 
 /**
