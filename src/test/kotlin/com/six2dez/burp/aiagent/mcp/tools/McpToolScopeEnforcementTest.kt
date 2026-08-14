@@ -11,6 +11,7 @@ import burp.api.montoya.websocket.Direction
 import com.six2dez.burp.aiagent.mcp.McpRequestLimiter
 import com.six2dez.burp.aiagent.mcp.McpToolCatalog
 import com.six2dez.burp.aiagent.mcp.McpToolContext
+import com.six2dez.burp.aiagent.mcp.ToolCallOrigin
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -383,11 +384,14 @@ class McpToolScopeEnforcementTest {
 
     // ── Test fixtures ────────────────────────────────────────────────────────────────────
 
+    // Declares ToolCallOrigin.UserSlashCommand. These tests exercise the EXECUTOR's scope enforcement,
+    // not the SEC-06 gate: the origin is a declaration the type system requires (plan 22-07), not a
+    // behaviour switch, and no assertion in this file depends on which variant is passed.
     private fun exec(
         toolId: String,
         argsJson: String,
         context: McpToolContext,
-    ): String = McpToolExecutor.executeTool(toolId, argsJson, context)
+    ): String = McpToolExecutor.executeTool(toolId, argsJson, context, ToolCallOrigin.UserSlashCommand)
 
     /**
      * Builds an [McpToolContext] with every catalog tool enabled (so `runTool`'s toggle gate

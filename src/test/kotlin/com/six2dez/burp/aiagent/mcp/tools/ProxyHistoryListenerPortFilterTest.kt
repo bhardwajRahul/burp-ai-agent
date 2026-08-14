@@ -8,6 +8,7 @@ import burp.api.montoya.proxy.ProxyHttpRequestResponse
 import com.six2dez.burp.aiagent.mcp.McpRequestLimiter
 import com.six2dez.burp.aiagent.mcp.McpToolCatalog
 import com.six2dez.burp.aiagent.mcp.McpToolContext
+import com.six2dez.burp.aiagent.mcp.ToolCallOrigin
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -97,6 +98,9 @@ class ProxyHistoryListenerPortFilterTest {
         )
 
     // ── Path B: McpToolExecutor.executeTool (manual decode path ~L1860) ──────────
+    // Every call below declares ToolCallOrigin.UserSlashCommand. These tests exercise the EXECUTOR,
+    // not the SEC-06 gate: the origin is a declaration the type system requires (plan 22-07), not a
+    // behaviour switch, and no assertion here depends on which variant is passed.
 
     @Test
     fun pathB_filterPort8080_returnsOnly8080Items() {
@@ -110,6 +114,7 @@ class ProxyHistoryListenerPortFilterTest {
                 "proxy_http_history",
                 "{\"count\":10,\"listenerPort\":8080}",
                 context,
+                ToolCallOrigin.UserSlashCommand,
             )
 
         assertTrue(result.contains(host8080), "8080 host must be present: $result")
@@ -128,6 +133,7 @@ class ProxyHistoryListenerPortFilterTest {
                     "proxy_http_history",
                     "{\"count\":10,\"listenerPort\":9999}",
                     context,
+                    ToolCallOrigin.UserSlashCommand,
                 )
             }
 
@@ -146,6 +152,7 @@ class ProxyHistoryListenerPortFilterTest {
                 "proxy_http_history",
                 "{\"count\":10}",
                 context,
+                ToolCallOrigin.UserSlashCommand,
             )
 
         assertTrue(result.contains(host8080), "8080 host must be present: $result")

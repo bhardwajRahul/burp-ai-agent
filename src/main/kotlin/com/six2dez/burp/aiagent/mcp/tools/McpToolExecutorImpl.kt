@@ -19,6 +19,7 @@ import burp.api.montoya.scanner.audit.Audit
 import burp.api.montoya.utilities.CompressionType
 import com.six2dez.burp.aiagent.mcp.McpToolCatalog
 import com.six2dez.burp.aiagent.mcp.McpToolContext
+import com.six2dez.burp.aiagent.mcp.ToolCallOrigin
 import com.six2dez.burp.aiagent.mcp.schema.asInputSchema
 import com.six2dez.burp.aiagent.mcp.schema.toSerializableForm
 import com.six2dez.burp.aiagent.mcp.schema.toSiteMapEntry
@@ -1016,10 +1017,36 @@ object McpToolExecutor {
         return result
     }
 
-    fun executeTool(
+    /**
+     * Flattens [executeToolResult] to the plain text a chat transcript shows.
+     *
+     * **[origin] is DECLARED, not consumed (SEC-06 / SC5, T-22-11).** Nothing below branches on it and
+     * no byte of the returned text depends on it. The enforcement is the *type*, not a check: the
+     * model-originated variant of [ToolCallOrigin] is a file-private class inside `ToolApprovalGate.kt`,
+     * unnameable and unconstructible anywhere else, and reachable only through
+     * `ToolApprovalGate.approvedOrigin` — which is called only from `evaluate` and `resolve`. A caller
+     * therefore cannot obtain one without going through the decision. A hypothetical fourth
+     * parse-and-execute call site cannot reach Burp by writing `origin = MODEL`; it has to ask.
+     *
+     * The parameter deliberately has **NO default value** (the `ContextPreviewDialog.kt:21-23`
+     * convention): a default is exactly how a future call site silently inherits the ungated path.
+     *
+     * [executeToolResult] is intentionally NOT given this parameter. `McpToolHandlers.kt:129` calls that
+     * one, and the MCP-server runtime built by `McpRuntimeContextFactory` has no chat origin to supply —
+     * which is what keeps the whole MCP-server path compiling untouched.
+     *
+     * `@Suppress("UnusedParameter")`: detekt cannot express "unused on purpose", and *consuming* the
+     * parameter would be the actual bug. A runtime branch on the origin is a check, and a check is
+     * something a future edit can weaken or invert; an unconsumed parameter whose only satisfying value
+     * must be obtained from the gate cannot be weakened without deleting the type itself. Suppressed
+     * here rather than added to `detekt-baseline.xml`, which QUAL-07 forbids growing.
+     */
+    @Suppress("UnusedParameter")
+    internal fun executeTool(
         name: String,
         argsJson: String?,
         context: McpToolContext,
+        origin: ToolCallOrigin,
     ): String {
         val result = executeToolResult(name, argsJson, context)
         val text =
