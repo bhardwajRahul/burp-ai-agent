@@ -1,10 +1,14 @@
 package com.six2dez.burp.aiagent.ui
 
+import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.mcp.ToolApprovalGate
+import com.six2dez.burp.aiagent.ui.components.ToolApprovalCard
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.mockito.Mockito
@@ -19,6 +23,7 @@ import java.awt.Component
 import java.awt.Container
 import java.io.File
 import java.time.Duration
+import java.util.concurrent.CopyOnWriteArrayList
 import javax.swing.AbstractButton
 import javax.swing.SwingUtilities
 
@@ -271,6 +276,172 @@ class ChatPanelToolGateTest {
         // (c) Not one of the denied calls reached Burp.
         verify(h.api.proxy(), never()).history()
     }
+
+    // ── The pending-decision lifecycle (D-08's five teardown paths) ──────────────────────
+
+    @Test
+    fun newMessageInTheSessionImplicitlyDeniesThePendingCard() {
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+        ChatPanelTestHarness.drainEdt()
+        val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+
+        // The user answers by moving on. Teardown path 1 of 5.
+        ChatPanelTestHarness.sendUserMessage(h, "never mind, just summarise what you have")
+        ChatPanelTestHarness.drainEdt()
+
+        assertEquals(
+            0,
+            decisionButtons(card).size,
+            "A new message retires the pending card: its buttons become an outcome row (T-22-10).",
+        )
+        verify(h.api.proxy(), never()).history()
+        // EXACTLY two turns, and the count is the assertion. One for each message the USER sent. A
+        // third would mean the implicit denial dispatched a D-12 followup of its own — running
+        // concurrently with the turn the user just started, which is what clobbers inFlightConnection
+        // (T-22-33). The user's own message IS the continuation; there is nothing to add to it.
+        verifySendChatCount(h, 2)
+    }
+
+    @Test
+    fun clearChatResolvesThePendingCardAndClearsApprovalMemory() {
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+        ChatPanelTestHarness.drainEdt()
+        val granted = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+        click(granted, "Approve for session")
+        ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
+        // Precondition, asserted rather than assumed: the grant really is live, so a later card
+        // appearing proves the CLEAR removed it rather than the grant never having been recorded.
+        assertTrue(
+            decisionButtons(h.panel.root).isEmpty(),
+            "Approve for session must suppress later cards — otherwise this test proves nothing below.",
+        )
+
+        SwingUtilities.invokeAndWait { h.panel.clearChatState() }
+        ChatPanelTestHarness.sendUserMessage(h, "have another look")
+        ChatPanelTestHarness.drainEdt()
+
+        // T-22-34: Clear Chat is the user declaring a new task. A session grant that outlived it would
+        // run a tool against the new task that was approved for the old one, with nobody asked.
+        val afterClear =
+            requireNotNull(liveApprovalCard(h.panel.root)) {
+                "Clear Chat must clear the D-10 approval memory: the tool has to be asked about again."
+            }
+        assertEquals(
+            DECISION_LABELS.size,
+            decisionButtons(afterClear).size,
+            "The re-asked call is a live CONFIRM card offering all four D-11 actions, not a receipt.",
+        )
+
+        // Now the other half — clearing while a decision is genuinely pending. Without the
+        // resolvePending call, clearMessages() below takes the card out of the transcript and leaves
+        // the record with no UI able to answer it: permanently stuck, continuation never fired.
+        SwingUtilities.invokeAndWait { h.panel.clearChatState() }
+        assertEquals(
+            0,
+            decisionButtons(afterClear).size,
+            "Clear Chat must resolve the pending decision, not orphan it (T-22-10).",
+        )
+        assertNull(
+            liveApprovalCard(h.panel.root),
+            "No decision may survive a Clear Chat: the transcript that could answer it is gone.",
+        )
+    }
+
+    @Test
+    fun shutdownResolvesAllPendingDecisionsWithoutSendingATurn() {
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+        ChatPanelTestHarness.drainEdt()
+        SwingUtilities.invokeAndWait { h.panel.createNewSession() }
+        ChatPanelTestHarness.sendUserMessage(h, "and check this other one")
+        ChatPanelTestHarness.drainEdt()
+        // Two sessions, two pending cards. CardLayout keeps every session panel in the component tree,
+        // so both cards are reachable from the root even though only one is showing.
+        assertEquals(
+            DECISION_LABELS.size * 2,
+            decisionButtons(h.panel.root).size,
+            "Setup: one live CONFIRM card in each of two sessions.",
+        )
+        val turnsBeforeUnload = 2
+
+        h.panel.shutdown()
+
+        assertTrue(
+            decisionButtons(h.panel.root).isEmpty(),
+            "Unload must retire EVERY pending decision, not just the active session's (T-22-10).",
+        )
+        // The whole point of the implicit-denial rule: no backend request is dispatched while Burp is
+        // tearing down the extension classloader (T-22-33).
+        verifySendChatCount(h, turnsBeforeUnload)
+
+        // The parked continuation is the one claim this suite cannot drive headlessly: the only way to
+        // park an `onCompleted` is startSessionFromContext, which goes through ContextPreviewDialog ->
+        // JOptionPane.showOptionDialog and throws HeadlessException. Asserted structurally instead, on
+        // the single shared line every teardown path routes through — the same sanctioned fallback
+        // userDialogPathIsNotDoublePrompted uses, and for the same reason.
+        val body = functionBody("private fun resolvePending(")
+        assertTrue(
+            body.contains("onCompleted?.invoke(ToolApprovalGate.DENIAL_RESULT, null)"),
+            "Every implicit denial must discharge the parked continuation, or the caller hangs (T-22-31).",
+        )
+        assertTrue(
+            !body.contains("sendMessage("),
+            "An implicit denial terminates the chain; only an explicit Deny click sends the D-12 followup.",
+        )
+    }
+
+    // ── SC3: every decision leaves a durable record ──────────────────────────────────────
+
+    @Test
+    fun everyDecisionEmitsTheSc3Metadata() {
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+        ChatPanelTestHarness.drainEdt()
+
+        click(requireNotNull(liveApprovalCard(h.panel.root)) { NO_CARD }, "Approve once")
+        ChatPanelTestHarness.drainEdt()
+        // Approve once writes no session memory, so the model's next identical call raises a new card.
+        click(requireNotNull(liveApprovalCard(h.panel.root)) { NO_CARD }, "Deny")
+        ChatPanelTestHarness.drainEdt()
+
+        val decisions = auditEvents.filter { it.first == "mcp_tool_decision" }.map { it.second }
+        assertEquals(
+            listOf("approve_once", "deny"),
+            decisions.map { it["decision"] },
+            "SC3: one event per decision, in the order the user made them — an approval and a refusal.",
+        )
+        decisions.forEach { payload ->
+            // The four fields SC3 names. secTier rides on every event, which is the field that makes
+            // "which calls ran with no decision at all?" answerable from a historical log.
+            assertEquals("proxy_http_history", payload["toolName"], "The record names the CANONICAL tool that ran.")
+            assertEquals("confirm", payload["secTier"], "The resolved tier is part of every decision record.")
+            assertNotNull(payload["step"], "SC3 requires the chain step on every decision.")
+        }
+        // D-12 / Pitfall 5: a refusal is a policy outcome, not a malfunction. An audit log that files
+        // it as an error cannot distinguish a decision from a broken tool.
+        assertEquals("denied", decisions[1]["status"], "A denial is a third status value, never an error.")
+    }
+
+    // ── Audit capture plumbing ───────────────────────────────────────────────────────────
+
+    private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
+
+    @BeforeEach
+    fun captureAuditEvents() {
+        auditEvents.clear()
+        AuditLogger.registerGlobalEmitter { type, payload ->
+            if (payload is Map<*, *>) auditEvents += type to payload
+        }
+    }
+
+    @AfterEach
+    fun releaseAuditEmitter() {
+        // The emitter is a global singleton hook. Leaving it registered would have this class capturing
+        // — and holding — events emitted by every test class that runs after it.
+        AuditLogger.registerGlobalEmitter(null)
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────────────
@@ -309,6 +480,16 @@ private fun allDescendants(root: Container): List<Component> =
  * exhaustive ones: "exactly two actions", "no button remains anywhere in the transcript".
  */
 private fun decisionButtons(root: Container): List<AbstractButton> = allDescendants(root).filterIsInstance<AbstractButton>().filter { it.text in DECISION_LABELS }
+
+/**
+ * The card still awaiting a decision, or `null` if nothing is pending.
+ *
+ * [ChatPanelTestHarness.findApprovalCard] returns the FIRST card in the transcript, which is the right
+ * answer for "did a card appear at all?" and the wrong one once a chain has produced several: the
+ * earlier ones are resolved records whose buttons have been removed, so clicking on them is impossible
+ * and asserting on them is misleading.
+ */
+private fun liveApprovalCard(root: Container): ToolApprovalCard? = allDescendants(root).filterIsInstance<ToolApprovalCard>().lastOrNull { decisionButtons(it).isNotEmpty() }
 
 /** Clicks a decision button on the EDT, exactly as the AWT event pump would dispatch it. */
 private fun click(

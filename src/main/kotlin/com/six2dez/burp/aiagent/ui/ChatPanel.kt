@@ -31,6 +31,7 @@ import com.six2dez.burp.aiagent.ui.components.PrivacyPill
 import com.six2dez.burp.aiagent.ui.components.SubtleNotice
 import com.six2dez.burp.aiagent.ui.components.ToolApprovalCard
 import com.six2dez.burp.aiagent.ui.components.ToolInvocationDialog
+import com.six2dez.burp.aiagent.ui.design.DesignTokens
 import com.six2dez.burp.aiagent.util.BudgetGuard
 import com.six2dez.burp.aiagent.util.GuardedBy
 import com.six2dez.burp.aiagent.util.TokenTracker
@@ -43,6 +44,7 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Graphics
+import java.awt.Rectangle
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.net.URI
@@ -168,7 +170,7 @@ class ChatPanel(
 
         sessionsList.selectionMode = ListSelectionModel.SINGLE_SELECTION
         sessionsList.font = UiTheme.Typography.body
-        sessionsList.cellRenderer = ChatSessionRenderer()
+        sessionsList.cellRenderer = ChatSessionRenderer { sessionId -> pendingDecisions.containsKey(sessionId) }
         sessionsList.background = UiTheme.Colors.surface
         sessionsList.foreground = UiTheme.Colors.onSurface
         sessionsList.addListSelectionListener {
@@ -1049,7 +1051,7 @@ class ChatPanel(
     }
 
     fun clearCurrentChat() {
-        val selected = sessionsList.selectedValue ?: return
+        if (sessionsList.selectedValue == null) return
         val confirm =
             javax.swing.JOptionPane.showConfirmDialog(
                 root,
@@ -1059,7 +1061,7 @@ class ChatPanel(
             )
         if (confirm != javax.swing.JOptionPane.YES_OPTION) return
 
-        clearChatState(selected)
+        clearChatState()
     }
 
     /**
@@ -1072,7 +1074,8 @@ class ChatPanel(
      * [MAX_AUTO_TOOL_ITERATIONS] is: module-scoped, so it stays invisible to any consumer of the
      * shipped JAR. The dialog is the user clicking Yes; this is what that click does.
      */
-    internal fun clearChatState(selected: ChatSession) {
+    internal fun clearChatState() {
+        val selected = sessionsList.selectedValue ?: return
         val panel = sessionPanels[selected.id] ?: return
         // Teardown path 3 of 5, and the one that is silently broken without it. clearMessages() below
         // removes the card from the transcript while the pending record survives, so the decision
@@ -1268,6 +1271,12 @@ class ChatPanel(
         val layout = chatCards.layout as java.awt.CardLayout
         layout.show(chatCards, id)
         restoreDraftForSession(id)
+        // Switching sessions resolves NOTHING (D-08): the pending card survives in the transcript it
+        // was raised in, and coming back is how the user answers it. All this does is put it back in
+        // front of them, because the transcript returns exactly where they left it and the card may
+        // be far above the fold. Adding a resolve here would be a sixth teardown path outside the one
+        // entry point — the exact shape the lifecycle work exists to prevent.
+        pendingDecisions[id]?.let { pending -> sessionPanels[id]?.scrollToComponent(pending.card) }
     }
 
     private fun persistActiveSessionDraft() {
@@ -1762,7 +1771,14 @@ class ChatPanel(
         var approvalMemory: ToolApprovalMemory = ToolApprovalMemory(),
     )
 
-    private class ChatSessionRenderer : javax.swing.DefaultListCellRenderer() {
+    /**
+     * @param hasPendingDecision whether that session is waiting on a SEC-06 approval. Injected as a
+     *   predicate rather than making this an inner class: the renderer runs on every repaint of every
+     *   row and has no business reaching into the panel's session maps for anything else.
+     */
+    private class ChatSessionRenderer(
+        private val hasPendingDecision: (String) -> Boolean,
+    ) : javax.swing.DefaultListCellRenderer() {
         override fun getListCellRendererComponent(
             list: JList<*>,
             value: Any?,
@@ -1800,6 +1816,21 @@ class ChatPanel(
 
             textPanel.add(titleLabel)
             textPanel.add(backendLabel)
+            if (hasPendingDecision(value.id)) {
+                // T-22-35: without this, a pending decision in a background session is invisible and
+                // the chain is parked forever — the user concludes the model gave up. Text first,
+                // colour redundant, so someone with no colour perception still reads the words.
+                val pendingLabel = JLabel("Awaiting approval")
+                // Matches backendLabel's derivation, NOT a DesignTokens typography role. This label is
+                // stacked directly beneath it in the same narrow column, and the caption role is
+                // baseSize * 0.9f — 11.7 pt against the sibling's 11 pt. Two small sizes differing by
+                // 0.7 pt in one column read as a rendering defect rather than as a hierarchy. Matching
+                // a sibling inside pre-existing renderer code adds no derivation to DesignTokens.
+                pendingLabel.font = label.font.deriveFont((label.font.size - 2).toFloat())
+                pendingLabel.foreground = if (isSelected) list.selectionForeground else DesignTokens.Colors.statusWarning
+                pendingLabel.isOpaque = false
+                textPanel.add(pendingLabel)
+            }
             panel.add(textPanel, BorderLayout.CENTER)
             return panel
         }
@@ -1872,6 +1903,22 @@ class ChatPanel(
             SwingUtilities.invokeLater {
                 val scrollBar = scroll.verticalScrollBar
                 scrollBar.value = scrollBar.maximum
+            }
+        }
+
+        /**
+         * Brings [component] into view, mirroring [refreshScroll]'s idiom.
+         *
+         * Revalidate first, then scroll inside `invokeLater`, so the scroll runs after layout has
+         * given the component a size — asking to reveal a rectangle of height 0 reveals nothing.
+         * Used when returning to a session whose pending approval card is scrolled out of sight;
+         * `switchToSession` only swaps the `CardLayout` card, so the transcript comes back exactly
+         * where the user left it. Deliberately moves no focus, the same rule the card itself follows.
+         */
+        fun scrollToComponent(component: JComponent) {
+            messages.revalidate()
+            SwingUtilities.invokeLater {
+                component.scrollRectToVisible(Rectangle(0, 0, component.width, component.height))
             }
         }
     }
@@ -2441,6 +2488,10 @@ class ChatPanel(
                 onCompleted = onCompleted,
                 card = card,
             )
+        // The other half of the T-22-35 marker: the sessions list re-runs its renderer on every model
+        // element, so this is what puts the pending marker on this session's row. Both resolution
+        // paths refresh too, so the marker clears itself however the decision is retired.
+        refreshSessionList()
         return ToolCallOutcome.AWAITING_DECISION
     }
 
@@ -2463,6 +2514,9 @@ class ChatPanel(
         // Turns the card into a record: the buttons are removed, not disabled, and the action the user
         // clicked is named verbatim in their place (T-22-30). Idempotent, so a race cannot double it.
         pending.card.resolve(decision)
+        // The session no longer awaits anything; clear its list marker before the chain restarts and
+        // possibly raises the next card (T-22-35).
+        refreshSessionList()
         val panel = sessionPanels[sessionId]
         if (panel == null) {
             // The transcript is gone. There is nowhere to chain to, so discharge the parked
