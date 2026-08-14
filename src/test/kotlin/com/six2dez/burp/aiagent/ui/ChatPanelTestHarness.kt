@@ -5,6 +5,7 @@ import burp.api.montoya.core.BurpSuiteEdition
 import com.six2dez.burp.aiagent.TestSettings
 import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
+import com.six2dez.burp.aiagent.ui.components.ToolApprovalCard
 import org.mockito.Answers
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
@@ -151,6 +152,15 @@ object ChatPanelTestHarness {
         }
         return null
     }
+
+    /**
+     * The first SEC-06 [ToolApprovalCard] in the transcript under [root], or `null` if none was added.
+     *
+     * A thin wrapper over [find] rather than a second traversal, so "is a decision on screen?" is asked
+     * exactly one way across the suite. `null` is the meaningful answer for the two cases that must
+     * NEVER produce a card: an `AUTO`-tier call, and a call the user originated themselves.
+     */
+    internal fun findApprovalCard(root: Container): ToolApprovalCard? = find(root, ToolApprovalCard::class.java)
 
     /**
      * Types [text] into the panel's real input area and clicks its real Send button on the EDT.
