@@ -593,7 +593,10 @@ internal class ToolApprovalCard private constructor(
                 // substituted into a "{title}." template — substitution would produce "it..".
                 else -> "$HEADING. Tier: ${tierTextFor(tier)}. $UNKNOWN_TOOL_TITLE"
             }
-        accessibleContext.accessibleDescription = "$prefix $DISCLOSURE_CLAUSE$sanitizedToolId"
+        // getAccessibleContext(), never the `accessibleContext` property: from inside a JComponent
+        // subclass Kotlin resolves that name to Component's PROTECTED FIELD, which stays null until the
+        // getter lazily creates the context — so the property form NPEs on the first card ever built.
+        getAccessibleContext().accessibleDescription = "$prefix $DISCLOSURE_CLAUSE$sanitizedToolId"
     }
 
     /**
