@@ -1,6 +1,7 @@
 package com.six2dez.burp.aiagent.ui
 
 import com.six2dez.burp.aiagent.mcp.McpToolDescriptor
+import com.six2dez.burp.aiagent.mcp.SecTier
 import com.six2dez.burp.aiagent.ui.design.BadgeStyle
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -26,6 +27,12 @@ class McpToolTabModelTest {
         nativeTool: Boolean = false,
         proOnly: Boolean = false,
         unsafeOnly: Boolean = false,
+        // Defaulted at the HELPER level only. D-03 is about the production `data class`
+        // McpToolDescriptor, where secTier has deliberately no default so a new catalog tool that
+        // forgets to classify itself does not compile. Defaulting it in a test convenience does not
+        // weaken that: these fixtures are not catalog entries, and the existing call sites below
+        // exercise grouping/badge/filter behaviour that is independent of the tier.
+        secTier: SecTier = SecTier.CONFIRM,
     ) = McpToolDescriptor(
         id = id,
         title = title,
@@ -35,6 +42,7 @@ class McpToolTabModelTest {
         nativeTool = nativeTool,
         proOnly = proOnly,
         unsafeOnly = unsafeOnly,
+        secTier = secTier,
     )
 
     // -------------------------------------------------------------------------

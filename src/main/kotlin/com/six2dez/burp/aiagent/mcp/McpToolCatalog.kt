@@ -2,6 +2,36 @@ package com.six2dez.burp.aiagent.mcp
 
 import com.six2dez.burp.aiagent.BuildFlags
 
+/**
+ * SEC-06 trust tier for a catalog tool: how much human authorisation one model-emitted invocation
+ * needs. The wire string is defined once, here, and nowhere else — the approval card and any audit
+ * payload both read [wireValue], so the two sinks cannot disagree.
+ *
+ * [AUTO] means read-only AND bounded output. A tool qualifies only if it neither mutates Burp state
+ * nor pulls bulk attacker-controlled traffic into model context (D-05). That sentence is the whole
+ * definition; the familiar examples (decoders, schema/catalog lookups, scope reads) illustrate it
+ * but do not extend it. Consequence: `proxy_http_history`, `site_map` and `scanner_issues` are
+ * read-only yet are [CONFIRM], because what they return is bulk attacker-controlled traffic.
+ *
+ * This tier is a SECOND, INDEPENDENT axis from [McpToolDescriptor.unsafeOnly] (D-01). `unsafeOnly`
+ * is a *capability* switch — may this tool ever run at all — while `secTier` is a *trust* axis —
+ * did a human authorise this particular invocation. Neither is derivable from the other:
+ * `ai_analyze` and `ai_passive_scan` are [CONFIRM_EACH] without being `unsafeOnly` at all, so
+ * binding the trust boundary to `unsafeOnly` would leave both of them ungated.
+ */
+enum class SecTier(
+    val wireValue: String,
+) {
+    /** Runs silently, with no user decision at all (D-02). Read-only AND bounded output. */
+    AUTO("auto"),
+
+    /** Prompts, and the user may approve this tool for the rest of the session (D-02). */
+    CONFIRM("confirm"),
+
+    /** Prompts on every single call; no session memory in either direction (D-02). */
+    CONFIRM_EACH("confirm_each"),
+}
+
 data class McpToolDescriptor(
     val id: String,
     val title: String,
@@ -10,6 +40,9 @@ data class McpToolDescriptor(
     val defaultEnabled: Boolean,
     val proOnly: Boolean = false,
     val unsafeOnly: Boolean = false,
+    // D-03: deliberately has NO default value. A default is how a new tool silently inherits a tier
+    // nobody chose; the compile error at the catalog site is the control.
+    val secTier: SecTier,
     val nativeTool: Boolean = false, // true = extension-native; present in the BApp Store build
 )
 
@@ -22,6 +55,7 @@ object McpToolCatalog {
                 description = "Returns basic extension and Burp version status.",
                 category = "Extension",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
                 nativeTool = true,
             ),
             McpToolDescriptor(
@@ -30,6 +64,7 @@ object McpToolCatalog {
                 description = "URL encodes the input string.",
                 category = "Utilities",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "url_decode",
@@ -37,6 +72,7 @@ object McpToolCatalog {
                 description = "URL decodes the input string.",
                 category = "Utilities",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "base64_encode",
@@ -44,6 +80,7 @@ object McpToolCatalog {
                 description = "Base64 encodes the input string.",
                 category = "Utilities",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "base64_decode",
@@ -51,6 +88,7 @@ object McpToolCatalog {
                 description = "Base64 decodes the input string.",
                 category = "Utilities",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "random_string",
@@ -58,6 +96,7 @@ object McpToolCatalog {
                 description = "Generates a random string of specified length and character set.",
                 category = "Utilities",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "hash_compute",
@@ -65,6 +104,7 @@ object McpToolCatalog {
                 description = "Computes a hash for input text (MD5/SHA1/SHA256/SHA512).",
                 category = "Utilities",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "jwt_decode",
@@ -72,6 +112,7 @@ object McpToolCatalog {
                 description = "Decodes JWT header/payload without verifying the signature.",
                 category = "Utilities",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "decode_as",
@@ -79,6 +120,7 @@ object McpToolCatalog {
                 description = "Decodes base64 content using compression codecs (gzip/deflate/brotli).",
                 category = "Utilities",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "cookie_jar_get",
@@ -86,6 +128,8 @@ object McpToolCatalog {
                 description = "Returns cookies from Burp's cookie jar (values redacted unless privacy is OFF).",
                 category = "Utilities",
                 defaultEnabled = true,
+                // CONFIRM, tiered for its worst case (PrivacyMode.OFF with includeValues): the tier must not depend on privacy mode — a mode-dependent trust boundary is the same defect D-01 rejects for unsafeOnly.
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "proxy_http_history",
@@ -93,6 +137,7 @@ object McpToolCatalog {
                 description = "Displays items within the proxy HTTP history.",
                 category = "History",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "proxy_http_history_regex",
@@ -100,6 +145,7 @@ object McpToolCatalog {
                 description = "Displays proxy HTTP history items matching a regex.",
                 category = "History",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "proxy_history_annotate",
@@ -108,6 +154,7 @@ object McpToolCatalog {
                 category = "History",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "response_body_search",
@@ -115,6 +162,7 @@ object McpToolCatalog {
                 description = "Searches response bodies in proxy history using a regex.",
                 category = "History",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "proxy_ws_history",
@@ -122,6 +170,7 @@ object McpToolCatalog {
                 description = "Displays items within the proxy WebSocket history.",
                 category = "History",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "proxy_ws_history_regex",
@@ -129,6 +178,7 @@ object McpToolCatalog {
                 description = "Displays WebSocket history items matching a regex.",
                 category = "History",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "site_map",
@@ -136,6 +186,7 @@ object McpToolCatalog {
                 description = "Displays items within the Burp site map.",
                 category = "Site Map",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "site_map_regex",
@@ -143,6 +194,7 @@ object McpToolCatalog {
                 description = "Displays site map items matching a regex.",
                 category = "Site Map",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "scope_check",
@@ -150,6 +202,7 @@ object McpToolCatalog {
                 description = "Checks whether a URL is in scope.",
                 category = "Scope",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "scope_include",
@@ -158,6 +211,7 @@ object McpToolCatalog {
                 category = "Scope",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "scope_exclude",
@@ -166,6 +220,8 @@ object McpToolCatalog {
                 category = "Scope",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                // CONFIRM, not CONFIRM_EACH: excluding narrows the blast radius where scope_include widens it. The asymmetry is the point.
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "scanner_issues",
@@ -174,6 +230,7 @@ object McpToolCatalog {
                 category = "Scanner",
                 defaultEnabled = true,
                 proOnly = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "http1_request",
@@ -182,6 +239,7 @@ object McpToolCatalog {
                 category = "Requests",
                 defaultEnabled = true,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "http2_request",
@@ -190,6 +248,7 @@ object McpToolCatalog {
                 category = "Requests",
                 defaultEnabled = true,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "repeater_tab",
@@ -198,6 +257,7 @@ object McpToolCatalog {
                 category = "Requests",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "repeater_tab_with_payload",
@@ -206,6 +266,7 @@ object McpToolCatalog {
                 category = "Requests",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "intruder",
@@ -214,6 +275,7 @@ object McpToolCatalog {
                 category = "Requests",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "intruder_prepare",
@@ -222,6 +284,7 @@ object McpToolCatalog {
                 category = "Requests",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "insertion_points",
@@ -229,6 +292,7 @@ object McpToolCatalog {
                 description = "Lists insertion point offsets for a request.",
                 category = "Requests",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "params_extract",
@@ -236,6 +300,7 @@ object McpToolCatalog {
                 description = "Extracts parameters from a request.",
                 category = "Requests",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "diff_requests",
@@ -243,6 +308,7 @@ object McpToolCatalog {
                 description = "Produces a line diff between two requests.",
                 category = "Requests",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "request_parse",
@@ -250,6 +316,7 @@ object McpToolCatalog {
                 description = "Parses a raw HTTP request into method, path, headers, parameters, and body.",
                 category = "Requests",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "response_parse",
@@ -257,6 +324,7 @@ object McpToolCatalog {
                 description = "Parses a raw HTTP response into status, headers, and body.",
                 category = "Requests",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "find_reflected",
@@ -264,6 +332,7 @@ object McpToolCatalog {
                 description = "Finds reflected parameter values in a response.",
                 category = "Requests",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "comparer_send",
@@ -272,6 +341,7 @@ object McpToolCatalog {
                 category = "Requests",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "task_engine_state",
@@ -280,6 +350,7 @@ object McpToolCatalog {
                 category = "Burp Control",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "proxy_intercept",
@@ -288,6 +359,7 @@ object McpToolCatalog {
                 category = "Burp Control",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "editor_get",
@@ -295,6 +367,7 @@ object McpToolCatalog {
                 description = "Outputs the contents of the active message editor.",
                 category = "Editor",
                 defaultEnabled = false,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "editor_set",
@@ -303,6 +376,7 @@ object McpToolCatalog {
                 category = "Editor",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "project_options_get",
@@ -310,6 +384,8 @@ object McpToolCatalog {
                 description = "Outputs project-level configuration as JSON.",
                 category = "Config",
                 defaultEnabled = false,
+                // CONFIRM despite being read-only — the data is not attacker-controlled, but it is the user's own credential material (ADR-15, Pitfall 1).
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "user_options_get",
@@ -317,6 +393,8 @@ object McpToolCatalog {
                 description = "Outputs user-level configuration as JSON.",
                 category = "Config",
                 defaultEnabled = false,
+                // CONFIRM despite being read-only — the data is not attacker-controlled, but it is the user's own credential material (ADR-15, Pitfall 1).
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "project_options_set",
@@ -325,6 +403,7 @@ object McpToolCatalog {
                 category = "Config",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "user_options_set",
@@ -333,6 +412,7 @@ object McpToolCatalog {
                 category = "Config",
                 defaultEnabled = false,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "collaborator_generate",
@@ -340,6 +420,7 @@ object McpToolCatalog {
                 description = "Generates a Burp Collaborator payload.",
                 category = "Collaborator",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "collaborator_poll",
@@ -347,6 +428,7 @@ object McpToolCatalog {
                 description = "Fetches interactions for a Collaborator secret key.",
                 category = "Collaborator",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "scan_audit_start",
@@ -356,6 +438,7 @@ object McpToolCatalog {
                 defaultEnabled = false,
                 proOnly = true,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "scan_audit_start_mode",
@@ -365,6 +448,7 @@ object McpToolCatalog {
                 defaultEnabled = false,
                 proOnly = true,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "scan_audit_start_requests",
@@ -374,6 +458,7 @@ object McpToolCatalog {
                 defaultEnabled = false,
                 proOnly = true,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "scan_crawl_start",
@@ -383,6 +468,7 @@ object McpToolCatalog {
                 defaultEnabled = false,
                 proOnly = true,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "scan_task_status",
@@ -391,6 +477,7 @@ object McpToolCatalog {
                 category = "Scanner",
                 defaultEnabled = false,
                 proOnly = true,
+                secTier = SecTier.AUTO,
             ),
             McpToolDescriptor(
                 id = "scan_task_delete",
@@ -400,6 +487,7 @@ object McpToolCatalog {
                 defaultEnabled = false,
                 proOnly = true,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM,
             ),
             McpToolDescriptor(
                 id = "scan_report",
@@ -409,6 +497,7 @@ object McpToolCatalog {
                 defaultEnabled = false,
                 proOnly = true,
                 unsafeOnly = true,
+                secTier = SecTier.CONFIRM_EACH,
             ),
             McpToolDescriptor(
                 id = "issue_create",
@@ -416,6 +505,7 @@ object McpToolCatalog {
                 description = "Creates a custom audit issue in Burp's issue list for AI-discovered findings.",
                 category = "Issues",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
                 nativeTool = true,
             ),
             McpToolDescriptor(
@@ -424,6 +514,8 @@ object McpToolCatalog {
                 description = "Sends text to the active AI backend and returns the analysis result.",
                 category = "AI",
                 defaultEnabled = true,
+                // CONFIRM_EACH while NOT unsafeOnly — D-01's independence claim made concrete: binding the trust boundary to unsafeOnly would leave this ungated.
+                secTier = SecTier.CONFIRM_EACH,
                 nativeTool = true,
             ),
             McpToolDescriptor(
@@ -432,6 +524,8 @@ object McpToolCatalog {
                 description = "Queues requests for AI passive security analysis and returns the count enqueued.",
                 category = "AI",
                 defaultEnabled = true,
+                // CONFIRM_EACH while NOT unsafeOnly — D-01's independence claim made concrete: binding the trust boundary to unsafeOnly would leave this ungated.
+                secTier = SecTier.CONFIRM_EACH,
                 nativeTool = true,
             ),
             McpToolDescriptor(
@@ -440,6 +534,7 @@ object McpToolCatalog {
                 description = "Returns the most recent AI passive scan findings (up to n).",
                 category = "AI",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
                 nativeTool = true,
             ),
             McpToolDescriptor(
@@ -448,6 +543,7 @@ object McpToolCatalog {
                 description = "Applies the extension's privacy redaction engine to arbitrary text and returns the redacted result.",
                 category = "AI",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
                 nativeTool = true,
             ),
             McpToolDescriptor(
@@ -456,6 +552,7 @@ object McpToolCatalog {
                 description = "Returns recent AI request audit log entries (hashes only unless verbose mode is enabled).",
                 category = "AI",
                 defaultEnabled = true,
+                secTier = SecTier.CONFIRM,
                 nativeTool = true,
             ),
             McpToolDescriptor(
@@ -464,6 +561,7 @@ object McpToolCatalog {
                 description = "Lists available AI backends and reports the current active backend and connection state.",
                 category = "AI",
                 defaultEnabled = true,
+                secTier = SecTier.AUTO,
                 nativeTool = true,
             ),
         )
