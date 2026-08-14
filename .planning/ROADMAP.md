@@ -214,7 +214,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 22-03-PLAN.md — Shared `canonicalToolId`, `ToolApprovalGate` types, `ext:`/unknown tier resolution and the display/audit sanitizers (wave 2)
+- [x] 22-03-PLAN.md — Shared `canonicalToolId`, `ToolApprovalGate` types, `ext:`/unknown tier resolution and the display/audit sanitizers (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -319,7 +319,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
 | 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
-| 22. Agent Tool-Call Trust Boundary | 2/9 | In Progress|  |
+| 22. Agent Tool-Call Trust Boundary | 3/9 | In Progress|  |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
 | 25. Secondary Hardening | 0/? | Not started | — |
