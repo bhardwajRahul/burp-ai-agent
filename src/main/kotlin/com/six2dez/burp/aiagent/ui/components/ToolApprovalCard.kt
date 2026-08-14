@@ -1,6 +1,7 @@
 package com.six2dez.burp.aiagent.ui.components
 
 import com.six2dez.burp.aiagent.config.Defaults
+import com.six2dez.burp.aiagent.mcp.ImplicitDenyReason
 import com.six2dez.burp.aiagent.mcp.SecTier
 import com.six2dez.burp.aiagent.mcp.ToolDecision
 import com.six2dez.burp.aiagent.mcp.sanitizeBlock
@@ -16,7 +17,10 @@ import java.awt.Graphics2D
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
+import java.awt.KeyboardFocusManager
 import java.awt.RenderingHints
+import java.text.SimpleDateFormat
+import java.util.Date
 import javax.swing.Box
 import javax.swing.BoxLayout
 import javax.swing.JButton
@@ -26,6 +30,7 @@ import javax.swing.JPanel
 import javax.swing.JTextArea
 import javax.swing.JTextField
 import javax.swing.SwingConstants
+import javax.swing.SwingUtilities
 import javax.swing.border.CompoundBorder
 import javax.swing.border.EmptyBorder
 import javax.swing.border.LineBorder
@@ -74,6 +79,16 @@ private const val ORDINAL_THIRD = 3
 
 private const val HEADING = "The AI asked to run a tool"
 private const val UNKNOWN_TOOL_TITLE = "Not a known tool — this call will fail if you approve it."
+
+// A separate string on purpose: row 1's pending wording ends "…if you approve it", which names a button
+// that does not exist on a compact row, and it is tense-wrong in both compact states — a session-approved
+// call already ran, a session-denied one was never run at all.
+//
+// An unknown tool resolves to CONFIRM_EACH (22-03's fail-closed fallback) and CONFIRM_EACH never
+// populates either session set (22-04), so no unknown tool can occupy a compact row. ADR-15 records this
+// under "claim only what ships": implemented for title exhaustiveness, unreachable in this phase.
+private const val UNKNOWN_TOOL_TITLE_COMPACT = "Not a known tool — no catalog entry matches this name."
+
 private const val TRUST_LABEL = "AI-supplied — this extension did not write the text below:"
 private const val TIER_REASON_CONFIRM = "Approving for the session applies to this tool until this chat is deleted."
 private const val TIER_REASON_CONFIRM_EACH =
@@ -96,12 +111,46 @@ private const val LABEL_APPROVE_SESSION = "Approve for session"
 private const val TIP_DENY = "Do not run this call. The AI is told the call was not authorised and continues without it."
 private const val TIP_APPROVE_ONCE = "Run this tool call now. The AI must ask again next time."
 
+/**
+ * The disclosure clause that makes the accessible description safe.
+ *
+ * Note the trailing space and the fact that the model's tool ID is appended straight after it with
+ * NOTHING following. Rule T-2 forbids concatenating a model string into extension text, and the obvious
+ * justification for this one exception — "it is not a rendered surface" — is **wrong**: for a blind user
+ * the accessible description IS the rendered surface. What makes concatenation survivable in a `JLabel`
+ * is that `BasicHTML.isHTMLString` fires only at offset 0, and that rule has no screen-reader analogue —
+ * a screen reader has no notion of position, it simply reads on, so a model string placed mid-sentence
+ * would be followed by extension-authored audio and `scope_check. Press Approve once to continue` would
+ * be indistinguishable from narration this extension wrote. The mitigation is positional in a different
+ * way: put the model string LAST and let nothing follow it.
+ */
+private const val DISCLOSURE_CLAUSE = "The following tool name was written by the AI, not by this extension: "
+
 /** U+25B6 / U+25BC, matching AccordionPanel.kt:103 so the affordance reads the same everywhere. */
 private const val GLYPH_COLLAPSED = "▶"
 private const val GLYPH_EXPANDED = "▼"
 
+/** U+2714 / U+2716. An approve/deny pair needs both poles; a checkmark alone with colour-only negation would rely on colour. */
+private const val GLYPH_APPROVED = "✔"
+private const val GLYPH_DENIED = "✖"
+
+/** Reuses the format ChatMessagePanel already renders (ChatPanel.kt:1788) rather than inventing a second one. */
+private const val TIMESTAMP_PATTERN = "h:mm a"
+
 /** Which of the three args disclosure stages the card is showing. */
 private enum class ArgsStage { PREVIEW, FULL }
+
+/**
+ * One resolved outcome, split the way the outcome row renders it: the glyph label carries the leading
+ * glyph and nothing else, the timestamp label carries the trailing time token including its separator or
+ * parentheses exactly as the copy line writes them, and the verb label carries everything between.
+ */
+private data class Outcome(
+    val glyph: String,
+    val verb: String,
+    val timePart: String,
+    val approved: Boolean,
+)
 
 /**
  * The SEC-06 decision surface: an inline card in the chat transcript that shows one model-emitted tool
@@ -132,7 +181,7 @@ private enum class ArgsStage { PREVIEW, FULL }
  *
  * Contract: `.planning/phases/22-agent-tool-call-trust-boundary/22-UI-SPEC.md` (approved, binding).
  */
-internal class ToolApprovalCard(
+internal class ToolApprovalCard private constructor(
     private val tier: SecTier,
     private val catalogTitle: String?,
     // Named so its trust class is obvious at every call site: this is `ParsedToolCall.tool`, i.e.
@@ -148,7 +197,38 @@ internal class ToolApprovalCard(
     // Deliberately has NO default value: a default onDecision is how a future caller ships a card
     // whose buttons do nothing.
     private val onDecision: (ToolDecision) -> Unit,
+    private val onRequestFocusRestore: (() -> Unit)?,
+    // Non-null puts the card in resolved-only "compact row" mode. Private, and set only by [compact],
+    // so no caller can build a hybrid that offers buttons AND claims a decision was already applied.
+    private val compactDecision: ToolDecision?,
 ) : JPanel(GridBagLayout()) {
+    /**
+     * The pending card: the only constructor a caller can reach.
+     *
+     * [onRequestFocusRestore] is invoked by [resolve] when the button row being removed owns focus;
+     * `ChatPanel` wires it to the input-area focus call it already makes at `ChatPanel.kt:960`.
+     */
+    internal constructor(
+        tier: SecTier,
+        catalogTitle: String?,
+        modelSuppliedToolId: String,
+        modelSuppliedArgsJson: String?,
+        offersSessionActions: Boolean,
+        repeatCount: Int,
+        onDecision: (ToolDecision) -> Unit,
+        onRequestFocusRestore: (() -> Unit)? = null,
+    ) : this(
+        tier = tier,
+        catalogTitle = catalogTitle,
+        modelSuppliedToolId = modelSuppliedToolId,
+        modelSuppliedArgsJson = modelSuppliedArgsJson,
+        offersSessionActions = offersSessionActions,
+        repeatCount = repeatCount,
+        onDecision = onDecision,
+        onRequestFocusRestore = onRequestFocusRestore,
+        compactDecision = null,
+    )
+
     // `JPanel.<init>` invokes updateUI() BEFORE the Kotlin field initialisers below run, so an
     // unguarded re-apply would NPE on every child field. The flag is zero-initialised to false by the
     // JVM, so the guard short-circuits during super-construction, and is flipped at the end of init {}.
@@ -194,7 +274,16 @@ internal class ToolApprovalCard(
     // visually interrupts a run of CONFIRM cards.
     private val initiallyExpanded = tier == SecTier.CONFIRM_EACH
 
-    private var expanded = initiallyExpanded
+    /** True for a compact resolved row — a receipt for a decision the user made earlier, not a prompt. */
+    private val isCompact = compactDecision != null
+
+    private var resolved = isCompact
+
+    private var outcome: Outcome? = null
+
+    // Mechanism A expands args to interrupt a run of prompts; a compact row interrupts nothing, and it
+    // was never pending so there is no prior user expand state to preserve.
+    private var expanded = !isCompact && initiallyExpanded
 
     private var argsStage = ArgsStage.PREVIEW
 
@@ -203,7 +292,7 @@ internal class ToolApprovalCard(
     // Rule T-7: an unrecognised tool is LABELLED, never shown bare, and no catalog title is fabricated
     // for it. The model's own string still appears — sanitized, inside its box — because the user must
     // see what was asked for.
-    private val titleLabel = JLabel(catalogTitle ?: UNKNOWN_TOOL_TITLE)
+    private val titleLabel = JLabel(catalogTitle ?: if (isCompact) UNKNOWN_TOOL_TITLE_COMPACT else UNKNOWN_TOOL_TITLE)
 
     private val tierReasonLabel = helpLabel(tierReasonFor(tier))
 
@@ -233,6 +322,14 @@ internal class ToolApprovalCard(
 
     private val badge = tierBadge(tier)
 
+    private var outcomeRow: JPanel? = null
+
+    private var outcomeGlyphLabel: JLabel? = null
+
+    private var outcomeVerbLabel: JLabel? = null
+
+    private var outcomeTimeLabel: JLabel? = null
+
     init {
         isOpaque = true
 
@@ -256,12 +353,69 @@ internal class ToolApprovalCard(
             updateArgsView()
         }
 
-        buildButtonRow()
+        if (compactDecision != null) {
+            outcome = outcomeFor(compactDecision, null, nowTimestamp())
+            buildOutcomeRow()
+        } else {
+            buildButtonRow()
+        }
         buildRows()
 
         initialized = true
         applyTheme()
         updateArgsView()
+        updateAccessibleDescription()
+    }
+
+    /**
+     * Resolves a pending card in place: the buttons are **removed** and replaced by an outcome row that
+     * names the clicked action verbatim, the accent strip drops to `borderSubtle`, and everything else
+     * stays.
+     *
+     * Buttons are removed rather than disabled. A disabled `JButton` renders as grey text on the same
+     * chrome — months later it is indistinguishable from "unavailable", and four dead buttons occupy
+     * permanent noise in a scrolling record. What was *offered* is still recorded, by the tier badge
+     * (which is what determined whether four or two buttons existed) and by the outcome line itself.
+     *
+     * The args expand state is preserved exactly as the user left it: not auto-collapsed on approve, not
+     * auto-expanded on deny. The args are the record, and collapsing them would hide the thing the user
+     * just authorised. The card also does not scroll itself — the user is where they are.
+     */
+    internal fun resolve(
+        decision: ToolDecision,
+        implicitReason: ImplicitDenyReason? = null,
+    ) {
+        if (resolved) {
+            return
+        }
+        // Removing the button row while it owns focus lets Swing move focus somewhere arbitrary — often
+        // another card, or the sessions list. Guarded on ownership so a mouse click does not yank focus
+        // from wherever the user put it. Precedent: ChatPanel.kt:960.
+        val focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
+        if (focusOwner != null && SwingUtilities.isDescendingFrom(focusOwner, this)) {
+            onRequestFocusRestore?.invoke()
+        }
+
+        outcome = outcomeFor(decision, implicitReason, nowTimestamp())
+        resolved = true
+        buildOutcomeRow()
+
+        // Replace IN THE SAME GRID CELL so no other row reflows. getConstraints returns a copy of the
+        // constraints the button row was added with, which is exactly the cell to reuse. The
+        // height-capping wrapper at ChatPanel.kt:1701 recomputes from the layout on every pass, so the
+        // card shrinking needs no extra work.
+        val cell = (layout as GridBagLayout).getConstraints(buttonRow)
+        remove(buttonRow)
+        decisionButtons.clear()
+        outcomeRow?.let { add(it, cell) }
+
+        applyTheme()
+        // A resolved card that still announces "The AI asked to run a tool" is a false statement made to
+        // the one user who cannot see that the buttons are gone, so accessibleDescription is rewritten
+        // here as well as at construction.
+        updateAccessibleDescription()
+        revalidate()
+        repaint()
     }
 
     override fun updateUI() {
@@ -291,6 +445,34 @@ internal class ToolApprovalCard(
             }
         val tight = Insets(0, 0, DesignTokens.Spacing.xs, 0)
         val roomy = Insets(0, 0, DesignTokens.Spacing.sm, 0)
+
+        overflowRow.layout = BoxLayout(overflowRow, BoxLayout.Y_AXIS)
+        overflowRow.isOpaque = false
+        truncationFooter.alignmentX = LEFT_ALIGNMENT
+        val showAllRow = JPanel()
+        showAllRow.layout = BoxLayout(showAllRow, BoxLayout.X_AXIS)
+        showAllRow.isOpaque = false
+        showAllRow.alignmentX = LEFT_ALIGNMENT
+        showAllRow.add(showAllButton)
+        showAllRow.add(Box.createHorizontalGlue())
+        overflowRow.add(truncationFooter)
+        overflowRow.add(showAllRow)
+
+        if (isCompact) {
+            // Five visible rows against a resolved full card's eight or nine — the whole point of the
+            // word "compact". The heading is dropped because the next line already answers it, and the
+            // tier badge because nothing was ever offered here, so it has no record to carry and would
+            // read the same on every compact row. The tier reason, the repeat counter, the buttons and
+            // the session-scope footer go for the reasons in UI-SPEC §"The compact resolved row".
+            outcomeRow?.let { addRow(it, constraints, tight) }
+            addRow(titleLabel, constraints, tight)
+            addRow(trustLabel, constraints, tight)
+            addRow(toolIdField, constraints, roomy)
+            addRow(argsToggle, constraints, tight)
+            addRow(argsArea, constraints, roomy)
+            addRow(overflowRow, constraints, tight)
+            return
+        }
 
         // Row 0 — heading + tier badge, kept adjacent rather than pinning the badge to a far-right
         // edge that moves when the user drags the Burp tab divider.
@@ -351,18 +533,67 @@ internal class ToolApprovalCard(
             buttonRow.add(decisionButton(LABEL_APPROVE_SESSION, approveSessionTip, ToolDecision.APPROVE_SESSION))
         }
         buttonRow.add(Box.createHorizontalGlue())
+    }
 
-        overflowRow.layout = BoxLayout(overflowRow, BoxLayout.Y_AXIS)
-        overflowRow.isOpaque = false
-        truncationFooter.alignmentX = LEFT_ALIGNMENT
-        val showAllRow = JPanel()
-        showAllRow.layout = BoxLayout(showAllRow, BoxLayout.X_AXIS)
-        showAllRow.isOpaque = false
-        showAllRow.alignmentX = LEFT_ALIGNMENT
-        showAllRow.add(showAllButton)
-        showAllRow.add(Box.createHorizontalGlue())
-        overflowRow.add(truncationFooter)
-        overflowRow.add(showAllRow)
+    /**
+     * The outcome row. Colour appears on the **glyph only** — no filled background on a resolved card,
+     * because a denied card that shouts red forever is itself a habituation trainer.
+     *
+     * On a mutated full card this row lands last, in the button row's cell, which is a mechanical
+     * consequence of replacing in place rather than a reading-order decision. On a compact row it comes
+     * first, where it does the heading's duty, so a reader scanning the transcript can separate "a
+     * decision happened here" from "a decision you made earlier was applied here" without reading either.
+     */
+    private fun buildOutcomeRow() {
+        val current = outcome ?: return
+        val row = JPanel()
+        row.layout = BoxLayout(row, BoxLayout.X_AXIS)
+        row.isOpaque = false
+        val glyph = JLabel(current.glyph)
+        // The compact verbs are long enough in the bold label role to clip, and the transcript's scroll
+        // pane never shows a horizontal bar. The `<html>` prefix that makes the label wrap is safe for
+        // exactly the reason the truncation footers are: this string is extension-authored and contains
+        // no model byte at position 0 or at any other offset.
+        val verb = JLabel(if (isCompact) "<html>${current.verb}" else current.verb)
+        val time = JLabel(current.timePart)
+        row.add(glyph)
+        row.add(Box.createRigidArea(Dimension(DesignTokens.Spacing.xs, 0)))
+        row.add(verb)
+        row.add(Box.createRigidArea(Dimension(DesignTokens.Spacing.sm, 0)))
+        row.add(time)
+        row.add(Box.createHorizontalGlue())
+        outcomeGlyphLabel = glyph
+        outcomeVerbLabel = verb
+        outcomeTimeLabel = time
+        outcomeRow = row
+    }
+
+    /**
+     * The card root's `AccessibleContext` description — the only channel through which a screen-reader
+     * user receives the trust distinction sighted users get from the box, so all three of its conditions
+     * are required and the description is unsafe if any one is dropped:
+     *
+     * 1. the tool ID is inline-sanitized, so a multi-line ID cannot be read as several sentences;
+     * 2. it is the **final element** with no character after it — mechanically checkable with
+     *    `description.endsWith(sanitizedToolId)`;
+     * 3. it is immediately preceded by [DISCLOSURE_CLAUSE], so attribution is heard **before** the
+     *    attacker-influenceable text, never after it.
+     *
+     * `{TIER}` renders the badge's own text token exactly, so the audio and the badge say the same word.
+     * Nothing else is added: the decision buttons carry their own accessible names from their labels, so
+     * restating them here would only lengthen the audio in front of the tool ID.
+     */
+    private fun updateAccessibleDescription() {
+        val current = outcome
+        val prefix =
+            when {
+                current != null -> "${current.verb} ${current.timePart}."
+                catalogTitle != null -> "$HEADING. Tier: ${tierTextFor(tier)}. $catalogTitle."
+                // The unknown-tool title already ends in a period, so it is spelled out rather than
+                // substituted into a "{title}." template — substitution would produce "it..".
+                else -> "$HEADING. Tier: ${tierTextFor(tier)}. $UNKNOWN_TOOL_TITLE"
+            }
+        accessibleContext.accessibleDescription = "$prefix $DISCLOSURE_CLAUSE$sanitizedToolId"
     }
 
     /**
@@ -476,10 +707,13 @@ internal class ToolApprovalCard(
      */
     private fun applyTheme() {
         background = DesignTokens.Colors.cardSurface
+        // Only PENDING cards carry a coloured strip. Scanning the transcript therefore answers "is
+        // anything waiting for me" with one glance and no reading.
+        val accent = if (resolved) DesignTokens.Colors.borderSubtle else tierColorFor(tier)
         border =
             CompoundBorder(
                 CompoundBorder(
-                    MatteBorder(0, ACCENT_STRIP_WIDTH, 0, 0, tierColorFor(tier)),
+                    MatteBorder(0, ACCENT_STRIP_WIDTH, 0, 0, accent),
                     LineBorder(DesignTokens.Colors.border, 1, true),
                 ),
                 EmptyBorder(
@@ -514,6 +748,55 @@ internal class ToolApprovalCard(
         argsToggle.font = DesignTokens.Typography.body
         showAllButton.font = DesignTokens.Typography.body
         decisionButtons.forEach { it.font = DesignTokens.Typography.body }
+
+        outcomeGlyphLabel?.font = DesignTokens.Typography.body
+        outcomeGlyphLabel?.foreground =
+            if (outcome?.approved == true) DesignTokens.Colors.statusSuccess else DesignTokens.Colors.statusError
+        outcomeVerbLabel?.font = DesignTokens.Typography.label
+        outcomeVerbLabel?.foreground = DesignTokens.Colors.onSurface
+        outcomeTimeLabel?.font = DesignTokens.Typography.caption
+        outcomeTimeLabel?.foreground = DesignTokens.Colors.onSurfaceVariant
+    }
+
+    companion object {
+        /**
+         * The compact resolved row: a **receipt**, not a prompt.
+         *
+         * States 2 and 3 are not decisions. The gate consulted the session sets, applied a decision the
+         * user already made, and moved on. Both variants ship (FLAG-22-03): session-denied is required,
+         * because otherwise the denial is invisible and the chain appears to stall, and session-approved
+         * costs one branch and the card is a record.
+         *
+         * The tier is fixed at `CONFIRM` rather than taken from the caller because it is invariant here:
+         * both session sets can only be populated by `Approve for session` / `Deny for session`, which
+         * only a `CONFIRM` card renders. `CONFIRM_EACH` has no session memory in either direction.
+         */
+        internal fun compact(
+            decision: ToolDecision,
+            catalogTitle: String?,
+            modelSuppliedToolId: String,
+            modelSuppliedArgsJson: String?,
+        ): ToolApprovalCard {
+            require(decision == ToolDecision.SESSION_APPROVED || decision == ToolDecision.SESSION_DENIED) {
+                "A compact resolved row records a decision a human made EARLIER and the gate applied to " +
+                    "this call without asking anyone, so only SESSION_APPROVED and SESSION_DENIED can " +
+                    "occupy one. Got $decision."
+            }
+            return ToolApprovalCard(
+                tier = SecTier.CONFIRM,
+                catalogTitle = catalogTitle,
+                modelSuppliedToolId = modelSuppliedToolId,
+                modelSuppliedArgsJson = modelSuppliedArgsJson,
+                offersSessionActions = false,
+                repeatCount = 1,
+                // Supplied here, inside the class, rather than exposed on this factory: a compact row
+                // renders no decision button so nothing can invoke it, and keeping it off the factory
+                // signature means no caller can ship a card whose buttons do nothing.
+                onDecision = { },
+                onRequestFocusRestore = null,
+                compactDecision = decision,
+            )
+        }
     }
 }
 
@@ -590,6 +873,52 @@ private fun showAllLabelFor(total: Int): String =
     } else {
         "Show first ${Defaults.MAX_CONTEXT_TOTAL_CHARS} characters"
     }
+
+/**
+ * Splits one outcome line from the Copywriting Contract into the three labels the outcome row renders.
+ *
+ * Every string here is verbatim from that contract. The `when` is exhaustive over [ToolDecision] so a
+ * future decision value cannot silently render a blank row.
+ */
+private fun outcomeFor(
+    decision: ToolDecision,
+    implicitReason: ImplicitDenyReason?,
+    time: String,
+): Outcome =
+    when (decision) {
+        ToolDecision.APPROVE_ONCE -> Outcome(GLYPH_APPROVED, "Approved once", "— $time", approved = true)
+        ToolDecision.APPROVE_SESSION -> Outcome(GLYPH_APPROVED, "Approved for this chat", "— $time", approved = true)
+        ToolDecision.DENY -> Outcome(GLYPH_DENIED, "Denied", "— $time", approved = false)
+        ToolDecision.DENY_SESSION -> Outcome(GLYPH_DENIED, "Denied for this chat", "— $time", approved = false)
+        ToolDecision.IMPLICIT_DENY ->
+            Outcome(
+                GLYPH_DENIED,
+                // Only NEW_MESSAGE leaves a surviving surface. The other four teardown paths destroy the
+                // transcript or the whole panel, so their durable record is the SC3 audit event, not this
+                // row. If one ever does reach here, the contract's own line is used minus the clause that
+                // would be false — saying less beats inventing copy for a state that is not designed.
+                if (implicitReason == null || implicitReason == ImplicitDenyReason.NEW_MESSAGE) {
+                    "Denied automatically — you sent a new message"
+                } else {
+                    "Denied automatically"
+                },
+                "($time)",
+                approved = false,
+            )
+        ToolDecision.SESSION_APPROVED ->
+            Outcome(GLYPH_APPROVED, "Ran without asking — approved for this chat", "($time)", approved = true)
+        ToolDecision.SESSION_DENIED ->
+            Outcome(GLYPH_DENIED, "Blocked automatically — you denied this tool for this chat", "($time)", approved = false)
+        // D-02: an AUTO-tier call runs with no card at all, so no AUTO outcome row can exist and the
+        // Copywriting Contract deliberately specifies no copy for one. Reusing another branch's line
+        // would put a human-decision sentence on a call no human saw — the exact conflation
+        // ToolDecision's own KDoc says makes "did a human authorise this invocation?" unanswerable.
+        // This is a programming error at the call site, not a state a user can reach, so it fails loudly.
+        ToolDecision.AUTO -> error("ToolApprovalCard cannot render an AUTO outcome: an AUTO-tier call renders no card (D-02).")
+    }
+
+/** The transcript's existing timestamp format, reused rather than duplicated (ChatPanel.kt:1788). */
+private fun nowTimestamp(): String = SimpleDateFormat(TIMESTAMP_PATTERN).format(Date())
 
 /** English ordinal for the repeat counter: 2nd, 3rd, 4th, 11th, 21st. */
 private fun ordinalFor(n: Int): String {
