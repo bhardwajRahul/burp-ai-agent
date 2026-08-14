@@ -165,16 +165,23 @@ object ChatPanelTestHarness {
     /**
      * Types [text] into the panel's real input area and clicks its real Send button on the EDT.
      *
-     * The input area is the only [JTextArea] in the panel — the transcript is a `JEditorPane` — so the
-     * plain depth-first lookup is unambiguous.
+     * **The `isEditable` predicate is load-bearing, not defensive.** It used to be true that the input
+     * area was the only [JTextArea] under the panel — the transcript renders into a `JEditorPane` — but
+     * `ToolApprovalCard` renders the model-supplied arguments into a read-only [JTextArea] as part of
+     * its anti-spoofing rule, and the transcript is added to the layout BEFORE the input panel
+     * (`chatContainer.add(chatCards, CENTER)` then `add(inputPanel(), SOUTH)`). A depth-first search
+     * for any `JTextArea` therefore returns the CARD's argument box the moment a decision is on screen,
+     * so a second `sendUserMessage` would type into the card and click Send on an empty input — a
+     * silent no-op that makes every lifecycle assertion pass vacuously. The input area is the only
+     * EDITABLE one, which is a property of what it is for rather than of where it sits in the tree.
      */
     fun sendUserMessage(
         h: Harness,
         text: String,
     ) {
         val input =
-            requireNotNull(find(h.panel.root, JTextArea::class.java)) {
-                "No JTextArea found under ChatPanel.root — the input area lookup is stale."
+            requireNotNull(find(h.panel.root, JTextArea::class.java) { it.isEditable }) {
+                "No editable JTextArea found under ChatPanel.root — the input area lookup is stale."
             }
         val send =
             requireNotNull(find(h.panel.root, JButton::class.java) { it.text == "Send" }) {
