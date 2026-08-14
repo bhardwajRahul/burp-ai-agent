@@ -360,7 +360,11 @@ class ChatPanel(
         }
         session.launchMetadata = spec.toMetadataMap()
         val panel = sessionPanels[session.id] ?: return
-        val state = sessionStates[session.id] ?: ToolSessionState()
+        // getOrPut, not `?:` — the discarded-fallback form used to build a state and throw it away.
+        // Unreachable today because createSession populates the map first, but it would silently drop
+        // D-10's approval set the moment that ordering changed, which is the latent shape this phase
+        // exists to remove. Same form as the two call sites below.
+        val state = sessionStates.getOrPut(session.id) { ToolSessionState() }
         val actionCard = buildActionCard(capture, spec.actionName, prompt, session.id, state)
         panel.addComponent(actionCard)
         panel.addMessage(
@@ -494,6 +498,11 @@ class ChatPanel(
         val state = sessionStates.getOrPut(session.id) { ToolSessionState() }
         val settings = getSettings()
         updatePrivacyPill()
+        // Teardown path 1 of 5 — the user answered the card by moving on. Resolved BEFORE anything
+        // below can start a second turn: a pending card parks the chain, and letting the user's turn
+        // run alongside a live continuation is what clobbers inFlightConnection. No followup is sent
+        // because the message the user just typed IS the continuation.
+        resolvePending(session.id, ImplicitDenyReason.NEW_MESSAGE)
         if (handleToolCommand(text, session.id, panel, state, settings)) {
             inputArea.text = ""
             return
@@ -830,6 +839,9 @@ class ChatPanel(
                 javax.swing.JOptionPane.YES_NO_OPTION,
             )
         if (confirm == javax.swing.JOptionPane.YES_OPTION) {
+            // Teardown path 2 of 5. Ahead of the try, so the card and its state are still intact even
+            // if removeChatSession throws and the finally strips the maps out from under it.
+            resolvePending(session.id, ImplicitDenyReason.SESSION_DELETED)
             try {
                 supervisor.removeChatSession(session.id)
                 val removedPanel = sessionPanels.remove(session.id)
@@ -1031,7 +1043,25 @@ class ChatPanel(
             )
         if (confirm != javax.swing.JOptionPane.YES_OPTION) return
 
+        clearChatState(selected)
+    }
+
+    /**
+     * Everything Clear Chat does once the user has clicked Yes.
+     *
+     * Split out from [clearCurrentChat] so the teardown is reachable without a modal. `JOptionPane`
+     * builds a `JDialog`, which throws `HeadlessException` under `-Djava.awt.headless=true` — leaving
+     * the confirmation inline would put the one path research found *permanently stuck* (T-22-10)
+     * beyond the reach of any test. `internal` rather than `private` for the same reason
+     * [MAX_AUTO_TOOL_ITERATIONS] is: module-scoped, so it stays invisible to any consumer of the
+     * shipped JAR. The dialog is the user clicking Yes; this is what that click does.
+     */
+    internal fun clearChatState(selected: ChatSession) {
         val panel = sessionPanels[selected.id] ?: return
+        // Teardown path 3 of 5, and the one that is silently broken without it. clearMessages() below
+        // removes the card from the transcript while the pending record survives, so the decision
+        // becomes unresolvable by any UI and the parked continuation never fires. Resolve first.
+        resolvePending(selected.id, ImplicitDenyReason.CHAT_CLEARED)
         panel.clearMessages()
         supervisor.removeChatSession(selected.id)
         // Clear logical message history so the backend doesn't receive stale context
@@ -1043,11 +1073,14 @@ class ChatPanel(
         selected.totalTokensIn = 0
         selected.totalTokensOut = 0
         sessionDrafts[selected.id] = ""
-        val state = sessionStates[selected.id]
-        if (state != null) {
-            state.toolCatalogSent = false
-            state.toolsMode = true
-        }
+        val state = sessionStates.getOrPut(selected.id) { ToolSessionState() }
+        state.toolCatalogSent = false
+        state.toolsMode = true
+        // T-22-34 / ADR-15: the D-10 approve/deny memory goes with the history it was granted against.
+        // Clear Chat is the user declaring a new task, which is D-10's own justification for asking
+        // again — an approval given while reviewing target A must not run silently against target B.
+        // A fresh holder drops both session sets and the repeat counter in one assignment.
+        state.approvalMemory = ToolApprovalMemory()
         // Remove persisted messages for this session
         try {
             projectData().deleteString(sessionMsgKeyPrefix + selected.id)
@@ -1383,6 +1416,11 @@ class ChatPanel(
         // maps and Swing, so marshal onto the EDT. Use invokeAndWait so unload is synchronous
         // (Burp may tear down the classloader right after), guarded against EDT re-entrancy.
         val work = {
+            // Teardown path 5 of 5. Inside the marshalled block because pendingDecisions is
+            // @GuardedBy("EDT") like every other session map here. No backend turn is started from
+            // this path: dispatching a request while Burp tears down the extension classloader is how
+            // a safety control turns into an unload hang (T-22-33).
+            resolveAllPending(ImplicitDenyReason.UNLOAD)
             cancelInFlightRequest()
             sessionPanels.values.forEach { it.stopAllTimers() }
         }
@@ -1404,6 +1442,10 @@ class ChatPanel(
      * Called when the Burp project changes so stale sessions don't bleed across projects.
      */
     fun clearInMemorySessionState() {
+        // Teardown path 4 of 5, reached from MainTab.onProjectChanged(). The same dangling
+        // continuation as a session delete, but across every session at once — and D-08 does not list
+        // it either. Resolved first, while the cards and the states behind them still exist.
+        resolveAllPending(ImplicitDenyReason.PROJECT_CHANGED)
         cancelInFlightRequest()
         sessionPanels.values.forEach { it.stopAllTimers() }
         sessionsById.clear()
@@ -1696,7 +1738,12 @@ class ChatPanel(
         // D-10: the SEC-06 approve/deny memory is keyed on the CHAT session and dies with it — no new
         // lifecycle, no persistence. An approval granted while reviewing target A must not silently
         // apply when the user opens a new chat about target B (T-22-20).
-        val approvalMemory: ToolApprovalMemory = ToolApprovalMemory(),
+        //
+        // `var` for exactly one reason: Clear Chat replaces the whole holder (see clearChatState). A
+        // fresh instance drops both session sets AND the repeat counter in one assignment, which is
+        // atomic and needs no reset method on ToolApprovalMemory — the memory keeps its narrow
+        // accessors, so no caller can splice a single entry in or out.
+        var approvalMemory: ToolApprovalMemory = ToolApprovalMemory(),
     )
 
     private class ChatSessionRenderer : javax.swing.DefaultListCellRenderer() {
@@ -2325,9 +2372,16 @@ class ChatPanel(
         // upstream, because a pending card is exactly what stops another turn from running here. Fail
         // closed: retire the old one as IMPLICIT_DENY and discharge its parked continuation (T-22-31)
         // before the new card goes in, so no decision is silently replaced and nothing is left hanging.
-        pendingDecisions.remove(sessionId)?.let { stale ->
-            stale.card.resolve(ToolDecision.IMPLICIT_DENY, ImplicitDenyReason.NEW_MESSAGE)
-            stale.onCompleted?.invoke(ToolApprovalGate.DENIAL_RESULT, null)
+        if (pendingDecisions.containsKey(sessionId)) {
+            // Routed through the ONE entry point rather than repeating its three steps here. A second
+            // removal site that happens to do the same thing today is exactly the ad-hoc-hook shape
+            // this plan removes: the next field added to the resolution — the SC3 record was that
+            // field — would land in one copy and not the other.
+            //
+            // Defensive, and unreachable on the normal path now that sendFromInput retires the card
+            // before it can start a turn. Reaching it means the one-card-per-session invariant broke
+            // upstream, which is worth telling the user about; the resolution itself is identical.
+            resolvePending(sessionId, ImplicitDenyReason.NEW_MESSAGE)
             showError("A tool approval was still pending in this chat. It was denied automatically.")
         }
         val card =
@@ -2386,6 +2440,62 @@ class ChatPanel(
         } else {
             dispatchResolvedToolCall(pending, panel, resolved)
         }
+    }
+
+    /**
+     * The ONE way a pending decision is retired without a click (D-08).
+     *
+     * **Five teardown paths reach this, not D-08's three.** A new message in the session, session
+     * deletion, Clear Chat, a Burp project change and extension unload all destroy either the card or
+     * the state behind it. `clearCurrentChat()` and `clearInMemorySessionState()` are the two D-08 does
+     * not list, and they are the dangerous ones: `panel.clearMessages()` removes the card from the
+     * transcript while the pending record survives, leaving an authorisation decision that can never be
+     * made and a continuation that never fires. One entry point is the fix; an ad-hoc hook per path is
+     * the bug, because the sixth path someone adds later will not get its own hook (T-22-10).
+     *
+     * Every step here is the same one an explicit click performs, in the same order: consult the gate,
+     * turn the card into a record, write the SC3 event, discharge the parked continuation.
+     *
+     * **No implicit denial starts a backend turn, and [sendFollowup] exists to say so at the
+     * declaration rather than by the absence of a call.** It is inert by construction — nothing reads
+     * it, and all five call sites take the default. D-08 asks that the model never be left hanging and
+     * D-12 routes a denial into a followup turn; those two only appear to conflict. For four of the
+     * five paths there is no session left to run a turn in, and for the fifth the user's own new
+     * message IS the continuation. Making it live would create exactly two hazards: on `shutdown()` it
+     * would dispatch a backend request while Burp tears down the extension classloader, and on
+     * `sendFromInput()` it would run concurrently with the user's own turn and clobber
+     * `inFlightConnection`. Only an explicit `Deny` / `Deny for session` click sends the D-12 followup.
+     */
+    @Suppress("UnusedParameter")
+    private fun resolvePending(
+        sessionId: String,
+        reason: ImplicitDenyReason,
+        sendFollowup: Boolean = false,
+    ) {
+        // Removed FIRST, exactly as resolveToolDecision does, so a click racing a teardown path cannot
+        // resolve one card twice. ToolApprovalCard.resolve is idempotent too, so this is belt and braces.
+        val pending = pendingDecisions.remove(sessionId) ?: return
+        val state = sessionStates.getOrPut(sessionId) { ToolSessionState() }
+        // Consulted rather than assumed: resolve() is what decides that an implicit denial writes NO
+        // session memory in either direction. Inferring a lasting preference from silence is the
+        // opposite of consent, and that rule belongs in the gate, not in five teardown paths.
+        ToolApprovalGate.resolve(pending.call.tool, state.approvalMemory, ToolDecision.IMPLICIT_DENY)
+        pending.card.resolve(ToolDecision.IMPLICIT_DENY, reason)
+        // Plan 22-08 Task 2 wires the SC3 decision record at this single call site.
+        // The parked continuation, discharged rather than dropped (T-22-31). Same shape as the
+        // context-preview cancel at startSessionFromContext, but the second argument stays null: a
+        // denial is a policy outcome, not a malfunction (D-12), so no throwable is constructed here.
+        pending.onCompleted?.invoke(ToolApprovalGate.DENIAL_RESULT, null)
+        refreshSessionList()
+    }
+
+    /**
+     * Retires every pending decision across all sessions — the project-change and unload paths.
+     *
+     * Iterates a COPY of the keys because [resolvePending] mutates the map it is walking.
+     */
+    private fun resolveAllPending(reason: ImplicitDenyReason) {
+        pendingDecisions.keys.toList().forEach { sessionId -> resolvePending(sessionId, reason) }
     }
 
     /** Routes a resolved decision down the same two paths an un-asked call takes. */
