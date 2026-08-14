@@ -177,6 +177,16 @@ tasks.test {
         .file("src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpToolCatalog.kt")
         .withPropertyName("secTierKdocSource")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // SEC-06 / SC5 / CR-02: ToolApprovalGateVisibilityTest reads this file from disk to pin
+    // `approvedOrigin` as private and `ModelApproved` as file-private, for the same reason and with the
+    // same caveat as the two declarations above. A visibility widening does change the compiled output,
+    // but a comment-only edit to the file does not — and this guard's source-text half asserts on text
+    // that includes the surrounding declarations. Undeclared, that edit produces an identical cache key
+    // and the test task is served from cache with the guard never running (the 22-09 defect).
+    inputs
+        .file("src/main/kotlin/com/six2dez/burp/aiagent/mcp/ToolApprovalGate.kt")
+        .withPropertyName("originVisibilitySource")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     val excludeHeavyTests =
         (project.findProperty("excludeHeavyTests") as? String)
             ?.trim()
