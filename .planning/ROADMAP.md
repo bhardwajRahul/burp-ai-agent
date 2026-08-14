@@ -41,7 +41,7 @@ Everything else in this milestone is real but was found by reading: an agent loo
 
 - [x] **Phase 20: MCP Access-Control Correctness** — Move the auth/Origin/header interceptor ahead of routing so it runs on every request; regression tests that fail against today's code (completed 2026-08-10 — 10 plans: 6 original + 4 gap closure. First verification `gaps_found` 5/6; re-verified 6/6 after gap closure. SEC-04 + SEC-05 satisfied. 2 human-UAT items open in `20-HUMAN-UAT.md`)
 - [x] **Phase 21: Redaction Completeness** — Close the cookie-section leak, match real-world sensitive key names, stop redaction failing open on large bodies (19 plans: 7 original + 12 gap-closure across two review-driven rounds; `21-REVIEW.md` found 4 blockers incl. a reproduced live PRIV-05 cookie leak, `21-REVIEW-2.md` found 1 more; all closed and re-verified. 669 tests, 0 failures; detekt baseline unchanged. Verified 6/6 must-haves; 3 live-Burp items open in `21-HUMAN-UAT.md`) (completed 2026-08-13)
-- [ ] **Phase 22: Agent Tool-Call Trust Boundary** — User decision gate for model-emitted tool calls, plus the ADR that records the threat model
+- [x] **Phase 22: Agent Tool-Call Trust Boundary** — User decision gate for model-emitted tool calls, plus the ADR that records the threat model (completed 2026-08-14)
 - [ ] **Phase 23: EDT Confinement & UI Responsiveness** — Tool execution, backend HTTP and MCP stop() off the Swing EDT
 - [ ] **Phase 24: Scheduler & Process Robustness** — Guard recurring tasks against death-by-exception; fix the CLI output race and unbounded resource use
 - [ ] **Phase 25: Secondary Hardening** — Stop leaking the MCP token to unverified port holders; teach SsrfGuard the alternate IP notations
@@ -232,7 +232,7 @@ Plans:
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 22-09-PLAN.md — ADR-15, the ADR guard test, `CONCERNS.md` corrections and `22-HUMAN-UAT.md` (wave 6)
+- [x] 22-09-PLAN.md — ADR-15, the ADR guard test, `CONCERNS.md` corrections and `22-HUMAN-UAT.md` (wave 6)
 
 **Open question for `/gsd-discuss-phase`** (answered): whether the gate defaults to prompting for all tools or only for the mutating set. Resolved by `22-CONTEXT.md` D-01/D-02/D-05 — neither. SEC-06 gets its own three-tier classification independent of `unsafeOnly`, and `AUTO` requires read-only **and** bounded output, so bulk-read tools such as `proxy_http_history` prompt too.
 
@@ -319,7 +319,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
 | 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
-| 22. Agent Tool-Call Trust Boundary | 8/9 | In Progress|  |
+| 22. Agent Tool-Call Trust Boundary | 9/9 | Complete   | 2026-08-14 |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
 | 25. Secondary Hardening | 0/? | Not started | — |
