@@ -1292,6 +1292,12 @@ class ChatPanel(
     }
 
     private fun syncDraftFromInput() {
+        // sessionDrafts is @GuardedBy("EDT") like every other session map, and this writes it — so it
+        // owes the same assertion they do. It had none, which is why the SC4 harness could type into the
+        // input area from the JUnit thread for a whole phase with `-ea` on and nothing firing (WR-10).
+        // A DocumentListener callback is always dispatched on the EDT in production, so this is a
+        // no-op there in both senses: `assert` is disabled without `-ea`, and the condition holds.
+        assertEdt()
         if (suppressDraftSync) return
         val id = activeSessionId ?: sessionsList.selectedValue?.id ?: return
         sessionDrafts[id] = inputArea.text

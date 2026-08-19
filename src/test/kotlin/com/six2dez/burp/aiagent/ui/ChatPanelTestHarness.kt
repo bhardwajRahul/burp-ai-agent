@@ -174,21 +174,34 @@ object ChatPanelTestHarness {
      * so a second `sendUserMessage` would type into the card and click Send on an empty input — a
      * silent no-op that makes every lifecycle assertion pass vacuously. The input area is the only
      * EDITABLE one, which is a property of what it is for rather than of where it sits in the tree.
+     *
+     * **The WHOLE interaction runs on the EDT, tree walk included, and that is not tidiness.** Assigning
+     * `input.text` fires the input area's `DocumentListener`, which calls `ChatPanel.syncDraftFromInput`
+     * and writes `sessionDrafts` — a `@GuardedBy("EDT")` map. Only the click used to be dispatched, so
+     * the harness that exists to assert the production path was itself breaking the confinement REL-01
+     * established, and `syncDraftFromInput` had no `assertEdt()` to catch it under `-ea` (WR-10). It has
+     * one now, so this ordering is enforced rather than remembered. A fixture is a template as much as a
+     * tool: every later test built on this one inherits whichever discipline it shows.
+     *
+     * The two `requireNotNull` messages surface through `InvocationTargetException.cause`, which JUnit
+     * prints — worth less than running the lookups off-thread would cost.
      */
     fun sendUserMessage(
         h: Harness,
         text: String,
     ) {
-        val input =
-            requireNotNull(find(h.panel.root, JTextArea::class.java) { it.isEditable }) {
-                "No editable JTextArea found under ChatPanel.root — the input area lookup is stale."
-            }
-        val send =
-            requireNotNull(find(h.panel.root, JButton::class.java) { it.text == "Send" }) {
-                "No JButton labelled 'Send' found under ChatPanel.root — the button lookup is stale."
-            }
-        input.text = text
-        SwingUtilities.invokeAndWait { send.doClick() }
+        SwingUtilities.invokeAndWait {
+            val input =
+                requireNotNull(find(h.panel.root, JTextArea::class.java) { it.isEditable }) {
+                    "No editable JTextArea found under ChatPanel.root — the input area lookup is stale."
+                }
+            val send =
+                requireNotNull(find(h.panel.root, JButton::class.java) { it.text == "Send" }) {
+                    "No JButton labelled 'Send' found under ChatPanel.root — the button lookup is stale."
+                }
+            input.text = text
+            send.doClick()
+        }
     }
 
     /**
