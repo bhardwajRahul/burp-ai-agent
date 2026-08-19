@@ -46,10 +46,17 @@ import com.six2dez.burp.aiagent.mcp.tools.McpToolExecutor
 /** Cap for [sanitizeInline]. A named constant because MagicNumber is active and QUAL-07 forbids growing detekt-baseline.xml. */
 private const val INLINE_MAX_LENGTH = 120
 
+/** Default truncation marker. [McpBlockedRequestReporter] overrides it to keep the Output line it has always written. */
+private const val INLINE_ELLIPSIS = "\u2026"
+
 /**
  * C0 controls and DEL via `\p{Cntrl}`, plus the C1 range spelled out — Java's `\p{Cntrl}` covers only
- * `\x00-\x1F` and `\x7F` unless UNICODE_CHARACTER_CLASS is set. Copied from
- * mcp/McpBlockedRequestReporter.kt:25 rather than re-derived, so the two cannot drift.
+ * `\x00-\x1F` and `\x7F` unless UNICODE_CHARACTER_CLASS is set.
+ *
+ * This is the ONE copy in the package. It used to be a deliberate duplicate of the identical regex in
+ * mcp/McpBlockedRequestReporter.kt, on the reasoning that copying kept the two from drifting — which is
+ * exactly backwards, and they had already drifted on the truncation marker by the time it was noticed
+ * (WR-05). The reporter now calls [sanitizeInline] and supplies its own marker as an argument.
  */
 private val inlineControlCharRegex = Regex("[\\p{Cntrl}\\u0080-\\u009F]")
 
@@ -507,6 +514,11 @@ internal object ToolApprovalGate {
  * `"aInjected: line"` and a forged second log line is impossible (CWE-117,
  * mcp/McpBlockedRequestReporter.kt:220-233). Stripping ESC also neuters ANSI sequences.
  *
+ * **One implementation, two callers.** [McpBlockedRequestReporter] used to carry a line-for-line copy of
+ * this function — same regex, same remove-then-collapse-then-trim-then-cap sequence — differing only in
+ * the cap and in the truncation marker. Two copies is how the CWE-117 rule ends up fixed in one place
+ * and not the other, so the marker and the cap are parameters and the copy is gone (WR-05).
+ *
  * Applied to the model-supplied TOOL ID on the card, in the accessible description and in the audit
  * payload. It is the wrong tool for the args JSON: `\p{Cntrl}` includes `\n` and `\t`, so this would
  * flatten JSON into one unreadable line — the opposite of D-07's rule that the full args are shown
@@ -515,6 +527,7 @@ internal object ToolApprovalGate {
 internal fun sanitizeInline(
     value: String?,
     maxLength: Int = INLINE_MAX_LENGTH,
+    ellipsis: String = INLINE_ELLIPSIS,
 ): String? =
     value?.let { raw ->
         val cleaned =
@@ -522,7 +535,7 @@ internal fun sanitizeInline(
                 .replace(raw, "")
                 .replace(inlineWhitespaceRegex, " ")
                 .trim()
-        if (cleaned.length > maxLength) cleaned.take(maxLength).trimEnd() + "…" else cleaned
+        if (cleaned.length > maxLength) cleaned.take(maxLength).trimEnd() + ellipsis else cleaned
     }
 
 /**

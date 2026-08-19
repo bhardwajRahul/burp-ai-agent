@@ -19,12 +19,11 @@ private const val MAX_HEADER_VALUE_LENGTH = 200
 private const val BLOCK_LOG_WINDOW_MS = 60_000L
 
 /**
- * C0 controls and DEL via `\p{Cntrl}`, plus the C1 range spelled out — Java's `\p{Cntrl}` covers only
- * `\x00-\x1F` and `\x7F` unless UNICODE_CHARACTER_CLASS is set, and D-07 names C0 *and* C1.
+ * The truncation marker this class has always written into the Output tab. Three ASCII dots rather than
+ * U+2026, which is [sanitizeInline]'s default — kept as-is so a Phase-20 log line does not change shape
+ * for a Phase-22 refactor, and passed as an argument rather than justifying a second implementation.
  */
-private val controlCharRegex = Regex("[\\p{Cntrl}\\u0080-\\u009F]")
-
-private val whitespaceRegex = Regex("\\s+")
+private const val TRUNCATION_MARKER = "..."
 
 /**
  * Turns a [GateDecision.Deny] into observability. Two sinks: an audit event, and a Burp Output-tab
@@ -221,14 +220,12 @@ internal class McpBlockedRequestReporter(
      * D-07: make an attacker-controlled value safe to write into a log line. Control characters are
      * REMOVED rather than replaced, so `"a\r\nInjected: line"` collapses to `"aInjected: line"` and a
      * forged second log line is impossible (CWE-117).
+     *
+     * Binds this class's cap and marker to the package's one implementation. It used to BE that
+     * implementation, duplicated character for character in `mcp/ToolApprovalGate.kt` — with a comment
+     * claiming the copy was what kept the two from drifting, by which time they had already drifted on
+     * the marker (WR-05). One regex, one remove-then-collapse-then-trim-then-cap sequence, and the two
+     * things that genuinely differ passed as arguments.
      */
-    private fun sanitize(value: String?): String? =
-        value?.let { raw ->
-            val cleaned =
-                controlCharRegex
-                    .replace(raw, "")
-                    .replace(whitespaceRegex, " ")
-                    .trim()
-            if (cleaned.length > MAX_HEADER_VALUE_LENGTH) cleaned.take(MAX_HEADER_VALUE_LENGTH).trimEnd() + "..." else cleaned
-        }
+    private fun sanitize(value: String?): String? = sanitizeInline(value, MAX_HEADER_VALUE_LENGTH, TRUNCATION_MARKER)
 }
