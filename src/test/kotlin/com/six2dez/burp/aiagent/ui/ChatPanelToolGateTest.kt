@@ -852,6 +852,9 @@ private fun pendingSessionIds(h: ChatPanelTestHarness.Harness): Set<*> {
     return (field.get(h.panel) as Map<*, *>).keys
 }
 
+/** Declared as a `tasks.test` input in `build.gradle.kts`; the two must stay in step. */
+private const val CHAT_PANEL_SOURCE = "src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt"
+
 /**
  * The source text of one `ChatPanel` function, brace-matched from its declaration.
  *
@@ -860,7 +863,18 @@ private fun pendingSessionIds(h: ChatPanelTestHarness.Harness): Set<*> {
  * Every other test in this file asserts on executed behaviour.
  */
 private fun functionBody(declaration: String): String {
-    val source = File("src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt").readText()
+    val file = File(CHAT_PANEL_SOURCE)
+    // Named, resolved and asserted rather than left to surface as a bare FileNotFoundException, which
+    // is what a build-layout change would otherwise produce here (DecisionsAdrTest.readProjectFile does
+    // the same, for the same reason). `build.gradle.kts` declares this path as a `tasks.test` input, so
+    // an edit to it invalidates the cache and these structural assertions actually re-run.
+    assertTrue(
+        file.isFile,
+        "Expected to find `$CHAT_PANEL_SOURCE` relative to the test working directory " +
+            "`${System.getProperty("user.dir")}`, resolved as `${file.absolutePath}`. If the build " +
+            "layout changed, fix the path here and in the matching `tasks.test` input declaration.",
+    )
+    val source = file.readText()
     val start = source.indexOf(declaration)
     require(start >= 0) { "No '$declaration' in ChatPanel.kt — this structural assertion is stale." }
     val open = source.indexOf('{', start)

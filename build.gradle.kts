@@ -187,6 +187,18 @@ tasks.test {
         .file("src/main/kotlin/com/six2dez/burp/aiagent/mcp/ToolApprovalGate.kt")
         .withPropertyName("originVisibilitySource")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // SEC-06 / SC4 / WR-09: ChatPanelToolGateTest reads this file from disk in `functionBody` to make
+    // the two structural assertions it cannot drive headlessly — the modal-dialog path in
+    // `userDialogPathIsNotDoublePrompted`, and `resolvePending`'s no-followup rule in
+    // `shutdownResolvesAllPendingDecisionsWithoutSendingATurn`. Same defect as the three declarations
+    // above, and the one 22-09 measured on its own ADR guard: an edit that changes the source text but
+    // not the compiled bytecode — a comment replaced in place, a string reflowed — produces an
+    // identical cache key, so the test task is served from cache and the structural guard never runs in
+    // exactly the case it exists to catch.
+    inputs
+        .file("src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt")
+        .withPropertyName("chatPanelStructuralSource")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     val excludeHeavyTests =
         (project.findProperty("excludeHeavyTests") as? String)
             ?.trim()
