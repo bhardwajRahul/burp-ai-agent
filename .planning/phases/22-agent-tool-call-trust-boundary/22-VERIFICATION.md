@@ -1,7 +1,7 @@
 ---
 phase: 22-agent-tool-call-trust-boundary
 verified: 2026-08-14T11:43:20Z
-status: human_needed
+status: passed
 score: 6/6 must-haves verified
 overrides_applied: 0
 human_verification:
@@ -325,3 +325,26 @@ Gate after remediation: `build test ktlintCheck detekt` exit 0, 742 tests / 110 
 **Status is unchanged at `human_needed`** — the four items in `22-HUMAN-UAT.md` still require
 a live Burp instance. Remaining outstanding findings: WARN-3 (`isKnownTool` trusts the `ext:`
 prefix without validating against configured servers) and the other code-review warnings.
+
+---
+
+## Human verification resolved (2026-08-19)
+
+All four `human_verification` items were exercised against a live Burp instance and recorded in
+`22-HUMAN-UAT.md` — **4 passed, 0 issues, 0 skipped, 0 blocked**. Status raised
+`human_needed` → `passed`.
+
+Two outcomes worth carrying forward, because they were the empirical assumptions the tier table
+rests on rather than checks of this phase's own code:
+
+- **A1 confirmed** — `intruder` and `intruder_prepare` stage an Intruder tab without putting traffic
+  on the wire. ADR-15's phrase "or stage it for one click" is therefore accurate as written, not
+  merely redundant. This matters more than when it was authored: that clause is the criterion the
+  maintainer invoked to promote `repeater_tab` and `repeater_tab_with_payload` to `CONFIRM_EACH`.
+- **A2 confirmed** — `user_options_get` exports upstream-proxy credential material. ADR-15's worked
+  example for classifying read-only `*_get` tools as `CONFIRM` stands on its stated grounds, so a
+  future tool author reading it is not being told something false.
+
+The JAR under test was rebuilt at the start of UAT. The artifact on disk beforehand predated commit
+`f396918` by three minutes and did not contain the second tier promotion, so Test 1 would have shown
+`repeater_tab_with_payload` with four buttons instead of two.
