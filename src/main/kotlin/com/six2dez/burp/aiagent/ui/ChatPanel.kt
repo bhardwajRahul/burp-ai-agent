@@ -2540,7 +2540,24 @@ class ChatPanel(
             )
             pending.onCompleted?.invoke(ToolApprovalGate.DENIAL_RESULT, null)
         } else {
-            dispatchResolvedToolCall(pending, panel, resolved)
+            val outcome = dispatchResolvedToolCall(pending, panel, resolved)
+            // The SECOND discharge point, and the mirror of the un-asked path's NOT_CHAINED check in
+            // sendMessage's completion block — the same test, in the same place relative to the call
+            // that produced the outcome (T-22-31).
+            //
+            // NOT_CHAINED here can only mean the APPROVED tool threw: reportFailedToolCall stops the
+            // chain without sending a followup turn, so nothing downstream is carrying onCompleted any
+            // more and this is its last chance to be discharged rather than dropped. Both denial
+            // decisions and an approved run that returned normally chain a followup and report CHAINED,
+            // so neither can be discharged twice here.
+            //
+            // DENIAL_RESULT for the same reason the transcript-gone branch above uses it: the parked
+            // continuation is the "Send to AI" caller's resume hook, not a second audit sink. The
+            // throwable was already recorded, with its class, by reportFailedToolCall's SC3 event, so
+            // the second argument stays null exactly as it does at the un-asked NOT_CHAINED check.
+            if (outcome == ToolCallOutcome.NOT_CHAINED) {
+                pending.onCompleted?.invoke(ToolApprovalGate.DENIAL_RESULT, null)
+            }
         }
     }
 
@@ -2614,12 +2631,20 @@ class ChatPanel(
         pendingDecisions.keys.toList().forEach { sessionId -> resolvePending(sessionId, reason) }
     }
 
-    /** Routes a resolved decision down the same two paths an un-asked call takes. */
+    /**
+     * Routes a resolved decision down the same two paths an un-asked call takes.
+     *
+     * **Returns the outcome rather than discarding it**, which is the whole of T-22-31's first clause.
+     * Both branches already produce one and the un-asked path has always read it; discarding it here
+     * was the asymmetry that let a click-approved tool that then threw leave the parked continuation
+     * uncalled forever. [resolveToolDecision] is the caller that acts on it, so the check sits at the
+     * same place relative to the dispatch as the un-asked one does in `sendMessage`'s completion block.
+     */
     private fun dispatchResolvedToolCall(
         pending: PendingToolDecision,
         panel: SessionPanel,
         resolved: ToolApprovalOutcome,
-    ) {
+    ): ToolCallOutcome =
         when (resolved) {
             is ToolApprovalOutcome.Run ->
                 executeApprovedToolCall(
@@ -2650,7 +2675,6 @@ class ChatPanel(
             is ToolApprovalOutcome.Ask ->
                 error("ToolApprovalGate.resolve returned Ask for ${pending.call.tool}; only evaluate() may ask.")
         }
-    }
 
     /**
      * Refuses a model-emitted tool call and keeps the conversation going (SC2, D-12, D-13).

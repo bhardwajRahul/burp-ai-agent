@@ -20,6 +20,7 @@ import org.mockito.kotlin.atLeast
 import org.mockito.kotlin.never
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
+import org.mockito.kotlin.whenever
 import java.awt.Component
 import java.awt.Container
 import java.io.File
@@ -118,6 +119,70 @@ class ChatPanelToolGateTest {
             0,
             decisionButtons(card).size,
             "Approve once is per-call: the card that was clicked becomes a record, buttons removed.",
+        )
+    }
+
+    /**
+     * T-22-31 — the failure twin of [approveOnceExecutesTheCall].
+     *
+     * A human clicked `Approve once`, the tool then blew up, and `reportFailedToolCall` stopped the
+     * chain without sending a followup turn. Nothing downstream is carrying `onCompleted` any more, so
+     * if the resolution path does not discharge it here the caller that supplied it waits forever —
+     * the register's "parked continuation that is never discharged".
+     *
+     * The un-asked path has always handled this: `sendMessage`'s completion block reads the outcome and
+     * invokes `onCompleted` on `NOT_CHAINED`. This asserts the resolved-click path now does the same.
+     */
+    @Test
+    fun anApprovedToolThatThrowsStillDischargesTheParkedContinuation() {
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        // Must be an Error, not an Exception. `McpTool.runTool` catches SerializationException and
+        // Exception and turns both into an error RESULT, which executeApprovedToolCall reports as a
+        // run with status "error" and then CHAINS — the branch that is not the defect. Only a Throwable
+        // runTool does not catch escapes McpToolExecutor.executeTool into the runCatching in
+        // executeApprovedToolCall, which is the reportFailedToolCall / NOT_CHAINED branch under test.
+        whenever(h.api.proxy().history()).thenThrow(InjectedToolFailure("proxy history exploded"))
+
+        ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+        ChatPanelTestHarness.drainEdt()
+        val card = requireNotNull(liveApprovalCard(h.panel.root)) { NO_CARD }
+        val discharges = CopyOnWriteArrayList<Pair<String, Throwable?>>()
+        val traceId = parkContinuation(h) { text, error -> discharges += text to error }
+
+        click(card, "Approve once")
+        ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
+
+        // NON-VACUITY FIRST, AND THAT ORDERING IS THE POINT. The claim below is "the continuation was
+        // discharged on the failure branch"; it says nothing at all unless the approved tool really ran
+        // and really threw. A harness that raised no card, or a click that did nothing, would leave
+        // `discharges` empty too — and would fail here instead, naming the actual breakage.
+        verify(h.api.proxy(), times(1)).history()
+        // Exactly the one turn the user's own message started. A second would mean the tool did NOT
+        // throw and executeApprovedToolCall chained a followup carrying onCompleted with it, in which
+        // case this test is exercising the success path and proves nothing about T-22-31.
+        verifySendChatCount(h, 1)
+        // SC3 is not allowed to be the price of the fix: the approved-then-threw branch still owes a
+        // record, and it is the easiest one in the file to lose while restructuring returns.
+        //
+        // Selected by THIS chain's trace id, not by position or by tool name. `AuditLogger`'s emitter is
+        // a global singleton, and an earlier test's panel is still alive with queued `invokeLater` work
+        // that this test's drain runs — measured: the `scope_check` AUTO chain lands three more
+        // `mcp_tool_decision` events in here. The trace id is the one field that is this chain's alone.
+        val decision =
+            auditEvents.single { it.first == "mcp_tool_decision" && it.second["traceId"] == traceId }.second
+        assertEquals("approve_once", decision["decision"], "A human clicked Approve once; the record must say so.")
+        assertEquals("error", decision["status"], "The run status is the failure's, not the decision's.")
+
+        assertEquals(
+            1,
+            discharges.size,
+            "An approved tool that throws must discharge the parked continuation EXACTLY once, or the " +
+                "'Send to AI' caller that supplied it hangs forever (T-22-31). Discharges: $discharges",
+        )
+        assertNull(
+            discharges.single().second,
+            "The throwable was already recorded by reportFailedToolCall's SC3 event; the continuation " +
+                "is a resume hook, not a second audit sink.",
         )
     }
 
@@ -655,4 +720,72 @@ private fun functionBody(declaration: String): String {
         index++
     }
     return source.substring(open, index + 1)
+}
+
+/**
+ * The failure injected into an APPROVED tool call.
+ *
+ * An [Error] on purpose — see the comment at the injection site. Named rather than reusing
+ * [AssertionError] so that if it ever surfaces in a stack trace it says why it exists, and so it can
+ * never be confused with a JUnit assertion failing for real.
+ */
+private class InjectedToolFailure(
+    message: String,
+) : Error(message)
+
+/**
+ * Substitutes [onCompleted] into the LIVE pending record the production path just parked.
+ *
+ * Reflection, and deliberately narrow about it: the only producer of a non-null `onCompleted` is
+ * `MainTab.openChatWithContext`, which has no callers yet, and the only route to it —
+ * `startSessionFromContext` — blocks on `ContextPreviewDialog.confirm`, an application-modal dialog
+ * that cannot be driven under `-Djava.awt.headless=true`. So the record is built by the real gate on
+ * the real Send path and ONLY its callback slot is swapped; everything before and after is production
+ * code. The alternative — asserting on source text — is what this suite exists not to do.
+ *
+ * Runs on the EDT because `pendingDecisions` is EDT-confined (REL-01). Mutating it from the JUnit
+ * thread would make this fixture a worse offender than the code it guards.
+ *
+ * @return the parked chain's trace id, which is the only field that identifies this chain's audit
+ *   events among those of every other still-live panel the global emitter also sees.
+ */
+private fun parkContinuation(
+    h: ChatPanelTestHarness.Harness,
+    onCompleted: (String, Throwable?) -> Unit,
+): String {
+    lateinit var traceId: String
+    SwingUtilities.invokeAndWait {
+        val field = ChatPanel::class.java.getDeclaredField("pendingDecisions")
+        field.isAccessible = true
+
+        @Suppress("UNCHECKED_CAST")
+        val pending = field.get(h.panel) as MutableMap<String, Any>
+        val sessionId =
+            requireNotNull(pending.keys.singleOrNull()) {
+                "Expected exactly one parked decision to substitute a continuation into; found ${pending.keys}."
+            }
+        val record = pending.getValue(sessionId)
+        val type = record.javaClass
+        val constructor =
+            requireNotNull(type.declaredConstructors.singleOrNull()) {
+                "PendingToolDecision no longer has exactly one constructor — this fixture is stale."
+            }
+        constructor.isAccessible = true
+
+        fun slot(name: String): Any? = type.getDeclaredField(name).also { it.isAccessible = true }.get(record)
+
+        traceId = slot("traceId") as String
+        pending[sessionId] =
+            constructor.newInstance(
+                slot("sessionId"),
+                slot("userText"),
+                slot("call"),
+                slot("context"),
+                slot("remainingToolIterations"),
+                traceId,
+                onCompleted,
+                slot("card"),
+            )
+    }
+    return traceId
 }
