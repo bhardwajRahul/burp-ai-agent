@@ -2374,6 +2374,7 @@ class ChatPanel(
                     userText = userText,
                     call = call,
                     panel = panel,
+                    context = context,
                     remainingToolIterations = remainingToolIterations,
                     traceId = traceId,
                     onCompleted = onCompleted,
@@ -2414,13 +2415,47 @@ class ChatPanel(
     /**
      * Whether the canonical ID names something this extension recognises — SC3's `knownTool`.
      *
-     * The reporter deliberately holds no catalog dependency, so this is the caller's to compute, and
-     * it applies exactly the test [ToolApprovalGate.tierFor] applies: a catalog entry, or an `ext:`
-     * name belonging to a configured external server. Answering it differently here from the way the
-     * tier was resolved is how an audit record ends up hashing the name of a tool that ran perfectly
-     * well — so it is one function, called from every reporting branch, not a repeated expression.
+     * The reporter deliberately holds no catalog dependency, so this is the caller's to compute: a
+     * catalog entry, or an `ext:` name a CONFIGURED external server actually exposes. Answering it
+     * differently here from the way the tier was resolved is how an audit record ends up hashing the
+     * name of a tool that ran perfectly well — so it is one function, called from every reporting
+     * branch, not a repeated expression.
+     *
+     * **The membership half of that sentence is now checked, and it did not use to be.** This returned
+     * `true` for any string starting with `ext:`, which is what the KDoc already claimed it did not do.
+     * The consequence landed in the durable payload rather than in the gate: a name no server exposes
+     * was filed as recognised, so `toolName` took the model's own string and `toolNameSha256` was
+     * omitted entirely — bypassing the whole-name digest for precisely the class of names that had
+     * nothing else identifying them, while the executor rejected the call with "External MCP client not
+     * available" (WR-04 / UF-1). `ExternalMcpClientManager.availableTools()` is the same source
+     * `McpToolExecutor.describeTools` advertises from, so consulting it is what makes the two agree.
+     *
+     * Measured, and stated so it is not rediscovered as a surprise: nothing in the main source set
+     * currently builds an [McpToolContext] carrying an `externalClientManager`, so today every `ext:`
+     * name resolves to `false` here — which is also the only accurate answer, because with no manager
+     * the executor cannot run one. Taking the context rather than assuming its contents is what moves
+     * this function for free on the day one is wired in.
      */
-    private fun isKnownTool(canonicalId: String): Boolean = canonicalId.startsWith("ext:") || McpToolCatalog.all().any { it.id == canonicalId }
+    private fun isKnownTool(
+        canonicalId: String,
+        context: McpToolContext,
+    ): Boolean =
+        McpToolCatalog.all().any { it.id == canonicalId } ||
+            context.externalClientManager
+                ?.availableTools()
+                .orEmpty()
+                .any { it.name == canonicalId }
+
+    /**
+     * The backend an activity-log entry for this session is attributed to.
+     *
+     * Derived once, for the same reason [chainStepFor] is: three reporting branches need it, and a
+     * branch that fell back to the preferred backend where its sibling used the session's last one
+     * would attribute the same chain to two different backends. Extracted when
+     * [reportFailedToolCall] stopped taking it as a parameter — it was the tenth, and detekt's
+     * LongParameterList ceiling is nine.
+     */
+    private fun backendIdFor(sessionId: String): String = sessionsById[sessionId]?.lastBackendId ?: getSettings().preferredBackendId
 
     /** SC3's 1-based chain step. Derived once so no two telemetry branches can compute it differently. */
     private fun chainStepFor(remainingToolIterations: Int): Int = (MAX_AUTO_TOOL_ITERATIONS - remainingToolIterations + 1).coerceAtLeast(1)
@@ -2552,7 +2587,7 @@ class ChatPanel(
             toolDecisionReporter.report(
                 rawToolName = pending.call.tool,
                 canonicalId = canonicalId,
-                knownTool = isKnownTool(canonicalId),
+                knownTool = isKnownTool(canonicalId, pending.context),
                 tier = ToolApprovalGate.tierFor(pending.call.tool),
                 decision = decision,
                 argsJson = pending.call.argsJson,
@@ -2637,7 +2672,7 @@ class ChatPanel(
         toolDecisionReporter.report(
             rawToolName = pending.call.tool,
             canonicalId = canonicalId,
-            knownTool = isKnownTool(canonicalId),
+            knownTool = isKnownTool(canonicalId, pending.context),
             tier = ToolApprovalGate.tierFor(pending.call.tool),
             decision = ToolDecision.IMPLICIT_DENY,
             argsJson = pending.call.argsJson,
@@ -2694,6 +2729,7 @@ class ChatPanel(
                     userText = pending.userText,
                     call = pending.call,
                     panel = panel,
+                    context = pending.context,
                     remainingToolIterations = pending.remainingToolIterations,
                     traceId = pending.traceId,
                     onCompleted = pending.onCompleted,
@@ -2718,12 +2754,13 @@ class ChatPanel(
         userText: String,
         call: ParsedToolCall,
         panel: SessionPanel,
+        context: McpToolContext,
         remainingToolIterations: Int,
         traceId: String,
         onCompleted: ((String, Throwable?) -> Unit)?,
         denied: ToolApprovalOutcome.Denied,
     ): ToolCallOutcome {
-        val backendId = sessionsById[sessionId]?.lastBackendId ?: getSettings().preferredBackendId
+        val backendId = backendIdFor(sessionId)
         val canonicalId = McpToolExecutor.canonicalToolId(call.tool)
         // SC3. The refusal status rule is the reporter's and is deliberately NOT recomputed here: a
         // refusal is a policy outcome, not a malfunction (D-12), and putting that rule in two places
@@ -2736,7 +2773,7 @@ class ChatPanel(
             toolDecisionReporter.report(
                 rawToolName = call.tool,
                 canonicalId = canonicalId,
-                knownTool = isKnownTool(canonicalId),
+                knownTool = isKnownTool(canonicalId, context),
                 tier = denied.tier,
                 decision = denied.decision,
                 argsJson = call.argsJson,
@@ -2806,7 +2843,7 @@ class ChatPanel(
         onCompleted: ((String, Throwable?) -> Unit)?,
         approved: ToolApprovalOutcome.Run,
     ): ToolCallOutcome {
-        val backendId = sessionsById[sessionId]?.lastBackendId ?: getSettings().preferredBackendId
+        val backendId = backendIdFor(sessionId)
         val chainStep = chainStepFor(remainingToolIterations)
         val canonicalId = McpToolExecutor.canonicalToolId(call.tool)
         val startedAt = System.currentTimeMillis()
@@ -2817,12 +2854,12 @@ class ChatPanel(
                 sessionId = sessionId,
                 call = call,
                 panel = panel,
+                context = context,
                 approved = approved,
                 traceId = traceId,
                 chainStep = chainStep,
                 durationMs = durationMs,
                 failure = resultOutcome.exceptionOrNull(),
-                backendId = backendId,
             )
         }
         val result = resultOutcome.getOrThrow()
@@ -2835,7 +2872,7 @@ class ChatPanel(
             toolDecisionReporter.report(
                 rawToolName = call.tool,
                 canonicalId = canonicalId,
-                knownTool = isKnownTool(canonicalId),
+                knownTool = isKnownTool(canonicalId, context),
                 tier = approved.tier,
                 decision = approved.decision,
                 argsJson = call.argsJson,
@@ -2894,20 +2931,21 @@ class ChatPanel(
         sessionId: String,
         call: ParsedToolCall,
         panel: SessionPanel,
+        context: McpToolContext,
         approved: ToolApprovalOutcome.Run,
         traceId: String,
         chainStep: Int,
         durationMs: Long,
         failure: Throwable?,
-        backendId: String,
     ): ToolCallOutcome {
         val errorMessage = failure?.message ?: "Unknown MCP tool error"
+        val backendId = backendIdFor(sessionId)
         val canonicalId = McpToolExecutor.canonicalToolId(call.tool)
         val metadata =
             toolDecisionReporter.report(
                 rawToolName = call.tool,
                 canonicalId = canonicalId,
-                knownTool = isKnownTool(canonicalId),
+                knownTool = isKnownTool(canonicalId, context),
                 tier = approved.tier,
                 decision = approved.decision,
                 argsJson = call.argsJson,

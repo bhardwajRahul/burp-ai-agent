@@ -1,6 +1,7 @@
 package com.six2dez.burp.aiagent.ui
 
 import com.six2dez.burp.aiagent.audit.AuditLogger
+import com.six2dez.burp.aiagent.audit.Hashing
 import com.six2dez.burp.aiagent.mcp.ToolApprovalGate
 import com.six2dez.burp.aiagent.mcp.ToolDecision
 import com.six2dez.burp.aiagent.ui.components.ToolApprovalCard
@@ -548,6 +549,51 @@ class ChatPanelToolGateTest {
         assertEquals("denied", decisions[1]["status"], "A denial is a third status value, never an error.")
     }
 
+    /**
+     * WR-04 / UF-1: an `ext:` name is "known" only if a configured server actually exposes it.
+     *
+     * `isKnownTool` used to return `true` for any string starting with `ext:`, so a name no server
+     * exposes was filed as recognised: `toolName` took the model's own string and `toolNameSha256` was
+     * omitted entirely — the whole-name digest bypassed for exactly the class of names where it is the
+     * only record of what was asked for, while the executor rejects the call outright. The gate is
+     * unaffected either way (the prefix still derives CONFIRM_EACH), so this is a claim about the
+     * DURABLE RECORD, and it is asserted on the record.
+     */
+    @Test
+    fun anExtNameNoConfiguredServerExposesIsRecordedAsUnknown() {
+        val extName = "ext:demo:definitely_not_configured"
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall(extName, """{"x":1}"""))
+        ChatPanelTestHarness.sendUserMessage(h, "call that external tool")
+        ChatPanelTestHarness.drainEdt()
+        val card = requireNotNull(liveApprovalCard(h.panel.root)) { NO_CARD }
+        assertEquals(
+            listOf("Deny", "Approve once"),
+            decisionButtons(card).map { it.text },
+            "Setup: the ext: prefix still derives CONFIRM_EACH, so the gate still asks. This test is " +
+                "about what the record says, not about whether the call is gated.",
+        )
+        val traceId = pendingTraceId(h)
+
+        click(card, "Deny")
+        ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
+
+        // Selected by THIS chain's trace id: AuditLogger's emitter is a process-global singleton and
+        // panels from earlier tests are still alive with queued invokeLater work that this drain runs.
+        val decision = auditEvents.single { it.first == "mcp_tool_decision" && it.second["traceId"] == traceId }.second
+        assertEquals(
+            "unknown",
+            decision["toolName"],
+            "No configured server exposes this name and the executor would refuse it, so the record " +
+                "must not file it as a recognised tool.",
+        )
+        assertEquals(
+            Hashing.sha256Hex(extName),
+            decision["toolNameSha256"],
+            "The unresolved branch is the one that carries the whole-name digest, and it is the only " +
+                "record of what the model asked for. Filing the name as known dropped it entirely.",
+        )
+    }
+
     @Test
     fun sessionRowMarksAPendingDecisionAndClearsItOnResolution() {
         val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
@@ -750,6 +796,27 @@ private fun expectedTurnsForAFullyDeniedChain(): Int {
         remaining = ToolApprovalGate.nextIterationBudget(remaining)
     }
     return turns
+}
+
+/**
+ * The trace id of the single parked decision.
+ *
+ * Every audit assertion in this file needs it: `AuditLogger.registerGlobalEmitter` is a process-global
+ * singleton, panels built by earlier tests are never shut down, and their queued `invokeLater` chains
+ * run on this test's drains — so a positional or by-tool-name filter over [auditEvents] silently reads
+ * another test's events. The trace id is the one field that is this chain's alone.
+ */
+private fun pendingTraceId(h: ChatPanelTestHarness.Harness): String {
+    lateinit var traceId: String
+    SwingUtilities.invokeAndWait {
+        val field = ChatPanel::class.java.getDeclaredField("pendingDecisions")
+        field.isAccessible = true
+        val pending = field.get(h.panel) as Map<*, *>
+        val record = requireNotNull(pending.values.singleOrNull()) { "Expected exactly one parked decision; found ${pending.keys}." }
+        val slot = record.javaClass.getDeclaredField("traceId").also { it.isAccessible = true }
+        traceId = slot.get(record) as String
+    }
+    return traceId
 }
 
 /**
