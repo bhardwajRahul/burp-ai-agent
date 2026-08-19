@@ -302,7 +302,7 @@ internal fun SettingsPanel.refreshPrivacyNotice() {
     // merely stale — it may never become active at all. Inferring "your custom patterns are applied"
     // from the editor's text therefore downgrades a real risk warning on the strength of text that
     // has no effect on anything. Passing the persisted list makes this banner agree with the two
-    // sibling claims that already read it: ChatPanel.privacySummary (ChatPanel.kt:1153) and the
+    // sibling claims that already read it: `ChatPanel.privacySummary` and the
     // customPatternsConfigured parameter of ContextPreviewDialog.privacyModeHint.
     // D-07: this deliberately does NOT call validateAndCollectCustomPatterns(), whose 50 ms
     // per-pattern ReDoS probe must never run on the EDT during a notice refresh. No probe is needed

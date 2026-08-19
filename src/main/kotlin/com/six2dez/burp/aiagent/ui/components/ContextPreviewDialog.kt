@@ -111,7 +111,7 @@ object ContextPreviewDialog {
                 options,
                 options[1], // Cancel = default focus, regardless of tripwire state
             )
-        // Boolean return contract preserved (G3 / FLAG-15-03): false routes ChatPanel.kt:299 to
+        // Boolean return contract preserved (G3 / FLAG-15-03): false routes `ChatPanel.startSessionFromContext` to
         // the "cancelled by user" path. The secret_tripwire_allow audit event is emitted by the
         // ChatPanel call site AFTER createSession (RESEARCH Open Q1 Option b) — not here,
         // to avoid double-logging and to carry a real session id.

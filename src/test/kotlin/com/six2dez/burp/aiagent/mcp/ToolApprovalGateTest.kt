@@ -16,7 +16,7 @@ private const val CONFIRM_EACH_TOOL = "http1_request"
 private const val CONFIRM_TOOL_ALIAS = "history"
 
 /**
- * Mirrors the private companion constant at ChatPanel.kt:1211. Every expectation below is DERIVED from
+ * Mirrors `ChatPanel.MAX_AUTO_TOOL_ITERATIONS`. Every expectation below is DERIVED from
  * it rather than written out, so raising or lowering the real budget cannot leave a stale literal here
  * quietly passing.
  */
@@ -244,7 +244,8 @@ class ToolApprovalGateTest {
         }
         assertEquals(1, results.toSet().size, "Four denial decisions, one string.")
 
-        // D-12: the tool-chain telemetry at ChatPanel.kt:2177 derives status = "error" from this prefix.
+        // D-12: the tool-chain telemetry in ChatPanel.executeApprovedToolCall derives status = "error"
+        // from this prefix.
         // A refusal is a policy outcome, not a malfunction; conflating them invites a retry with
         // different args and records a failure where a human made a decision (T-22-19).
         assertFalse(
@@ -290,7 +291,8 @@ class ToolApprovalGateTest {
                 "exactly like an approved one.",
         )
 
-        // The two helpers reproduce ChatPanel.kt:2210 and :2213 so the denial branch and the success
+        // The two helpers reproduce the followup arguments ChatPanel.denyToolCall and
+        // ChatPanel.executeApprovedToolCall pass, so the denial branch and the success
         // branch provably share one decrement rather than two expressions that agree today.
         assertFalse(ToolApprovalGate.allowsFurtherToolCalls(1), "One iteration left means this is the last call.")
         assertTrue(ToolApprovalGate.allowsFurtherToolCalls(2), "Two left means another tool call may follow.")

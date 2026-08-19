@@ -160,12 +160,12 @@ internal enum class ImplicitDenyReason(
 internal sealed interface ToolCallOrigin {
     val wireValue: String
 
-    /** The user picked the tool and typed the args in ToolInvocationDialog (ChatPanel.kt:928). */
+    /** The user picked the tool and typed the args in ToolInvocationDialog (`ChatPanel.openToolDialog`). */
     data object UserDialog : ToolCallOrigin {
         override val wireValue: String = "user_dialog"
     }
 
-    /** The user typed the `/tool <name> <json>` slash command (ChatPanel.kt:2105). */
+    /** The user typed the `/tool <name> <json>` slash command (`ChatPanel.handleToolCommand`). */
     data object UserSlashCommand : ToolCallOrigin {
         override val wireValue: String = "user_slash_command"
     }
@@ -200,11 +200,11 @@ private class ModelApproved(
  * decisive case, and the reason this is a per-chat holder rather than anything wider: an approval
  * granted while reviewing target A must not silently apply when the user opens a new chat about
  * target B. The memory dies with the chat session because the holder does — plan 22-07 stores one of
- * these on ChatPanel.ToolSessionState (ChatPanel.kt:1621), beside `toolsMode` and `toolCatalogSent`,
+ * these on `ChatPanel.ToolSessionState`, beside `toolsMode` and `toolCatalogSent`,
  * which is why this class must stay constructible with no arguments and hold only plain collections.
  *
  * Measured fact worth recording so a future contributor does not "fix" it: approvals do **not** survive
- * a Burp restart. `restoreSessions()` builds a fresh `ToolSessionState` (ChatPanel.kt:1495) and that
+ * a Burp restart. `ChatPanel.restoreSessions` builds a fresh `ToolSessionState`, and that
  * holder is in-memory only, so a chat session restored from disk comes back with no approvals. That is
  * stricter than D-10 requires and is deliberate — do not persist the sets.
  *
@@ -322,7 +322,7 @@ internal sealed interface ToolApprovalOutcome {
  * **Phase 20 D-09 aggregation-based rate limiting is deliberately NOT applied here**, and saying so is
  * better than leaving the omission unexamined. The flood vector D-09 answers was a remote,
  * unauthenticated peer able to generate blocks at will. Here the caller is the local model loop, whose
- * ceiling is `MAX_AUTO_TOOL_ITERATIONS = 8` per chain (ChatPanel.kt:1211) and whose counter D-13 makes
+ * ceiling is `ChatPanel.MAX_AUTO_TOOL_ITERATIONS` (8) per chain and whose counter D-13 makes
  * monotone. Eight cards per chain does not need coalescing, and coalescing them would hide exactly the
  * repetition a user needs to see.
  */
@@ -330,7 +330,7 @@ internal object ToolApprovalGate {
     /**
      * The one string a refused tool call returns to the model. Fixed, neutral, deterministic (D-12).
      *
-     * **Deliberately not `Error:`-prefixed.** The tool-chain telemetry at ChatPanel.kt:2177 derives
+     * **Deliberately not `Error:`-prefixed.** The tool-chain telemetry in `ChatPanel.executeApprovedToolCall` derives
      * `status = "error"` from that prefix, and a refusal is a *policy outcome*, not a malfunction.
      * Conflating the two tells the model something broke, which invites a retry with different args —
      * the exact loop SEC-06 exists to bound — and it corrupts the audit record, which would then show
@@ -489,7 +489,9 @@ internal object ToolApprovalGate {
     /**
      * The iteration budget after this tool call, whatever the user clicked (D-13).
      *
-     * Reproduces the arithmetic already at ChatPanel.kt:2213 so the denial branch and the success branch
+     * Reproduces the arithmetic already in `ChatPanel.denyToolCall` and `ChatPanel.executeApprovedToolCall`,
+     * each of which hands `toolIterationsLeft` to its followup `sendMessage`, so the denial branch and the
+     * success branch
      * provably share ONE decrement. That is the entire proof that `MAX_AUTO_TOOL_ITERATIONS = 8` holds:
      * the counter is monotone, so eight steps reach zero with no case analysis over what was clicked.
      *
@@ -503,7 +505,7 @@ internal object ToolApprovalGate {
      */
     internal fun nextIterationBudget(remaining: Int): Int = (remaining - 1).coerceAtLeast(0)
 
-    /** Whether the next turn may still call a tool. Mirrors ChatPanel.kt:2210 exactly, for the same reason. */
+    /** Whether the next turn may still call a tool. Mirrors the `allowToolCalls` argument both of those followup call sites pass, for the same reason. */
     internal fun allowsFurtherToolCalls(remaining: Int): Boolean = remaining > 1
 }
 

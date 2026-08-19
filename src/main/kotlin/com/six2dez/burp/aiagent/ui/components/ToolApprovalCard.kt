@@ -164,7 +164,7 @@ private const val GLYPH_EXPANDED = "▼"
 private const val GLYPH_APPROVED = "✔"
 private const val GLYPH_DENIED = "✖"
 
-/** Reuses the format ChatMessagePanel already renders (ChatPanel.kt:1788) rather than inventing a second one. */
+/** Reuses the format `ChatPanel.ChatMessagePanel` already renders rather than inventing a second one. */
 private const val TIMESTAMP_PATTERN = "h:mm a"
 
 /** Which of the three args disclosure stages the card is showing. */
@@ -236,7 +236,8 @@ internal class ToolApprovalCard private constructor(
      * The pending card: the only constructor a caller can reach.
      *
      * [onRequestFocusRestore] is invoked by [resolve] when the button row being removed owns focus;
-     * `ChatPanel` wires it to the input-area focus call it already makes at `ChatPanel.kt:960`.
+     * `ChatPanel.askForToolApproval` wires it to the same `inputArea.requestFocusInWindow()` call the
+     * panel already makes elsewhere.
      */
     internal constructor(
         tier: SecTier,
@@ -420,7 +421,8 @@ internal class ToolApprovalCard private constructor(
         }
         // Removing the button row while it owns focus lets Swing move focus somewhere arbitrary — often
         // another card, or the sessions list. Guarded on ownership so a mouse click does not yank focus
-        // from wherever the user put it. Precedent: ChatPanel.kt:960.
+        // from wherever the user put it. Precedent: `ChatPanel.showToolsMenu`, which returns focus to the
+        // input area only on the branch that just wrote into it.
         val focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner
         if (focusOwner != null && SwingUtilities.isDescendingFrom(focusOwner, this)) {
             onRequestFocusRestore?.invoke()
@@ -432,7 +434,8 @@ internal class ToolApprovalCard private constructor(
 
         // Replace IN THE SAME GRID CELL so no other row reflows. getConstraints returns a copy of the
         // constraints the button row was added with, which is exactly the cell to reuse. The
-        // height-capping wrapper at ChatPanel.kt:1701 recomputes from the layout on every pass, so the
+        // height-capping wrapper in `ChatPanel.SessionPanel.addComponent` recomputes from the layout on
+        // every pass, so the
         // card shrinking needs no extra work.
         val cell = (layout as GridBagLayout).getConstraints(buttonRow)
         remove(buttonRow)
@@ -637,8 +640,9 @@ internal class ToolApprovalCard private constructor(
      * Not `statusError` on `Deny` either: deny is the safe, fully recoverable outcome, and colouring it
      * red would miscolour the safe action as dangerous. There is deliberately no recommended action.
      *
-     * `isFocusPainted = true` is a deliberate deviation from ActionCard.kt:58 and ChatPanel.kt:433:
-     * a keyboard user must see which pole is focused before pressing Space.
+     * `isFocusPainted = true` is a deliberate deviation from `ActionCard`'s buttons and from every
+     * `ChatPanel` toolbar button (`sendBtn`, `cancelBtn`, `clearChatBtn`, `toolsBtn`, …), all of which set
+     * `isFocusPainted = false`: a keyboard user must see which pole is focused before pressing Space.
      */
     private fun decisionButton(
         label: String,
@@ -950,7 +954,7 @@ private fun outcomeFor(
         ToolDecision.AUTO -> error("ToolApprovalCard cannot render an AUTO outcome: an AUTO-tier call renders no card (D-02).")
     }
 
-/** The transcript's existing timestamp format, reused rather than duplicated (ChatPanel.kt:1788). */
+/** The transcript's existing timestamp format, reused rather than duplicated (`ChatPanel.ChatMessagePanel`). */
 private fun nowTimestamp(): String = SimpleDateFormat(TIMESTAMP_PATTERN).format(Date())
 
 /** English ordinal for the repeat counter: 2nd, 3rd, 4th, 11th, 21st. */
