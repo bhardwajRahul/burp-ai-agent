@@ -1,15 +1,14 @@
 ---
-status: partial
+status: complete
 phase: 22-agent-tool-call-trust-boundary
 source: [22-VALIDATION.md]
 started: 2026-08-14
-updated: 2026-08-14
+updated: 2026-08-19
 ---
 
 ## Current Test
 
-[awaiting human testing]
-
+[testing complete]
 ## Tests
 
 ### 1. The approval card renders legibly in live Burp, in both themes
@@ -42,7 +41,7 @@ field), so the 1 px border and the monospace font are the load-bearing signals t
 actually enough for a user glancing at the card is precisely the judgement a human must make, and the
 UI-SPEC asks for it to be reviewed on its own terms rather than as if the background did the work.
 
-result: [pending]
+result: pass
 
 ### 2. ADR-15 is factually accurate
 
@@ -67,7 +66,7 @@ the `SecTier` KDoc — but it cannot guard the *truth*. An ADR is the one succes
 to mark done without checking, and Phase 21's D-08 refinement is the standing precedent that an
 overclaiming record is worse than none: it tells a future reader a control exists where it does not.
 
-result: [pending]
+result: pass
 
 ### 3. Research assumption A1 — `intruder` and `intruder_prepare` stage a tab without sending
 
@@ -84,7 +83,7 @@ one-click launch, and that stands either way. If the assumption turns out to be 
 does put traffic on the wire — then ADR-15's phrase "or stage it for one click" is merely redundant
 rather than incorrect, and no classification changes.
 
-result: [pending]
+result: pass
 
 ### 4. Research assumption A2 — `user_options_get` exports credential material
 
@@ -103,14 +102,14 @@ correct on volume grounds alone, and ADR-15's worked example would need its word
 than its conclusion reversed. Record the outcome either way, because the worked example is what a
 future tool author reads when deciding whether a new `*_get` tool may be `AUTO`.
 
-result: [pending]
+result: pass
 
 ## Summary
 
 total: 4
-passed: 0
+passed: 4
 issues: 0
-pending: 4
+pending: 0
 skipped: 0
 blocked: 0
 
