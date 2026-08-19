@@ -2,6 +2,7 @@ package com.six2dez.burp.aiagent.ui
 
 import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.mcp.ToolApprovalGate
+import com.six2dez.burp.aiagent.mcp.ToolDecision
 import com.six2dez.burp.aiagent.ui.components.ToolApprovalCard
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -263,6 +264,60 @@ class ChatPanelToolGateTest {
             listOf("Deny", "Approve once"),
             decisionButtons(card).map { it.text },
             "CONFIRM_EACH offers exactly Deny and Approve once — no session-wide action, in safe-first order.",
+        )
+    }
+
+    /**
+     * WR-02: a decision the gate REFUSES must leave the card exactly as it was, not destroy the record
+     * behind it.
+     *
+     * `ToolApprovalGate.resolve` carries two `require` blocks that reject a gate/card disagreement, and
+     * `resolveToolDecision` used to take the pending record out of the map before calling it. A throw
+     * therefore left a card with live buttons, no record behind them and a parked continuation nobody
+     * could discharge — and the user's second click hit `?: return` and did nothing at all. That is the
+     * permanently dead card T-22-10 exists to eliminate, reached through the fail-closed path itself.
+     *
+     * The disagreement is injected by reflection because the card deliberately renders no button that
+     * can produce it: what is under test is what happens to the record when the gate refuses, not how
+     * the two came to disagree.
+     */
+    @Test
+    fun anActionTheGateRefusesLeavesTheCardUsable() {
+        // http1_request is CONFIRM_EACH, which has no session memory in either direction — so
+        // APPROVE_SESSION is exactly the caller bug resolve()'s second `require` rejects.
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("http1_request", """{"content":"GET / HTTP/1.1"}"""))
+        ChatPanelTestHarness.sendUserMessage(h, "send that request")
+        ChatPanelTestHarness.drainEdt()
+        val card = requireNotNull(liveApprovalCard(h.panel.root)) { NO_CARD }
+        assertEquals(
+            listOf("Deny", "Approve once"),
+            decisionButtons(card).map { it.text },
+            "Setup: the tier under test must be the one whose session actions the gate refuses.",
+        )
+
+        invokeResolveToolDecision(h, ToolDecision.APPROVE_SESSION)
+
+        assertEquals(
+            1,
+            pendingDecisionCount(h),
+            "A refused action decided nothing, so the record must survive. Destroying it strands the " +
+                "parked continuation and makes every later click a silent no-op (WR-02).",
+        )
+        assertEquals(
+            listOf("Deny", "Approve once"),
+            decisionButtons(card).map { it.text },
+            "The card must still be answerable. Deny trips neither precondition, so the fail-closed " +
+                "action stays one click away.",
+        )
+
+        // And it really is answerable: the SAME card, not a replacement raised by a later turn.
+        click(card, "Deny")
+        ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
+
+        assertTrue(
+            decisionButtons(card).isEmpty(),
+            "The originally-parked card must resolve normally after the refusal — otherwise the " +
+                "refusal left it dead after all.",
         )
     }
 
@@ -695,6 +750,39 @@ private fun expectedTurnsForAFullyDeniedChain(): Int {
         remaining = ToolApprovalGate.nextIterationBudget(remaining)
     }
     return turns
+}
+
+/**
+ * Calls `ChatPanel.resolveToolDecision` for the single parked session, on the EDT.
+ *
+ * Reflection for the same reason [parkContinuation] uses it: the production path cannot be made to
+ * produce this argument — the card renders no session button for a CONFIRM_EACH tool — and the
+ * property under test is the gate/card disagreement handling, which is reached no other way.
+ */
+private fun invokeResolveToolDecision(
+    h: ChatPanelTestHarness.Harness,
+    decision: ToolDecision,
+) {
+    SwingUtilities.invokeAndWait {
+        val sessionId = requireNotNull(pendingSessionIds(h).singleOrNull()) { "Expected exactly one parked decision; found ${pendingSessionIds(h)}." }
+        val method =
+            ChatPanel::class.java.getDeclaredMethod(
+                "resolveToolDecision",
+                String::class.java,
+                ToolDecision::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(h.panel, sessionId, decision)
+    }
+}
+
+/** How many sessions currently hold a parked decision. */
+private fun pendingDecisionCount(h: ChatPanelTestHarness.Harness): Int = pendingSessionIds(h).size
+
+private fun pendingSessionIds(h: ChatPanelTestHarness.Harness): Set<*> {
+    val field = ChatPanel::class.java.getDeclaredField("pendingDecisions")
+    field.isAccessible = true
+    return (field.get(h.panel) as Map<*, *>).keys
 }
 
 /**

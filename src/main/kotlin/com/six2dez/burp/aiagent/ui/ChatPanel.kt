@@ -2506,11 +2506,33 @@ class ChatPanel(
         decision: ToolDecision,
     ) {
         assertEdt()
-        // Removed FIRST, so a double-click or a race with a teardown path cannot resolve one card twice.
-        val pending = pendingDecisions.remove(sessionId) ?: return
+        // PEEKED here and REMOVED below, after the one call in this function that can throw. Taking the
+        // record first meant a throw out of ToolApprovalGate.resolve destroyed it on the way out: a card
+        // left holding live buttons with no record behind them, a parked continuation nobody could ever
+        // discharge, and a second click hitting `?: return` and silently doing nothing — the permanently
+        // dead card T-22-10 exists to eliminate (WR-02).
+        //
+        // The double-click guard is unchanged in strength. Nothing between this line and the removal can
+        // pump an AWT event: `resolve` is pure, imports no Swing type and touches only the memory holder
+        // passed into it, so no second click can be dispatched inside the window.
+        val pending = pendingDecisions[sessionId] ?: return
         val state = sessionStates.getOrPut(sessionId) { ToolSessionState() }
         // This is what writes D-10 session memory for the two session-scoped actions, and only those.
-        val resolved = ToolApprovalGate.resolve(pending.call.tool, state.approvalMemory, decision)
+        val resolved =
+            try {
+                ToolApprovalGate.resolve(pending.call.tool, state.approvalMemory, decision)
+            } catch (e: IllegalArgumentException) {
+                // Both `require` blocks in resolve() reject a CALLER bug — a decision the gate never
+                // offers, or a session-scoped action on a CONFIRM_EACH tool — which means the card and
+                // the gate have come to disagree. Nothing was decided, so nothing is retired: the record
+                // stays, the card keeps its buttons, and `Deny` (which trips neither precondition) is
+                // still one click away. Failing visibly beats an IllegalArgumentException disappearing
+                // into the AWT event pump with the user looking at a card that just stopped responding.
+                showError("That approval action could not be applied to this tool call: ${e.message}")
+                return
+            }
+        // Consumed only now, and only on the path that actually reached a decision.
+        pendingDecisions.remove(sessionId)
         // Turns the card into a record: the buttons are removed, not disabled, and the action the user
         // clicked is named verbatim in their place (T-22-30). Idempotent, so a race cannot double it.
         pending.card.resolve(decision)
