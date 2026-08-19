@@ -6,7 +6,6 @@ import com.six2dez.burp.aiagent.ui.components.ToolApprovalCard
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
-import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.awt.Component
@@ -91,33 +90,62 @@ class ToolApprovalCardTest {
     fun modelSuppliedTextNeverInstallsTheHtmlRenderer() {
         val toolId = "<html><b>Approved</b>"
         val argsJson = "<html><i>safe</i>"
-        val card = pendingCard(toolId = toolId, args = argsJson)
+        val exercised = mutableSetOf<String>()
 
-        // Rule T-2 made mechanical. BasicHTML.isHTMLString fires only at offset 0 and installs a
-        // renderer that both JLabel and AbstractButton route their text through, leaving a non-null
-        // "html" client property behind. This is the anti-spoofing assertion the whole card exists for.
-        descendantsOf(card).forEach { component ->
-            if (component is JLabel || component is AbstractButton) {
-                assertNull(
-                    (component as JComponent).getClientProperty("html"),
-                    "Swing's HTML renderer is installed on ${component.javaClass.simpleName} carrying " +
-                        "'${textOf(component)}'. A model-supplied string that reaches a JLabel or a " +
-                        "button can then paint itself as extension chrome at the exact moment the card " +
-                        "is asking for authorisation.",
+        htmlSweepFixtures(toolId, argsJson).forEach { (state, card) ->
+            // Rule T-2 made mechanical. BasicHTML.isHTMLString fires only at offset 0 and installs a
+            // renderer that both JLabel and AbstractButton route their text through, leaving a non-null
+            // "html" client property behind. This is the anti-spoofing assertion the whole card exists for.
+            descendantsOf(card).forEach { component ->
+                if (component !is JLabel && component !is AbstractButton) return@forEach
+                if ((component as JComponent).getClientProperty("html") == null) return@forEach
+                val text = textOf(component).orEmpty()
+                val exemption = HTML_EXEMPT_ROWS.entries.firstOrNull { it.value(text) }
+                assertNotNull(
+                    exemption,
+                    "Swing's HTML renderer is installed on a ${component.javaClass.simpleName} carrying " +
+                        "'$text' on a $state, and that row is not one of the documented extension-authored " +
+                        "exemptions. A model-supplied string that reaches an HTML-rendering JLabel or button " +
+                        "can paint itself as extension chrome at the exact moment the card asks for " +
+                        "authorisation. Add the row to HTML_EXEMPT_ROWS only if its text is extension-" +
+                        "authored with no model-supplied interpolation.",
+                )
+                exercised += requireNotNull(exemption).key
+                // The exemption is granted to a STRING SHAPE, so it would survive a future edit that
+                // interpolated the model's tool ID or its args into one of those templates — which is
+                // exactly the edit WR-06 predicted for the truncation footer. This clause is what stops
+                // the exemption from becoming the hole: an exempt row may still carry no model byte.
+                assertFalse(
+                    text.contains(toolId) || text.contains(argsJson),
+                    "An HTML-rendering label on a $state interpolated model-supplied text: '$text'. " +
+                        "The exemption covers extension-authored templates whose only interpolations are " +
+                        "extension-computed integers; it is not a licence to concatenate model output.",
+                )
+            }
+
+            val carriers = descendantsOf(card).filter { textOf(it)?.contains(toolId) == true || textOf(it)?.contains(argsJson) == true }
+            assertTrue(carriers.isNotEmpty(), "The model's strings must be rendered somewhere on a $state — the user has to see what was asked for.")
+            carriers.forEach { component ->
+                assertTrue(
+                    component is JTextField || component is JTextArea,
+                    "Model-supplied text reached a ${component.javaClass.simpleName} on a $state. The " +
+                        "positive allowlist is the primary control: it goes into JTextField / JTextArea " +
+                        "and nothing else, because neither ever installs the HTML renderer.",
                 )
             }
         }
 
-        val carriers = descendantsOf(card).filter { textOf(it)?.contains(toolId) == true || textOf(it)?.contains(argsJson) == true }
-        assertTrue(carriers.isNotEmpty(), "The model's strings must be rendered somewhere — the user has to see what was asked for.")
-        carriers.forEach { component ->
-            assertTrue(
-                component is JTextField || component is JTextArea,
-                "Model-supplied text reached a ${component.javaClass.simpleName}. The positive " +
-                    "allowlist is the primary control: it goes into JTextField / JTextArea and nothing " +
-                    "else, because neither ever installs the HTML renderer.",
-            )
-        }
+        // NON-VACUITY, and the reason this test was rewritten. The assertion above is a sweep over
+        // whatever the fixtures happen to build, so an exemption nobody constructs is an exemption
+        // nobody checks — which is precisely how the blanket form this replaced stayed green while
+        // `truncationFooter` shipped an `<html>` prefix (UF-2 / UI-REVIEW T-2). Every documented
+        // exemption must be REACHED by some fixture, or the fixture set is stale.
+        assertEquals(
+            HTML_EXEMPT_ROWS.keys,
+            exercised,
+            "An exemption was declared but never constructed by any fixture, so nothing checks it. " +
+                "Either drive the state that builds it or delete the exemption.",
+        )
     }
 
     @Test
@@ -266,6 +294,71 @@ class ToolApprovalCardTest {
         }
     }
 }
+
+/**
+ * The ONLY label texts on this card that may install Swing's HTML renderer, enumerated one row at a
+ * time.
+ *
+ * The assertion this replaced exempted nothing and swept **every** `JLabel`, which was already false
+ * of shipped code: `truncationFooter` is a `JLabel` on a *pending* card and takes an `<html>` prefix
+ * whenever the args preview truncates (`ToolApprovalCard.footerTextFor`). It stayed green only because
+ * its single fixture passed 23 characters of args, so the footer was never constructed — and that
+ * over-broad-but-unexercised assertion is what blocked the row-2 / row-10 wrapping fix the UI audit
+ * measured as a reachability blocker (UF-2, UI-REVIEW T-2 / S-1).
+ *
+ * The exemption is granted per row, never to `JLabel` as a class, and each entry earns it the same
+ * way: the string is extension-authored, it is interpolated with extension-computed integers or
+ * nothing at all, and a plain `JLabel` does not wrap while the transcript sets
+ * `HORIZONTAL_SCROLLBAR_NEVER` — so without the prefix the row clips with no way to read the rest.
+ * The sweep additionally requires that no exempt row carries a model byte, which is what stops this
+ * map from becoming the hole it exists to bound.
+ */
+private val HTML_EXEMPT_ROWS: Map<String, (String) -> Boolean> =
+    mapOf(
+        // Interpolates two extension-computed character counts and nothing else. Prefix-matched
+        // because those integers vary; the no-model-byte clause in the sweep covers the tail.
+        "row 8 — args truncation footer" to { text: String -> text.startsWith("<html>Showing the first ") },
+        // Verbatim from the Copywriting Contract, no interpolation at all, so matched exactly.
+        "compact row — outcome verb" to { text: String -> text in COMPACT_OUTCOME_VERBS_HTML },
+    )
+
+/** The two `<html>`-wrapped compact verbs, spelled out so a copy change has to be made here too. */
+private val COMPACT_OUTCOME_VERBS_HTML =
+    setOf(
+        "<html>Ran without asking — approved for this chat",
+        "<html>Blocked automatically — you denied this tool for this chat",
+    )
+
+/**
+ * Comfortably past the card's private 3200-character args preview cap, so `footerTextFor` returns the
+ * truncated form and the footer actually takes its `<html>` prefix.
+ *
+ * Restated rather than shared because the cap is `private` to `ToolApprovalCard` — and it does not
+ * need to track it, because the non-vacuity assertion at the end of the sweep fails loudly if this
+ * number ever stops being enough.
+ */
+private const val ARGS_PAST_PREVIEW_CAP = 4000
+
+/**
+ * The card states the HTML-renderer sweep must visit.
+ *
+ * A pending card with SHORT args was the sweep's only fixture, and it is precisely the state in which
+ * `footerTextFor` returns `null` and `isCompact` is false — so neither of the two shipped `<html>`
+ * sites was ever constructed, let alone checked. Both are driven here.
+ */
+private fun htmlSweepFixtures(
+    toolId: String,
+    argsJson: String,
+): List<Pair<String, ToolApprovalCard>> =
+    listOf(
+        "pending card with short args" to pendingCard(toolId = toolId, args = argsJson),
+        "pending card with args past the preview cap" to
+            pendingCard(toolId = toolId, args = argsJson + "y".repeat(ARGS_PAST_PREVIEW_CAP)),
+        "compact session-denied row" to
+            ToolApprovalCard.compact(ToolDecision.SESSION_DENIED, "Send HTTP/1.1 request", toolId, argsJson),
+        "compact session-approved row" to
+            ToolApprovalCard.compact(ToolDecision.SESSION_APPROVED, "Send HTTP/1.1 request", toolId, argsJson),
+    )
 
 /** 120-character inline cap plus the one ellipsis character `sanitizeInline` appends. */
 private const val TOOL_ID_CAP_WITH_ELLIPSIS = 121
