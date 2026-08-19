@@ -2,15 +2,15 @@
 phase: "22-agent-tool-call-trust-boundary"
 plan: "22-01…22-09"
 slug: agent-tool-call-trust-boundary
-status: issues_found
+status: verified
 asvs_level: 1
 threats_total: 41
-threats_open: 1
-threats_closed: 40
+threats_open: 0
+threats_closed: 41
 register_rows: 57
 register_authored_at_plan_time: true
 audited_at: "2026-08-19"
-audited_head: "d7a93b9"
+audited_head: "43c11ce"
 auditor: "gsd-security-auditor (claude-opus-5)"
 block_on: "high"
 verdict: "OPEN_THREATS"
@@ -21,7 +21,7 @@ verdict: "OPEN_THREATS"
 **Phase:** 22 — Agent Tool-Call Trust Boundary
 **ASVS Level:** 1
 **Threats Closed:** 40/41 (39/40 `mitigate` + 1/1 `accept`)
-**Threats Open:** 1 (T-22-31, latent — see Open Threats)
+**Threats Open:** 0 — T-22-31 closed in code at `43c11ce` (see Audit Trail)
 **Audited:** 2026-08-19 at `d7a93b9`
 
 The register is the union of the nine `<threat_model>` blocks in `22-01-PLAN.md` … `22-09-PLAN.md`:
@@ -90,7 +90,7 @@ evidence for each declared disposition and does not scan for new threats.
 | T-22-28 | Elevation of Privilege | Stray Enter / mis-click resolving a security decision | mitigate | No default button, mnemonics, Escape binding or focus theft; 16 px pole gap | closed |
 | T-22-29 | Information Disclosure | Exfiltration payload hidden below a fold | mitigate | No nested scroll pane; `CONFIRM_EACH` expands by default; honest truncation footers | closed |
 | T-22-30 | Repudiation | Resolved card no longer recording what was offered / chosen | mitigate | Buttons removed and replaced by a verbatim outcome row; both compact variants ship | closed |
-| **T-22-31** | **Denial of Service** | **Parked continuation never discharged** | **mitigate** | **Half present — see Open Threats** | **open** |
+| T-22-31 | Denial of Service | Parked continuation never discharged | mitigate | `ChatPanel.kt:2557` discharges `onCompleted` on `NOT_CHAINED`, mirroring the un-asked path at `:759`; `anApprovedToolThatThrowsStillDischargesTheParkedContinuation` (verified RED first) | closed |
 | T-22-32 | Elevation of Privilege | Double-prompting a user-originated call | mitigate | `:1010` / `:2313` declare their origin and never consult the gate | closed |
 | T-22-33 | Denial of Service | Denial followup dispatching a turn during `shutdown()` | mitigate | `sendFollowup` inert by construction; `false` at all five sites | closed |
 | T-22-34 | Elevation of Privilege | Session approval surviving Clear Chat | mitigate | `clearChatState` resets `approvalMemory` alongside `toolsMode` / `toolCatalogSent` | closed |
@@ -557,7 +557,7 @@ Accepted Risks Log below.
 
 ## Open Threats
 
-### T-22-31 — A parked continuation that is never discharged (Denial of Service) — OPEN
+### T-22-31 — A parked continuation that is never discharged (Denial of Service) — CLOSED at `43c11ce`
 
 **Declared mitigation (22-07):** "Every branch either invokes `onCompleted` or hands it into
 `sendMessage`; the one-pending-card-per-session invariant is enforced by resolving an existing pending
@@ -712,8 +712,8 @@ claim about EDT behaviour (`DECISIONS.md:206`), and the review brief excluded it
 - [x] Every threat resolved to CLOSED, OPEN, or a documented accepted risk — no threat skipped
 - [x] Accepted risks documented in the Accepted Risks Log (AR-22-01, AR-22-02)
 - [x] Implementation files not modified by this audit — only this file was written
-- [ ] `threats_open: 0` confirmed — **currently 1 (T-22-31, latent DoS)**
-- [ ] `status: verified` set in frontmatter — blocked on T-22-31
+- [x] `threats_open: 0` confirmed
+- [x] `status: verified` set in frontmatter
 
 **Approval:** pending — T-22-31 must be closed in code, or entered in the Accepted Risks Log with the
 zero-callers rationale and a guard test, then re-run `/gsd-secure-phase`.
@@ -723,3 +723,54 @@ caller supplies a non-null `onCompleted`), so it does not block this phase. The 
 no model-emitted tool call reaches Burp without a decision, every decision is recorded to three sinks,
 and the origin is compiler-enforced against accidental bypass — is verified present at every entry
 point.
+
+---
+
+## Security Audit 2026-08-19 (follow-up)
+
+| Metric | Count |
+|--------|-------|
+| Threats found | 41 |
+| Closed | 41 |
+| Open | 0 |
+
+**T-22-31 closed in code** at `43c11ce`, not accepted as risk. The maintainer chose the code fix over
+the documented-risk path when both were offered.
+
+Mitigation now present, verified against the tree at `43c11ce` rather than read from the commit
+message:
+
+- `dispatchResolvedToolCall` (`ChatPanel.kt:2643`) returns `ToolCallOutcome` instead of discarding it.
+- `resolveToolDecision` (`ChatPanel.kt:2557`) discharges `pending.onCompleted` when the outcome is
+  `NOT_CHAINED` — the same test, in the same position relative to the dispatch, as the un-asked path
+  at `:759`. The register's declared mitigation ("every branch either invokes `onCompleted` or hands
+  it into `sendMessage`") is now true of both branches.
+- Double-discharge is excluded by construction: denial decisions and an approved run that returns
+  normally both chain a followup and report `CHAINED`, so only the approved-then-threw path reaches
+  the new discharge.
+- Regression test `anApprovedToolThatThrowsStillDischargesTheParkedContinuation` was **verified RED
+  against unmodified production code** (`Discharges: [] ==> expected: <1> but was: <0>`) with three
+  non-vacuity clauses passing at the same time: the approved tool really ran and threw
+  (`verify(proxy, times(1)).history()`), no followup was chained (so it is not the success path in
+  disguise), and the SC3 record already read `approve_once` / `error`.
+
+Invariants re-checked after the change: 5 `toolDecisionReporter.report(` sites intact (no SC3 branch
+dropped), 2 `pendingDecisions.remove` sites unchanged, all five teardown paths still routed through
+`resolvePending`. SEC-06 suites green.
+
+### Carried forward, not closed here
+
+- **AR-22-02** — package-scoped origin residual (accepted risk, unchanged).
+- **UF-1** — `isKnownTool` prefix trust degrades audit fidelity (`ChatPanel.kt:2423`). Open as a code-review warning (WR-04).
+- **UF-2** — HTML-renderer exemptions never visited by the anti-spoofing sweep. Now corroborated
+  twice more: code review WR-06, and the UI audit's finding 2, which measured that
+  `ToolApprovalCardTest`'s blanket `getClientProperty("html")` assertion is already inconsistent with
+  shipped code (`ToolApprovalCard.kt:862` assigns `<html>` to a `JLabel`) and passes only because its
+  fixture args are 23 characters.
+- **WR-02** — `resolveToolDecision` still removes the pending record before a call that can throw.
+  Explicitly neither closed nor worsened by this fix.
+- **Test isolation hazard found while fixing** — `AuditLogger.registerGlobalEmitter` is a
+  process-global singleton and `ChatPanelToolGateTest` panels are never shut down between tests, so
+  queued `invokeLater` chains leak audit events across tests. `everyDecisionEmitsTheSc3Metadata`
+  filters positionally and survives only because it drains 4 times rather than 24; reordering the
+  class or raising that drain turns it red, or green for the wrong reason.
