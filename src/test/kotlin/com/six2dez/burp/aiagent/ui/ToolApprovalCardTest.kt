@@ -320,7 +320,26 @@ private val HTML_EXEMPT_ROWS: Map<String, (String) -> Boolean> =
         "row 8 — args truncation footer" to { text: String -> text.startsWith("<html>Showing the first ") },
         // Verbatim from the Copywriting Contract, no interpolation at all, so matched exactly.
         "compact row — outcome verb" to { text: String -> text in COMPACT_OUTCOME_VERBS_HTML },
+        // Rows 2 and 10, wrapped so the card can shrink far enough to keep its decision buttons on
+        // screen (22-UI-REVIEW.md S-1). Both are `private const` copy with no interpolation whatsoever,
+        // which is the strongest form this exemption takes — matched exactly, so a template that grew an
+        // interpolation would land in the un-exempt branch and fail before the no-model-byte clause even
+        // ran.
+        "row 2 — tier reason" to { text: String -> text in TIER_REASONS_HTML },
+        "row 10 — session scope footer" to { text: String -> text == SESSION_SCOPE_FOOTER_HTML },
     )
+
+/** Both tier reasons, `<html>`-wrapped by `ToolApprovalCard.wrapped`, verbatim from the copy contract. */
+private val TIER_REASONS_HTML =
+    setOf(
+        "<html>Approving for the session applies to this tool until this chat is deleted.",
+        "<html>This tool is approved one call at a time. A session-wide approval is not offered for it.",
+    )
+
+/** Row 10, `<html>`-wrapped, verbatim from the copy contract. */
+private const val SESSION_SCOPE_FOOTER_HTML =
+    "<html>\"Session\" means this chat. Approvals are forgotten when the chat is deleted, " +
+        "and are not restored when Burp restarts."
 
 /** The two `<html>`-wrapped compact verbs, spelled out so a copy change has to be made here too. */
 private val COMPACT_OUTCOME_VERBS_HTML =

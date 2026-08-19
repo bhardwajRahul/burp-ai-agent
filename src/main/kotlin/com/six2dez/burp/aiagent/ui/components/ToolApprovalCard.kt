@@ -97,6 +97,36 @@ private const val SESSION_SCOPE_FOOTER =
     "\"Session\" means this chat. Approvals are forgotten when the chat is deleted, and are not restored when Burp restarts."
 
 /**
+ * Applies the UI-SPEC §Typography overflow contract: an `<html>` prefix at offset 0, which is what makes
+ * `BasicHTML` install a wrapping View on a row that would otherwise clip.
+ *
+ * A plain `JLabel` does not wrap, and `BasicLabelUI.getMinimumSize` returns its PREFERRED size for one,
+ * so an unwrapped caption row sets a hard floor under the whole card. Measured on Temurin 21 headless
+ * at Dialog-12: row 10 drops from a 625 px minimum to 55 px with the prefix, and row 2's CONFIRM_EACH
+ * reason from 450 px to 71 px. Without them the card could not shrink below 644 px inside a transcript
+ * that sets `HORIZONTAL_SCROLLBAR_NEVER` (`ChatPanel.SessionPanel`), so dragging the sessions divider
+ * right pushed `Approve for session` off the viewport edge with no scrollbar, no wrap and no
+ * affordance — a security control the user could not reach (22-UI-REVIEW.md S-1). The other half of
+ * that fix is the `minimumSize` floor `MainTab` puts on `ChatPanel.root`.
+ *
+ * Applied ONLY to extension-authored copy with no interpolation of any kind, which is why it takes an
+ * already-composed string rather than a template: no model byte can reach offset 0, or any other
+ * offset, in what is passed here. That is the same exemption [footerTextFor] documents, and
+ * `ToolApprovalCardTest` enumerates every row allowed to carry the renderer and re-asserts the
+ * no-model-byte property on each rather than exempting `JLabel` as a class.
+ *
+ * **Residual, recorded rather than discovered later.** An HTML `JLabel` reports the preferred height of
+ * its UNCONSTRAINED layout, so between the card's new floor and its ~625 px preferred width these two
+ * captions wrap to a second line while `SessionPanel.addComponent`'s height-capping wrapper still
+ * allocates one, and the second line is clipped. That is a strictly better failure than the one it
+ * replaces — the four decision buttons stay reachable at every reachable width, and the spec's
+ * safe-action-first ordering keeps `Deny` the last control to be lost — but it is a trade, not a free
+ * win. Fixing it properly needs a width-aware `getPreferredSize` override, which was judged too much
+ * new layout machinery to add on a review fix.
+ */
+private fun wrapped(text: String): String = "<html>$text"
+
+/**
  * The load-bearing last sentence of both truncation footers: the display cap is a DISPLAY limit, not
  * an execution limit. `McpToolExecutor.executeTool` receives the whole args string regardless of what
  * this card renders, and a user authorising a call must know that.
@@ -294,7 +324,7 @@ internal class ToolApprovalCard private constructor(
     // see what was asked for.
     private val titleLabel = JLabel(catalogTitle ?: if (isCompact) UNKNOWN_TOOL_TITLE_COMPACT else UNKNOWN_TOOL_TITLE)
 
-    private val tierReasonLabel = helpLabel(tierReasonFor(tier))
+    private val tierReasonLabel = helpLabel(wrapped(tierReasonFor(tier)))
 
     private val repeatLabel =
         JLabel(if (repeatCount > 1) "${ordinalFor(repeatCount)} request for this tool in this chat" else "")
@@ -318,7 +348,7 @@ internal class ToolApprovalCard private constructor(
 
     private val decisionButtons = mutableListOf<JButton>()
 
-    private val sessionScopeLabel = helpLabel(SESSION_SCOPE_FOOTER)
+    private val sessionScopeLabel = helpLabel(wrapped(SESSION_SCOPE_FOOTER))
 
     private val badge = tierBadge(tier)
 

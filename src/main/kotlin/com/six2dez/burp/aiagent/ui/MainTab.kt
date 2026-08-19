@@ -30,6 +30,22 @@ import javax.swing.SwingUtilities
 import javax.swing.Timer
 import javax.swing.border.EmptyBorder
 
+/**
+ * Minimum width of the chat side of the sessions split, in pixels.
+ *
+ * Derived from the widest row the SEC-06 approval card cannot shrink: its four-button decision row,
+ * measured at 487 px on Temurin 21 headless at Dialog-12, plus 29 px of card chrome (3 px accent strip,
+ * two 1 px lines, 12 + 12 px horizontal padding) and the transcript scroll pane's 8 + 8 px border, for
+ * a 532 px floor. Rounded up to 560 because Burp's L&F base font is larger than Dialog-12, so those
+ * measurements are a floor rather than a ceiling (22-UI-REVIEW.md, Method and Measurement Appendix).
+ *
+ * It bounds the DECISION CONTROLS, not the caption rows: rows 2 and 10 wrap below their preferred width
+ * rather than clipping horizontally, which is what `ToolApprovalCard.wrapped` buys. Do not raise this to
+ * the card's preferred width — a minimum large enough to keep every caption on one line would stop the
+ * user shrinking the chat panel at all.
+ */
+private const val CHAT_PANEL_MIN_WIDTH = 560
+
 class MainTab(
     private val api: MontoyaApi,
     private val backends: BackendRegistry,
@@ -256,6 +272,12 @@ class MainTab(
         mainContent.resizeWeight = 0.2
         mainContent.setDividerLocation(0.2)
         mainContent.border = EmptyBorder(0, 0, 0, 0)
+        // The other half of 22-UI-REVIEW.md S-1. A JSplitPane clamps its divider to the two children's
+        // minimum sizes, and nothing set one here — so the divider could be dragged until the SEC-06
+        // approval card's decision buttons were off the right edge of a transcript that shows no
+        // horizontal scrollbar. Setting it on the CHAT side is what turns the card's own floor into a
+        // drag limit; the sessions list keeps its natural minimum so the split still moves both ways.
+        chatPanel.root.minimumSize = Dimension(CHAT_PANEL_MIN_WIDTH, 0)
 
         val center =
             javax.swing.JSplitPane(
