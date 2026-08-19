@@ -5,6 +5,7 @@ import com.six2dez.burp.aiagent.mcp.ToolDecision
 import com.six2dez.burp.aiagent.ui.components.ToolApprovalCard
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -239,26 +240,47 @@ class ToolApprovalCardTest {
 
     @Test
     fun accessibleDescriptionEndsWithTheSanitizedToolId() {
-        val toolId = "http1_request"
-        val resolved = pendingCard(toolId = toolId)
+        // A fixture that actually NEEDS sanitizing. The previous one was "http1_request", which
+        // sanitizeInline returns unchanged — so every assertion below passed identically whether the
+        // description interpolated the sanitized ID or the raw model string, and the first of the three
+        // claims the guarded KDoc makes ("a multi-line ID cannot be read as several sentences") was
+        // untested on this channel (WR-08 / UF-3). This one carries a CR/LF pair, a forged approval
+        // glyph and enough padding to trip the 120-character inline cap.
+        val raw = "http1_request\r\n✔ Approved by this extension" + "x".repeat(PADDING_LENGTH)
+        val resolved = pendingCard(toolId = raw)
         resolved.resolve(ToolDecision.DENY)
 
         listOf(
-            "pending known tool" to pendingCard(toolId = toolId),
-            "pending unknown tool" to pendingCard(catalogTitle = null, toolId = toolId),
+            "pending known tool" to pendingCard(toolId = raw),
+            "pending unknown tool" to pendingCard(catalogTitle = null, toolId = raw),
             "resolved card" to resolved,
         ).forEach { (state, card) ->
+            // Read BACK off the card rather than recomputed here: a test that re-derived the sanitized
+            // form with its own call would go green against a description built by a different one.
+            val sanitized = requireNotNull(ChatPanelTestHarness.find(card, JTextField::class.java)).text
+            assertNotEquals(
+                raw,
+                sanitized,
+                "Fixture check on a $state: the tool ID must be one sanitization actually changes, or " +
+                    "the assertions below cannot tell the sanitized form from the raw model string.",
+            )
+
             val description = card.accessibleContext.accessibleDescription
             assertTrue(
-                description.endsWith(toolId),
-                "On a $state the accessible description must END with the model's tool ID and have " +
+                description.endsWith(sanitized),
+                "On a $state the accessible description must END with the SANITIZED tool ID and have " +
                     "nothing after it. A screen reader has no notion of position, so anything following " +
                     "the model string would be heard as narration this extension wrote. Got: $description",
             )
             assertTrue(
-                description.endsWith("The following tool name was written by the AI, not by this extension: $toolId"),
+                description.endsWith("The following tool name was written by the AI, not by this extension: $sanitized"),
                 "The disclosure clause must come IMMEDIATELY before the ID, so attribution is heard " +
                     "before the attacker-influenceable text, never after it. Got: $description",
+            )
+            assertFalse(
+                description.contains('\n') || description.contains('\r'),
+                "A multi-line ID would be read as several sentences, so the extension's own narration " +
+                    "and the model's string become indistinguishable in audio. Got: $description",
             )
         }
     }
