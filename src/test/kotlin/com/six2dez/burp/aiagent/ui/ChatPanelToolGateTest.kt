@@ -524,14 +524,23 @@ class ChatPanelToolGateTest {
         val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
         ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
         ChatPanelTestHarness.drainEdt()
+        // Captured before the first click and used as the SELECTOR below. This used to filter on the
+        // event type alone and read the results positionally, which is only sound while no other panel
+        // is emitting — and `AuditLogger.registerGlobalEmitter` is a process-global hook, panels built
+        // by earlier tests in this class are never shut down, and their queued `invokeLater` chains run
+        // on this test's drains. It survived by draining 4 times rather than 24; raising the drain or
+        // reordering the class turns it red, or green for the wrong reason. A chain's trace id is
+        // threaded through every followup turn, so both decisions below share this one and nothing else
+        // does.
+        val traceId = pendingTraceId(h)
 
         click(requireNotNull(liveApprovalCard(h.panel.root)) { NO_CARD }, "Approve once")
         ChatPanelTestHarness.drainEdt()
         // Approve once writes no session memory, so the model's next identical call raises a new card.
         click(requireNotNull(liveApprovalCard(h.panel.root)) { NO_CARD }, "Deny")
-        ChatPanelTestHarness.drainEdt()
+        ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
 
-        val decisions = auditEvents.filter { it.first == "mcp_tool_decision" }.map { it.second }
+        val decisions = auditEvents.filter { it.first == "mcp_tool_decision" && it.second["traceId"] == traceId }.map { it.second }
         assertEquals(
             listOf("approve_once", "deny"),
             decisions.map { it["decision"] },
