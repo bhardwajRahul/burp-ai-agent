@@ -774,3 +774,50 @@ dropped), 2 `pendingDecisions.remove` sites unchanged, all five teardown paths s
   queued `invokeLater` chains leak audit events across tests. `everyDecisionEmitsTheSc3Metadata`
   filters positionally and survives only because it drains 4 times rather than 24; reordering the
   class or raising that drain turns it red, or green for the wrong reason.
+
+---
+
+## Addendum — warning-pass remediation (2026-08-19, HEAD `ad46e85`)
+
+The eleven remaining code-review and UI-audit warnings were fixed after this audit ran, in eleven
+atomic commits. Two entries above are now stale as written; both are recorded here rather than edited
+in place, because the audit body is a point-in-time record at `d7a93b9`.
+
+- **T-22-33's mitigation sentence is superseded and the property is now STRONGER.** It reads
+  "`sendFollowup` inert by construction; `false` at all five sites". WR-03 (`52df525`) deleted the
+  parameter outright, so no teardown path can dispatch a backend turn — the guarantee is now
+  structural rather than dependent on five call sites passing the right value. Only two references
+  survive, both KDoc explaining the removal; verified by grep that it is a parameter nowhere.
+- **UF-1 is CLOSED.** WR-04 (`ba54908`) made `isKnownTool` query the configured servers via a threaded
+  `McpToolContext` instead of trusting the `ext:` prefix, and ADR-15's corresponding Residual was
+  updated in the same commit. Audit fidelity for misclassified `ext:` names is restored — such a name
+  is now recorded `unknown` and carries its `toolNameSha256`.
+- **UF-2 is CLOSED.** WR-06 (`fbce125`) narrowed the anti-spoofing sweep from a blanket
+  `JLabel`/`AbstractButton` assertion to per-row exemptions, and added a 4000-character args fixture
+  so the `truncationFooter` exemption is actually exercised. The blanket form was verified to go RED
+  under that fixture, reproducing the UI audit's claim.
+- **UF-3 is CLOSED.** WR-08 (`51d02fe`) drives the accessible-description guard with an ID that
+  genuinely requires sanitizing.
+
+Invariants re-verified independently after all eleven commits: 5 `toolDecisionReporter.report(` sites,
+2 `pendingDecisions.remove` sites, `private fun approvedOrigin`, `private class ModelApproved`, tier
+split 19/24/16, and the T-22-31 discharge from `43c11ce` still present. Gate: `build test ktlintCheck
+detekt` exit 0, **745 tests across 110 classes**, `detekt-baseline.xml` byte-identical.
+
+`threats_open` remains **0**. Nothing here reopens a threat.
+
+### Known residual introduced by the UI fix
+
+The `<html>` wrap that makes `Approve for session` reachable has a trade the fixer documented rather
+than hid: an HTML `JLabel` reports its unconstrained preferred height, so between the new 560 px floor
+and the card's ~625 px preferred width, rows 2 and 10 can wrap to a second line that
+`SessionPanel.addComponent`'s height cap does not allocate, and it clips. Strictly better than an
+unreachable decision control, and `Deny` remains the last control lost. A width-aware
+`getPreferredSize` override is the proper fix.
+
+### Still open from the UI audit (not security-gating)
+
+X-1 is the one worth taking next: `toolIdField` and `argsArea` have no accessible name, so a
+screen-reader user tabbing into them hears the model's string with no attribution — a hole in the
+card's own T-22-27 mitigation on a path the root `accessibleDescription` does not cover. Two lines,
+no new copy. Also open: V-1/V-2/V-3, S-2, S-3, X-2/C-1, X-3, X-4, C-2, C-3.
