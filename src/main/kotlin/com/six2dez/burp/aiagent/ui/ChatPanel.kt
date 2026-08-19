@@ -2597,21 +2597,29 @@ class ChatPanel(
      * Every step here is the same one an explicit click performs, in the same order: consult the gate,
      * turn the card into a record, write the SC3 event, discharge the parked continuation.
      *
-     * **No implicit denial starts a backend turn, and [sendFollowup] exists to say so at the
-     * declaration rather than by the absence of a call.** It is inert by construction — nothing reads
-     * it, and all five call sites take the default. D-08 asks that the model never be left hanging and
-     * D-12 routes a denial into a followup turn; those two only appear to conflict. For four of the
-     * five paths there is no session left to run a turn in, and for the fifth the user's own new
-     * message IS the continuation. Making it live would create exactly two hazards: on `shutdown()` it
-     * would dispatch a backend request while Burp tears down the extension classloader, and on
-     * `sendFromInput()` it would run concurrently with the user's own turn and clobber
-     * `inFlightConnection`. Only an explicit `Deny` / `Deny for session` click sends the D-12 followup.
+     * **No implicit denial starts a backend turn, and there is deliberately no parameter offering to.**
+     * This shipped with an inert `sendFollowup: Boolean = false` whose only job was to say that at the
+     * declaration rather than by the absence of a call. A parameter is the wrong medium for a comment:
+     * nothing read it, so `resolvePending(id, reason, sendFollowup = true)` compiled, produced no
+     * followup, and gave no warning and no compile error — on the path that decides whether a denied
+     * model is left hanging. Its blanket `@Suppress("UnusedParameter")` would also have covered any
+     * FUTURE parameter that became unused (WR-03). Deleted rather than implemented: the property is
+     * stronger structurally, because there is now no seam for a later edit to switch on, and passing one
+     * is a compile error instead of a silent no-op. If the seam is genuinely wanted later, add it WITH
+     * an implementation at the same time.
+     *
+     * D-08 asks that the model never be left hanging and D-12 routes a denial into a followup turn;
+     * those two only appear to conflict. For four of the five paths there is no session left to run a
+     * turn in, and for the fifth the user's own new message IS the continuation. A live followup would
+     * create exactly two hazards: on `shutdown()` it would dispatch a backend request while Burp tears
+     * down the extension classloader, and on `sendFromInput()` it would run concurrently with the user's
+     * own turn and clobber `inFlightConnection`. Only an explicit `Deny` / `Deny for session` click
+     * sends the D-12 followup, and `shutdownResolvesAllPendingDecisionsWithoutSendingATurn` asserts this
+     * function's body contains no `sendMessage(` call at all.
      */
-    @Suppress("UnusedParameter")
     private fun resolvePending(
         sessionId: String,
         reason: ImplicitDenyReason,
-        sendFollowup: Boolean = false,
     ) {
         // Removed FIRST, exactly as resolveToolDecision does, so a click racing a teardown path cannot
         // resolve one card twice. ToolApprovalCard.resolve is idempotent too, so this is belt and braces.
