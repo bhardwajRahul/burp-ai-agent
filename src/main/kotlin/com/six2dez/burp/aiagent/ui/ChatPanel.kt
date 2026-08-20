@@ -83,6 +83,32 @@ internal class InFlightConnectionTracker {
     fun current(): AgentConnection? = ref.get()
 }
 
+/**
+ * The compare-and-set cell that decides whether a returning tool worker still owns the panel (D-08).
+ *
+ * Deliberately the same four-method surface as [InFlightConnectionTracker] above, applied to the same
+ * problem one layer over: a unit of work returns and has to find out whether anything happened while it
+ * was away. The token is opaque — its identity is the whole of its meaning, so a worker whose
+ * `clearIfMatches` fails knows it was superseded without needing to know by what.
+ *
+ * A `cancelled: Boolean` flag or a generation counter would need a second variable to say which run the
+ * flag refers to; the CAS says it in one operation, and the tracker above is this file's reviewed answer
+ * to exactly that question.
+ */
+internal class RunningToolTracker {
+    private val ref = AtomicReference<Any?>()
+
+    fun set(token: Any) {
+        ref.set(token)
+    }
+
+    fun clearIfMatches(expected: Any): Boolean = ref.compareAndSet(expected, null)
+
+    fun take(): Any? = ref.getAndSet(null)
+
+    fun current(): Any? = ref.get()
+}
+
 class ChatPanel(
     private val api: MontoyaApi,
     private val supervisor: AgentSupervisor,
@@ -106,6 +132,7 @@ class ChatPanel(
     private val clearChatBtn = JButton("Clear Chat")
     private val toolsBtn = JButton("Tools")
     private val inFlightConnection = InFlightConnectionTracker()
+    private val runningTool = RunningToolTracker()
 
     @Volatile private var isSending = false
     private val inputArea = JTextArea(3, 24)
@@ -1312,6 +1339,15 @@ class ChatPanel(
         // back without reading that test first.
         internal const val MAX_AUTO_TOOL_ITERATIONS = 8
 
+        /**
+         * SC3 run status for a call whose result was discarded (UI-SPEC S4).
+         *
+         * A fourth value beside `ok` / `error` / `denied`, for the same reason D-12 gave `denied` its
+         * own: a cancelled run is neither a malfunction nor a policy refusal, and filing it as either
+         * makes the audit log unable to tell the three apart.
+         */
+        internal const val SUPERSEDED_RUN_STATUS = "cancelled"
+
         fun formatSessionDate(epochMs: Long): String {
             val now = java.util.Calendar.getInstance()
             val then =
@@ -1744,6 +1780,12 @@ class ChatPanel(
 
         /** A card is on screen; `onCompleted` is parked in [PendingToolDecision] until the user clicks. */
         AWAITING_DECISION,
+
+        /**
+         * A worker holds `onCompleted`; it is discharged from that worker's `invokeLater` tail
+         * ([finishApprovedToolCall]) — never by the caller, which has already returned (REL-05).
+         */
+        EXECUTING,
     }
 
     /**
@@ -2849,77 +2891,209 @@ class ChatPanel(
         onCompleted: ((String, Throwable?) -> Unit)?,
         approved: ToolApprovalOutcome.Run,
     ): ToolCallOutcome {
-        val backendId = backendIdFor(sessionId)
-        val chainStep = chainStepFor(remainingToolIterations)
-        val canonicalId = McpToolExecutor.canonicalToolId(call.tool)
-        val startedAt = System.currentTimeMillis()
-        val resultOutcome = runCatching { McpToolExecutor.executeTool(call.tool, call.argsJson, context, approved.origin) }
-        val durationMs = System.currentTimeMillis() - startedAt
-        if (resultOutcome.isFailure) {
-            return reportFailedToolCall(
+        val captured =
+            ToolCallCapture(
                 sessionId = sessionId,
+                userText = userText,
                 call = call,
                 panel = panel,
                 context = context,
                 approved = approved,
                 traceId = traceId,
+                remainingToolIterations = remainingToolIterations,
+                startedAt = System.currentTimeMillis(),
+            )
+        // REL-05 / AI-SPEC E5 — THE LAST EDT READ OF GUARDED STATE ON THIS PATH. `panel` was resolved
+        // from `sessionPanels` by the caller and is frozen into the capture here. Below the dispatch the
+        // work runs on a worker thread, which must read NONE of sessionPanels, sessionStates,
+        // sessionsById, sessionDrafts or pendingDecisions: those are @GuardedBy("EDT"), an off-EDT read
+        // of one is the REL-01 data race, and it would corrupt silently rather than fail loudly.
+        setSendingState(true)
+        val token = Any()
+        runningTool.set(token)
+        OffEdtDispatch.run(
+            threadName = "burp-ai-tool-exec",
+            // WR-11 / Phase 22 commit ab55ff5: the label is the trace id so an ordering assertion can
+            // select by identity. Keyed on list position it would hide a reordering bug; keyed on
+            // identity it reports one.
+            label = traceId,
+            logError = { message -> api.logging().logToError(message) },
+            work = { McpToolExecutor.executeTool(call.tool, call.argsJson, captured.context, approved.origin) },
+            onEdt = { result -> finishApprovedToolCall(captured, token, result, onCompleted) },
+        )
+        return ToolCallOutcome.EXECUTING
+    }
+
+    /**
+     * Everything an approved tool call's worker or its EDT tail needs, read on the EDT before dispatch.
+     *
+     * A capture record rather than a wide helper signature, and the reason is measured: `detekt.yml`
+     * sets both `LongParameterList` thresholds at 10, and `ChatPanel`'s own ten-parameter constructor is
+     * already a baseline entry — a tail taking ten captured values would be the next one, and
+     * `detekt-baseline.xml` is pinned at 1096 as a v0.10.0 milestone metric.
+     *
+     * [approved] is carried whole rather than unpacked into `origin` / `tier` / `decision` for the same
+     * reason: it is an immutable value object, so three fields cost one.
+     */
+    private data class ToolCallCapture(
+        val sessionId: String,
+        val userText: String,
+        val call: ParsedToolCall,
+        val panel: SessionPanel,
+        val context: McpToolContext,
+        val approved: ToolApprovalOutcome.Run,
+        val traceId: String,
+        val remainingToolIterations: Int,
+        val startedAt: Long,
+    )
+
+    /**
+     * The EDT tail of an approved tool call: applies the worker's outcome, or discards it (REL-05).
+     *
+     * **EDT-confined.** It calls `panel.addMessage`, `setSendingState` and `sendMessage`, and reads
+     * `sessionsById` through [backendIdFor] — all `@GuardedBy("EDT")` state, so REL-01 applies to it
+     * exactly as it does to [cancelInFlightRequest]. Off-EDT callers must marshal first; the only caller
+     * is the one marshalling point inside [OffEdtDispatch], which is what makes that true by
+     * construction. It deliberately adds no EDT assertion of its own — SC5's evidence is that the
+     * existing private assertion helper and its six call sites stay byte-identical, and a seventh call
+     * site would move the count that IS the evidence.
+     *
+     * **Exactly one audit pair per exit, on every exit, including the superseded one.** `report` returns
+     * the metadata map `log` consumes, so their order is a data dependency rather than a convention.
+     */
+    private fun finishApprovedToolCall(
+        captured: ToolCallCapture,
+        token: Any,
+        result: Result<String>,
+        onCompleted: ((String, Throwable?) -> Unit)?,
+    ) {
+        val superseded = !runningTool.clearIfMatches(token)
+        val durationMs = System.currentTimeMillis() - captured.startedAt
+        val canonicalId = McpToolExecutor.canonicalToolId(captured.call.tool)
+        val chainStep = chainStepFor(captured.remainingToolIterations)
+        if (superseded) {
+            discardSupersededToolResult(captured, canonicalId, result, durationMs)
+            // The parked continuation is the "Send to AI" caller's resume hook, not a second audit sink
+            // — the same reason resolveToolDecision passes DENIAL_RESULT rather than a tool result.
+            onCompleted?.invoke(ToolApprovalGate.DENIAL_RESULT, null)
+            return
+        }
+        if (result.isFailure) {
+            // That branch emits its own audit pair and its own transcript row; nothing is emitted here,
+            // so the "exactly one pair per exit" rule holds.
+            reportFailedToolCall(
+                sessionId = captured.sessionId,
+                call = captured.call,
+                panel = captured.panel,
+                context = captured.context,
+                approved = captured.approved,
+                traceId = captured.traceId,
                 chainStep = chainStep,
                 durationMs = durationMs,
-                failure = resultOutcome.exceptionOrNull(),
+                failure = result.exceptionOrNull(),
             )
+            // The chain stops here, so S3 must be left or the panel stays busy with nothing running.
+            setSendingState(false)
+            // T-22-31: reportFailedToolCall sends no followup turn, so nothing downstream is carrying
+            // `onCompleted` any more. Both former consumers now see EXECUTING and fall through, which
+            // makes this its last chance to be discharged rather than dropped.
+            onCompleted?.invoke(ToolApprovalGate.DENIAL_RESULT, null)
+            return
         }
-        val result = resultOutcome.getOrThrow()
-        val status = if (result.startsWith("Error:")) "error" else "ok"
+        val toolResult = result.getOrThrow()
+        val status = if (toolResult.startsWith("Error:")) "error" else "ok"
         // SC3, and this is the branch that makes "which calls ran with no decision at all?" answerable
         // from a historical log: an AUTO run reports too, carrying its tier and its AUTO decision, so
         // it is distinguishable from a pre-gate call that nobody classified. Reported before the log
         // call because `aiRequestLogger` is nullable — see denyToolCall.
         val metadata =
             toolDecisionReporter.report(
-                rawToolName = call.tool,
+                rawToolName = captured.call.tool,
                 canonicalId = canonicalId,
-                knownTool = isKnownTool(canonicalId, context),
-                tier = approved.tier,
-                decision = approved.decision,
-                argsJson = call.argsJson,
-                traceId = traceId,
+                knownTool = isKnownTool(canonicalId, captured.context),
+                tier = captured.approved.tier,
+                decision = captured.approved.decision,
+                argsJson = captured.call.argsJson,
+                traceId = captured.traceId,
                 chainStep = chainStep,
-                resultChars = result.length,
+                resultChars = toolResult.length,
                 runStatus = status,
             )
         supervisor.aiRequestLogger?.log(
             type = ActivityType.MCP_TOOL_CALL,
             source = "chat",
-            backendId = backendId,
-            sessionId = sessionId,
-            detail = "Tool ${call.tool} executed",
+            backendId = backendIdFor(captured.sessionId),
+            sessionId = captured.sessionId,
+            detail = "Tool ${captured.call.tool} executed",
             durationMs = durationMs,
             metadata = metadata,
         )
-        panel.addMessage("Tool result: ${call.tool}", result)
+        captured.panel.addMessage("Tool result: ${captured.call.tool}", toolResult)
+        setSendingState(false)
         val followup =
             buildString {
-                appendLine("Tool result for ${call.tool}:")
-                appendLine(result)
+                appendLine("Tool result for ${captured.call.tool}:")
+                appendLine(toolResult)
                 appendLine()
                 appendLine("User request:")
-                appendLine(userText)
+                appendLine(captured.userText)
                 appendLine()
                 appendLine("Provide the final response using the tool result.")
             }.trim()
         // D-13: the same two helpers the denial branch calls, so both branches provably share ONE
         // decrement. See denyToolCall for why a refusal is not free.
         sendMessage(
-            sessionId,
+            captured.sessionId,
             followup,
             contextJson = null,
-            allowToolCalls = ToolApprovalGate.allowsFurtherToolCalls(remainingToolIterations),
+            allowToolCalls = ToolApprovalGate.allowsFurtherToolCalls(captured.remainingToolIterations),
             actionName = "Tool Followup",
             onCompleted = onCompleted,
-            toolIterationsLeft = ToolApprovalGate.nextIterationBudget(remainingToolIterations),
-            traceId = traceId,
+            toolIterationsLeft = ToolApprovalGate.nextIterationBudget(captured.remainingToolIterations),
+            traceId = captured.traceId,
         )
-        return ToolCallOutcome.CHAINED
+    }
+
+    /**
+     * UI-SPEC state S4 — the worker came back after its run stopped mattering (D-07, D-08).
+     *
+     * Renders no transcript row, sends no followup turn and refunds no chain iteration: a refund would
+     * perturb Phase 22 D-13's monotone counter and make an unbounded chain reachable by a user
+     * repeatedly cancelling. The busy state is deliberately untouched — whatever superseded this run
+     * already returned the panel to S0, and re-clearing it here could clobber a turn started since.
+     *
+     * **The audit pair still fires, and that is the load-bearing half of D-07.** The call reached Burp
+     * and cannot be recalled; suppressing the record would put a hole in the SEC-06 audit log at exactly
+     * the point a user interrupted something.
+     */
+    private fun discardSupersededToolResult(
+        captured: ToolCallCapture,
+        canonicalId: String,
+        result: Result<String>,
+        durationMs: Long,
+    ) {
+        val metadata =
+            toolDecisionReporter.report(
+                rawToolName = captured.call.tool,
+                canonicalId = canonicalId,
+                knownTool = isKnownTool(canonicalId, captured.context),
+                tier = captured.approved.tier,
+                decision = captured.approved.decision,
+                argsJson = captured.call.argsJson,
+                traceId = captured.traceId,
+                chainStep = chainStepFor(captured.remainingToolIterations),
+                resultChars = result.getOrNull()?.length,
+                runStatus = SUPERSEDED_RUN_STATUS,
+            ) + ("supersedeReason" to "result discarded before it was applied")
+        supervisor.aiRequestLogger?.log(
+            type = ActivityType.MCP_TOOL_CALL,
+            source = "chat",
+            backendId = backendIdFor(captured.sessionId),
+            sessionId = captured.sessionId,
+            detail = "Tool ${captured.call.tool} finished after its run was superseded; result discarded",
+            durationMs = durationMs,
+            metadata = metadata,
+        )
     }
 
     /**

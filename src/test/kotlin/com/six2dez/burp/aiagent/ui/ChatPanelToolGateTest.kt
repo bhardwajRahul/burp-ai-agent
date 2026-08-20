@@ -28,6 +28,7 @@ import java.awt.Container
 import java.io.File
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicReference
 import javax.swing.AbstractButton
 import javax.swing.JLabel
 import javax.swing.JList
@@ -78,6 +79,21 @@ class ChatPanelToolGateTest {
         // only on the card, which is trivially red pre-gate (no card type is wired in there at all)
         // and says nothing whatever about the defect.
         verify(h.api.proxy(), never()).history()
+        // REL-05 — THE HALF THE never() STOPPED WATCHING THE MOMENT THE DISPATCH BECAME ASYNCHRONOUS.
+        // A bare never() now passes VACUOUSLY, and passes faster: the failure it exists to catch is a
+        // worker that was dispatched and has not reached Burp yet, which is exactly the state in which
+        // it goes green. This clause catches that — an un-decided call that started a worker anyway.
+        // It reads the DISPATCH record, never the SETTLE record, and the distinction is the whole
+        // clause. The settle record is written from the worker's EDT tail, so a worker that started and
+        // has not finished is absent from it too — a clause read off it would inherit the very blindness
+        // it repairs. The dispatch record is written synchronously with the dispatch statement, so a
+        // started worker is visible the instant it exists and its absence is a real claim.
+        // Selected by THIS chain's trace id, never by "the log is empty" — panels built by earlier tests
+        // in this class are still alive and still draining on this test's drains.
+        assertFalse(
+            ChatPanelTestHarness.dispatchedLabels().contains(pendingTraceId(h)),
+            "SEC-06: no tool worker may be started before a decision is reached.",
+        )
         assertNotNull(
             ChatPanelTestHarness.findApprovalCard(h.panel.root),
             "A CONFIRM-tier model-emitted tool call must raise an approval card instead of running.",
@@ -93,7 +109,9 @@ class ChatPanelToolGateTest {
         val h = ChatPanelTestHarness.create(modelResponse = toolCall("scope_check", """{"url":"http://evil.example/"}"""))
 
         ChatPanelTestHarness.sendUserMessage(h, "check scope please")
-        ChatPanelTestHarness.drainEdt()
+        // REL-05: the AUTO call is dispatched to a daemon worker, so the drain this replaces would run
+        // the assertion below in the window between dispatch and the worker's EDT tail.
+        ChatPanelTestHarness.awaitToolSettled(count = 1)
 
         // D-02: scope_check is SecTier.AUTO, so the gate returns Run and the call still reaches Burp.
         // Unchanged behaviour is the CORRECT result here, not a sign the gate is inert. Do not invert.
@@ -114,7 +132,8 @@ class ChatPanelToolGateTest {
         val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
 
         click(card, "Approve once")
-        ChatPanelTestHarness.drainEdt()
+        // REL-05: replaces the post-click drain, which cannot see a daemon worker (see @BeforeEach).
+        ChatPanelTestHarness.awaitToolSettled(count = 1)
 
         verify(h.api.proxy(), times(1)).history()
         assertEquals(
@@ -152,6 +171,10 @@ class ChatPanelToolGateTest {
         val traceId = parkContinuation(h) { text, error -> discharges += text to error }
 
         click(card, "Approve once")
+        // REL-05: added BESIDE the explicit drain, not in place of it — the drain's count is load-bearing
+        // for chain continuation (one invokeLater per chained turn) and the await is what proves the
+        // worker's EDT tail has run. Over-draining an empty EDT queue is free.
+        ChatPanelTestHarness.awaitToolSettled(count = 1)
         ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
 
         // NON-VACUITY FIRST, AND THAT ORDERING IS THE POINT. The claim below is "the continuation was
@@ -196,6 +219,10 @@ class ChatPanelToolGateTest {
         val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
 
         click(card, "Approve for session")
+        // REL-05, and N = 2 for the same reason the verification below is atLeast(2): the claim is that
+        // a SECOND call ran without a second decision, so two workers must have settled before it is
+        // read. Added beside the explicit drain, which stays — see anApprovedToolThatThrows... above.
+        ChatPanelTestHarness.awaitToolSettled(count = 2)
         ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
 
         // The grant is applied to every later call in this chat with nobody asked, so the model's
@@ -215,11 +242,21 @@ class ChatPanelToolGateTest {
         ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
         ChatPanelTestHarness.drainEdt()
         val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+        // Captured while exactly one decision is parked; a chain's trace id is threaded through every
+        // followup turn, so this one capture covers the whole chain.
+        val traceId = pendingTraceId(h)
 
         click(card, "Deny")
         ChatPanelTestHarness.drainEdt()
 
         verify(h.api.proxy(), never()).history()
+        // REL-05: what a denial must produce is not merely "Burp not reached yet" but "no worker was
+        // ever started". ToolApprovalOutcome.Denied routes to denyToolCall and never to
+        // executeApprovedToolCall, so an entry here would mean the gate leaked.
+        assertFalse(
+            ChatPanelTestHarness.dispatchedLabels().contains(traceId),
+            "SEC-06: a denied call must start no tool worker at all.",
+        )
         val prompts = sentPrompts(h)
         // SC2: the session continues rather than erroring — a further backend turn was issued.
         assertTrue(prompts.size >= 2, "A denial must continue the conversation, not end the session. Turns: ${prompts.size}")
@@ -241,15 +278,25 @@ class ChatPanelToolGateTest {
         ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
         ChatPanelTestHarness.drainEdt()
         val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+        val traceId = pendingTraceId(h)
 
         click(card, "Deny for session")
         ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
 
-        verify(h.api.proxy(), never()).history()
+        // ASSERT NON-VACUITY FIRST — the discipline this class documents at the eight-denials test and
+        // the one place in the file that did not follow it. Both claims below pass vacuously on a chain
+        // that never got started; only the resolution milestone fails loudly when it did not.
         assertTrue(
             decisionButtons(h.panel.root).isEmpty(),
             "A session denial must resolve later calls instantly — re-asking is the habituation D-11 avoids.",
         )
+        // REL-05: no worker was ever started for this chain (see confirmToolDoesNotReachBurpBeforeADecision
+        // for why the settle record cannot answer this and the dispatch record can).
+        assertFalse(
+            ChatPanelTestHarness.dispatchedLabels().contains(traceId),
+            "SEC-06: a session-denied chain must start no tool worker at all.",
+        )
+        verify(h.api.proxy(), never()).history()
     }
 
     @Test
@@ -374,11 +421,15 @@ class ChatPanelToolGateTest {
         val expectedTurns = expectedTurnsForAFullyDeniedChain()
         val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
 
+        // assertTimeoutPreemptively runs its block on a SEPARATE thread, so the trace id crosses back
+        // through an AtomicReference rather than a captured local.
+        val traceIdRef = AtomicReference<String>()
         // A non-monotone budget would loop forever; fail the suite instead of stalling CI.
         assertTimeoutPreemptively(Duration.ofSeconds(30)) {
             ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
             ChatPanelTestHarness.drainEdt()
             val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+            traceIdRef.set(pendingTraceId(h))
             // One click; every later turn is auto-denied with no further interaction.
             click(card, "Deny for session")
             // Drain EXPLICITLY. drainEdt's default of 4 was measured sufficient for ONE turn, and each
@@ -400,6 +451,12 @@ class ChatPanelToolGateTest {
 
         // (c) Not one of the denied calls reached Burp.
         verify(h.api.proxy(), never()).history()
+        // REL-05: and not one of them started a worker either — the half of (c) that an asynchronous
+        // dispatch would otherwise satisfy for free.
+        assertFalse(
+            ChatPanelTestHarness.dispatchedLabels().contains(traceIdRef.get()),
+            "SEC-06: eight consecutive denials must start zero tool workers.",
+        )
     }
 
     // ── The pending-decision lifecycle (D-08's five teardown paths) ──────────────────────
@@ -411,6 +468,9 @@ class ChatPanelToolGateTest {
         ChatPanelTestHarness.drainEdt()
         val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
 
+        // Captured while exactly one decision is parked — the second message below retires it.
+        val traceId = pendingTraceId(h)
+
         // The user answers by moving on. Teardown path 1 of 5.
         ChatPanelTestHarness.sendUserMessage(h, "never mind, just summarise what you have")
         ChatPanelTestHarness.drainEdt()
@@ -421,6 +481,12 @@ class ChatPanelToolGateTest {
             "A new message retires the pending card: its buttons become an outcome row (T-22-10).",
         )
         verify(h.api.proxy(), never()).history()
+        // REL-05: an implicit denial must start no worker either, for the same reason an explicit one
+        // must not — it is the same SEC-06 boundary, reached without a click.
+        assertFalse(
+            ChatPanelTestHarness.dispatchedLabels().contains(traceId),
+            "SEC-06: an implicitly denied call must start no tool worker at all.",
+        )
         // EXACTLY two turns, and the count is the assertion. One for each message the USER sent. A
         // third would mean the implicit denial dispatched a D-12 followup of its own — running
         // concurrently with the turn the user just started, which is what clobbers inFlightConnection
@@ -535,6 +601,10 @@ class ChatPanelToolGateTest {
         val traceId = pendingTraceId(h)
 
         click(requireNotNull(liveApprovalCard(h.panel.root)) { NO_CARD }, "Approve once")
+        // REL-05: the approval dispatches a worker, and the next card only exists once that worker's EDT
+        // tail has chained the followup turn. The later Deny click needs no await — a denial starts no
+        // worker at all, so waiting on one would hang for the full failsafe and then fail.
+        ChatPanelTestHarness.awaitToolSettled(count = 1)
         ChatPanelTestHarness.drainEdt()
         // Approve once writes no session memory, so the model's next identical call raises a new card.
         click(requireNotNull(liveApprovalCard(h.panel.root)) { NO_CARD }, "Deny")
@@ -644,13 +714,18 @@ class ChatPanelToolGateTest {
         AuditLogger.registerGlobalEmitter { type, payload ->
             if (payload is Map<*, *>) auditEvents += type to payload
         }
+        // REL-05: an approved tool call is now dispatched to a daemon worker, so drainEdt() alone no
+        // longer proves the call reached Burp — it drains the EDT queue and knows nothing about a
+        // worker. The observers make the worker's start and its finish both observable.
+        ChatPanelTestHarness.installSettledObserver()
     }
 
     @AfterEach
     fun releaseAuditEmitter() {
-        // The emitter is a global singleton hook. Leaving it registered would have this class capturing
+        // Both are global singleton hooks. Leaving either registered would have this class capturing
         // — and holding — events emitted by every test class that runs after it.
         AuditLogger.registerGlobalEmitter(null)
+        ChatPanelTestHarness.releaseSettledObserver()
     }
 }
 

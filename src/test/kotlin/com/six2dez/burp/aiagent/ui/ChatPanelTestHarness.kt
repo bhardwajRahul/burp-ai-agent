@@ -12,6 +12,9 @@ import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import java.awt.Container
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JTextArea
@@ -211,4 +214,96 @@ object ChatPanelTestHarness {
     fun drainEdt(times: Int = DEFAULT_EDT_DRAINS) {
         repeat(times) { SwingUtilities.invokeAndWait { } }
     }
+
+    /**
+     * Default failsafe for [awaitToolSettled], in seconds.
+     *
+     * Ten, not sixty, and the number has a budget behind it: a red-before-green demonstration against
+     * the pre-fix tree pays this failsafe once per waiting test, and ten seconds is what that
+     * demonstration is worth. It is a **deadlock failsafe, never a wall-clock assertion** — nothing
+     * compares it against the work, which settles in microseconds once the dispatch is correct.
+     */
+    private const val DEFAULT_SETTLE_FAILSAFE_SECONDS = 10L
+
+    /**
+     * The settle events [awaitToolSettled] CONSUMES, one per finished worker.
+     *
+     * Three collections rather than one, because each read has a use the others cannot serve.
+     */
+    private val settled = LinkedBlockingQueue<String>()
+
+    /**
+     * The non-draining record of the same settle events, for assertions that need to inspect what
+     * finished without destroying the await's supply. A single queue would make those two uses mutually
+     * destructive.
+     */
+    private val settledLog = CopyOnWriteArrayList<String>()
+
+    /**
+     * The record of workers STARTED — a different moment from the two above, and the one a test must
+     * read when its claim is that no worker ran at all.
+     *
+     * A settle record is written from the worker's EDT tail, i.e. at settle. So in the buggy world such
+     * a test exists to catch — a denied or un-decided call that dispatched a worker anyway — that worker
+     * has not finished at assert time and its label is missing from [settledLog] too, so the assertion
+     * passes while the bug is present. `OffEdtDispatch.run` writes THIS log as its first statement,
+     * synchronous with the dispatch, so a started worker is visible the moment it exists and its absence
+     * is a real claim rather than a timing artefact.
+     */
+    private val dispatchedLog = CopyOnWriteArrayList<String>()
+
+    /**
+     * Installs both `OffEdtDispatch` hooks and clears the three records.
+     *
+     * **One lifecycle pair, not two, even though it installs two hooks.** The pair is pinned to a count
+     * of exactly one by acceptance criteria in plans 23-01 and 23-02: these are process-global hooks,
+     * so one left registered captures events from every test class that runs after this one, and a
+     * second lifecycle pair is one more thing to forget to clear. Same install/clear discipline as
+     * `AuditLogger.registerGlobalEmitter`.
+     */
+    fun installSettledObserver() {
+        settled.clear()
+        settledLog.clear()
+        dispatchedLog.clear()
+        OffEdtDispatch.registerSettledObserver { label ->
+            settled.add(label)
+            settledLog.add(label)
+        }
+        OffEdtDispatch.registerDispatchedObserver { label -> dispatchedLog.add(label) }
+    }
+
+    /** Clears both hooks. See [installSettledObserver] for why they share one lifecycle pair. */
+    fun releaseSettledObserver() {
+        OffEdtDispatch.registerSettledObserver(null)
+        OffEdtDispatch.registerDispatchedObserver(null)
+    }
+
+    /**
+     * Blocks until [count] tool workers have finished their marshalled EDT tail, then drains the EDT.
+     *
+     * **[drainEdt] alone cannot do this and the gap is structural, not a matter of draining harder.**
+     * It drains the EDT QUEUE and knows nothing about a daemon worker, so an assertion placed straight
+     * after it runs in the window between the dispatch and the worker's tail. The settle observer fires
+     * from that tail's `finally`, so a successful await means the tail has ALREADY run on the EDT.
+     *
+     * [failsafeSeconds] bounds a deadlock; it is not a threshold the work is measured against.
+     */
+    fun awaitToolSettled(
+        count: Int,
+        failsafeSeconds: Long = DEFAULT_SETTLE_FAILSAFE_SECONDS,
+    ) {
+        repeat(count) { index ->
+            requireNotNull(settled.poll(failsafeSeconds, TimeUnit.SECONDS)) {
+                "Tool worker ${index + 1} of $count never settled within ${failsafeSeconds}s — the async " +
+                    "dispatch or its EDT tail is broken. Settled so far: ${settledLabels()}; dispatched: ${dispatchedLabels()}."
+            }
+        }
+        drainEdt()
+    }
+
+    /** Snapshot of every worker that has FINISHED, in settle order. Non-draining. */
+    fun settledLabels(): List<String> = settledLog.toList()
+
+    /** Snapshot of every worker that has STARTED, in dispatch order. See [dispatchedLog]. */
+    fun dispatchedLabels(): List<String> = dispatchedLog.toList()
 }
