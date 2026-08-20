@@ -1061,15 +1061,70 @@ class ChatPanel(
         panel.addMessage("You", commandPreview)
         session.messages.add(ChatMessage("user", commandPreview))
 
-        // SC5: user-originated. The user picked the tool and typed the args in ToolInvocationDialog, so
-        // this call is deliberately UNGATED and consults no approval gate — double-prompting a decision
-        // the user just made trains them to click through (T-22-32).
-        val result = McpToolExecutor.executeTool(invocation.toolId, args, context, ToolCallOrigin.UserDialog)
-        panel.addMessage("Tool result: ${invocation.toolId}", result)
-        session.messages.add(ChatMessage("assistant", "Tool result (${invocation.toolId}):\n$result"))
-        state.toolsMode = true
-        state.toolCatalogSent = true
-        refreshSessionList()
+        // UI-SPEC Rule S-2, and it is not decoration: the call below no longer blocks the EDT, so
+        // without entering the busy state the user could fire a tool and press Send on the same idle,
+        // live panel a millisecond later. The supersede token is minted here, on the EDT, so a Cancel
+        // pressed while the tool runs has something to take (Rule S-5).
+        setSendingState(true)
+        val token = RunningToolToken(invocation.toolId)
+        runningTool.set(token)
+        val sessionId = session.id
+        OffEdtDispatch.run(
+            threadName = "burp-ai-tool-exec",
+            label = "chat-tool-dialog-" + UUID.randomUUID().toString(),
+            logError = { message -> api.logging().logToError(message) },
+            // SC5: user-originated. The user picked the tool and typed the args in ToolInvocationDialog, so
+            // this call is deliberately UNGATED and consults no approval gate — double-prompting a decision
+            // the user just made trains them to click through (T-22-32).
+            work = { McpToolExecutor.executeTool(invocation.toolId, args, context, ToolCallOrigin.UserDialog) },
+            onEdt = { result ->
+                finishUserOriginatedToolCall(panel, invocation.toolId, token, result) { text ->
+                    sessionsById[sessionId]?.messages?.add(
+                        ChatMessage("assistant", "Tool result (${invocation.toolId}):\n$text"),
+                    )
+                    state.toolsMode = true
+                    state.toolCatalogSent = true
+                    refreshSessionList()
+                }
+            },
+        )
+    }
+
+    /**
+     * The EDT tail shared by the two user-originated tool paths (REL-05).
+     *
+     * **EDT-confined**, for the same reason [finishApprovedToolCall] is: it calls `panel.addMessage` and
+     * [setSendingState]. Like that tail it deliberately adds no EDT assertion of its own — SC5's evidence
+     * is that the existing private assertion helper keeps exactly the call sites it had, and a new one
+     * would move the number that IS the evidence.
+     *
+     * These two paths are UNGATED by SC5 and so carry no approval record, which is why — unlike the
+     * approved-chain tail — there is no decision pair to emit here. What they do share is the supersede
+     * rule: a worker whose token no longer matches lands in UI-SPEC state S4 and renders nothing, because
+     * whatever superseded it already returned the panel to S0 and may have started something since.
+     *
+     * A failure is surfaced through the same `Tool result:` row that a success uses, with the `Error:`
+     * prefix the chain path already produces. Not through [showError]: the user asked for this answer in
+     * the transcript, and a modal would put it somewhere the transcript never records.
+     */
+    private fun finishUserOriginatedToolCall(
+        panel: SessionPanel,
+        toolId: String,
+        token: Any,
+        result: Result<String>,
+        onSuccess: (String) -> Unit,
+    ) {
+        if (!runningTool.clearIfMatches(token)) return
+        setSendingState(false)
+        val failure = result.exceptionOrNull()
+        val text =
+            if (failure == null) {
+                result.getOrThrow()
+            } else {
+                "Error: ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}"
+            }
+        panel.addMessage("Tool result: $toolId", text)
+        if (failure == null) onSuccess(text)
     }
 
     private fun cancelCurrentRequest() {
@@ -2386,12 +2441,32 @@ class ChatPanel(
             }
             val argsJson = split.getOrNull(1)
             val context = buildToolContext(settings, sessionId)
-            // SC5: user-originated. The user typed `/tool <name> <json>` themselves, so this call is
-            // deliberately UNGATED and consults no approval gate (T-22-32).
-            val result = McpToolExecutor.executeTool(toolName, argsJson, context, ToolCallOrigin.UserSlashCommand)
-            panel.addMessage("Tool result: $toolName", result)
-            state.toolsMode = true
-            state.toolCatalogSent = state.toolCatalogSent || argsJson != null
+            // UI-SPEC Rule S-4 — echo BEFORE going async. `sendFromInput` clears the input area and
+            // returns without echoing anything on this branch, so up to now the typed command survived on
+            // screen only because the EDT was frozen for the duration of the call. Asynchronously the
+            // transcript would stay blank until the result row appeared: an answer with no visible
+            // question, in a tool whose users have to be able to say what they just ran. The model sees
+            // it too (FLAG-23-03), which removes an asymmetry with the dialog path rather than keeping it.
+            panel.addMessage("You", trimmed)
+            sessionsById[sessionId]?.messages?.add(ChatMessage("user", trimmed))
+            // Rule S-2: the panel is busy for as long as the worker runs, and Cancel has a token to take.
+            setSendingState(true)
+            val token = RunningToolToken(toolName)
+            runningTool.set(token)
+            OffEdtDispatch.run(
+                threadName = "burp-ai-tool-exec",
+                label = "chat-tool-slash-" + UUID.randomUUID().toString(),
+                logError = { message -> api.logging().logToError(message) },
+                // SC5: user-originated. The user typed `/tool <name> <json>` themselves, so this call is
+                // deliberately UNGATED and consults no approval gate (T-22-32).
+                work = { McpToolExecutor.executeTool(toolName, argsJson, context, ToolCallOrigin.UserSlashCommand) },
+                onEdt = { result ->
+                    finishUserOriginatedToolCall(panel, toolName, token, result) {
+                        state.toolsMode = true
+                        state.toolCatalogSent = state.toolCatalogSent || argsJson != null
+                    }
+                },
+            )
             return true
         }
         return false

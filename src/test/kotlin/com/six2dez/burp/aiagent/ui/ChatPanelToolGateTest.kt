@@ -400,7 +400,12 @@ class ChatPanelToolGateTest {
         val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
 
         ChatPanelTestHarness.sendUserMessage(h, """/tool proxy_http_history {"count":5}""")
-        ChatPanelTestHarness.drainEdt()
+        // The `/tool` branch dispatches to a daemon worker (REL-05), and the window this closes is
+        // narrow and specific: between the worker returning and its marshalled EDT tail running. A bare
+        // EDT drain cannot see that window at all — it drains the EDT queue and knows nothing about a
+        // thread it did not queue — so the verification below would run against a call that has not
+        // happened yet, and fail intermittently rather than honestly.
+        ChatPanelTestHarness.awaitToolSettled(count = 1)
 
         verify(h.api.proxy(), times(1)).history()
         assertNull(

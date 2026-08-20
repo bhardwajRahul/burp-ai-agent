@@ -41,6 +41,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import java.util.regex.Pattern
+import javax.swing.SwingUtilities
 
 object McpToolExecutor {
     private val decodeJson = Json { ignoreUnknownKeys = true }
@@ -139,6 +140,28 @@ object McpToolExecutor {
         argsJson: String?,
         context: McpToolContext,
     ): CallToolResult {
+        // REL-05 — the door, and being the FIRST statement is the whole of the control.
+        //
+        // Guarded here rather than at the [executeTool] wrapper below, because the wrapper only extracts
+        // text from this function's result: the MCP-server path (`McpToolHandlers.kt:129`) calls THIS
+        // function directly, so a guard one level up would hold for the chat half and for nothing else.
+        // It also precedes `canonicalToolId` and the external-tool early return underneath, because that
+        // return leads to a call that blocks its own thread waiting on a coroutine — one line lower and
+        // the external path would be the single place the UI could still freeze.
+        //
+        // A Swing import in a file under `mcp/` is a deliberate trade rather than a layering slip. The
+        // query below is a comparison against the AWT event queue's thread and initialises no AWT state,
+        // so it stays safe under `-Djava.awt.headless=true`, and the guarantee belongs at the one door
+        // every caller passes through instead of being restated at each caller. The JVM's debug-time
+        // assertion facility was rejected for the same reason: it is disabled without `-ea`, which is
+        // every shipped Burp, so the half that matters would be the half that never runs. `check`
+        // produces IllegalStateException, which CONVENTIONS.md prescribes for a logical precondition.
+        check(!SwingUtilities.isEventDispatchThread()) {
+            "REL-05: MCP tool execution must not be entered on the Swing EDT. It reaches Burp through " +
+                "api.http(), which Burp refuses from the EDT, and it freezes the whole Burp UI for as " +
+                "long as it runs there. Dispatch through OffEdtDispatch.run instead of calling this " +
+                "from an EDT event handler."
+        }
         val resolvedName = canonicalToolId(name)
 
         // Phase 16 (CAP-02 / D-04): route ext:-prefixed tool calls to ExternalMcpClientManager.
