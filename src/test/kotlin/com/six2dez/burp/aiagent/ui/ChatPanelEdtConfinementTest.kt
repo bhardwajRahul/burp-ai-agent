@@ -3,6 +3,7 @@ package com.six2dez.burp.aiagent.ui
 import burp.api.montoya.proxy.ProxyHttpRequestResponse
 import com.six2dez.burp.aiagent.audit.AuditLogger
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -13,8 +14,12 @@ import java.awt.Component
 import java.awt.Container
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.AbstractButton
+import javax.swing.JButton
+import javax.swing.JTextArea
 import javax.swing.SwingUtilities
 
 /**
@@ -82,9 +87,194 @@ class ChatPanelEdtConfinementTest {
         )
     }
 
+    /**
+     * S-02 / SC2 — a Montoya double that refuses the EDT is never called on the EDT.
+     *
+     * **The double's message is a claim about THIS TEST, not about Burp's runtime.** Research assumption
+     * A1 records that Burp's *"Extensions should not make HTTP requests in the Swing event dispatch
+     * thread"* exception is corroborated — by this repo's own `MontoyaHttpTransport` workaround for #80
+     * and by third-party reports — but not live-confirmed here. Constructing the refusal ourselves is
+     * what closes that gap: the test pins *"we do not call Burp's API from the EDT"* against a double we
+     * control, so it holds regardless of what a live Burp actually does. Live confirmation is a UAT item
+     * routed by plan 23-05. Do not read the message below as evidence of Burp's behaviour.
+     *
+     * The tool is asserted to have completed **normally** rather than merely to have run: `McpTool.runTool`
+     * catches `Exception` and turns it into an error RESULT, so a call that did hit the EDT would still
+     * produce a transcript row — and only the recorded run status tells the two apart.
+     *
+     * **`proxy_http_history` rather than the `http1_request` this scenario was drafted against, and the
+     * reason is measured rather than assumed.** Driven headlessly, `http1_request` records
+     * `status=error` with a 112-character error result before any EDT question arises: its body reaches
+     * Montoya's `HttpRequest.httpRequest` static factory, which `McpScopeFilter.deriveScopeUrl`'s own
+     * KDoc already records as *"unavailable in pure-JVM unit tests"*. The assertion would then be red
+     * for a reason that has nothing to do with the EDT, which is the one thing a red-before-green gate
+     * must never be. `proxy_http_history` is the same trust boundary through a seam that works.
+     */
+    @Test
+    fun aToolThatRefusesTheEdtCompletesNormally() {
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenAnswer {
+            check(!SwingUtilities.isEventDispatchThread()) { BURP_EDT_REFUSAL }
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        // assertTimeoutPreemptively runs its block on a SEPARATE thread, so the trace id crosses back
+        // through an AtomicReference rather than a captured local.
+        val traceIdRef = AtomicReference<String>()
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+            ChatPanelTestHarness.drainEdt()
+            val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+            traceIdRef.set(pendingTraceId(h))
+            click(card, "Approve once")
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        val record = decisionsFor(traceIdRef.get()).single()
+        assertEquals(
+            "ok",
+            record["status"],
+            "SC2: the tool ran to completion, so it was never entered from the EDT. A status of 'error' " +
+                "here means the double's EDT refusal fired — i.e. the call WAS made on the EDT.",
+        )
+    }
+
+    /**
+     * S-01 / SC3 / AI-SPEC E3 — the EDT runs queued work WHILE a tool call is mid-flight.
+     *
+     * **A mutual latch handshake, not a stopwatch.** The tool double counts down [ToolLatches.entered]
+     * and then waits on [ToolLatches.probeRan], which the test counts down from a runnable it queues to
+     * the EDT *after* the tool has been entered. A free EDT therefore runs that runnable and the tool
+     * returns; a blocked EDT **deadlocks**, and a deadlock is a categorical failure
+     * `assertTimeoutPreemptively` reports.
+     *
+     * **Neither timeout is a wall-clock assertion, and the distinction is not a technicality.** Nothing
+     * here is compared against the duration of the work: the inner failsafe bounds a deadlock and the
+     * outer one stops CI stalling, exactly as `ChatPanelToolGateTest.kt:377` already does for a
+     * non-monotone chain budget. The margin over the work — which settles in microseconds once the
+     * handshake resolves — is four orders of magnitude. That is what separates this from the
+     * `RedactionTest` flake, where a 50 ms deadline bounds work of the same order and fails under load.
+     *
+     * The inner failsafe is 10 seconds and not 60 for a budgeted reason: a red-before-green run against
+     * the pre-fix tree pays it in full, once, and ten seconds is what that demonstration is worth.
+     */
+    @Test
+    fun theEdtRunsQueuedWorkWhileAToolCallIsMidFlight() {
+        val latches = ToolLatches()
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenAnswer {
+            latches.entered.countDown()
+            // The tool waits on the EDT. This is what makes a FREE EDT a precondition for the tool
+            // returning, and therefore what makes a blocked one a deadlock rather than a slow path.
+            check(latches.probeRan.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+                "The EDT never ran a queued runnable while the tool was mid-call — it was blocked inside it."
+            }
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        val traceIdRef = AtomicReference<String>()
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+            ChatPanelTestHarness.drainEdt()
+            val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+            traceIdRef.set(pendingTraceId(h))
+            click(card, "Approve once")
+
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The tool worker never started, so the handshake below would prove nothing.",
+            )
+            // Queued WHILE the tool is mid-call. On a blocked EDT this never runs and the tool's own
+            // await above expires; on a free one it runs and releases the tool.
+            SwingUtilities.invokeLater { latches.probeRan.countDown() }
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        // THE RUN STATUS IS THE CLAUSE THAT FAILS LOUDLY, AND IT IS ASSERTED FIRST FOR THAT REASON.
+        // The latch count below is NOT sufficient on its own and would pass VACUOUSLY against the
+        // pre-fix tree: with the tool running on the EDT, the click blocks until the tool's own await
+        // expires, the tool returns an error, the click returns — and only THEN does the queued runnable
+        // finally run, leaving the latch at zero and the assertion green with the defect fully present.
+        // Completing NORMALLY is the property only a free EDT can produce, because the tool returns
+        // normally only if the runnable ran while it was still inside its call.
+        assertEquals(
+            "ok",
+            decisionsFor(traceIdRef.get()).single()["status"],
+            "SC3/E3: the tool returned normally, which is possible only if the EDT ran the queued " +
+                "runnable while the tool was still mid-call. An 'error' status means the tool's own " +
+                "await expired — the EDT was blocked inside the call.",
+        )
+        assertEquals(
+            0L,
+            latches.probeRan.count,
+            "Corroborates the above: the queued runnable really did execute.",
+        )
+    }
+
+    /**
+     * SC3 / AI-SPEC E3 — a full auto-approved chain produces eight results in submission order.
+     *
+     * **Selected by trace id, never by list position** (Phase 22 commit `ab55ff5`). `AuditLogger`'s
+     * emitter is a process-global hook and panels built by earlier tests in this class are never shut
+     * down, so a positional read over the collected events silently mixes in another test's chain. A
+     * chain threads ONE trace id through every followup turn, which is what makes it the correct
+     * selector — and the `step` field, not the list index, is what carries the ordering claim.
+     *
+     * `awaitToolSettled(count = 8)` is the primary synchronisation rather than a raised drain count: a
+     * chain of eight daemon workers is precisely what draining the EDT queue is blind to.
+     */
+    @Test
+    fun aFullAutoChainProducesEightResultsInSubmissionOrder() {
+        // FIRST, AND IN ITS OWN ASSERTION. If the budget ever changes, this fails by name and the test
+        // gets renamed — the alternative is a derived expectation that silently relaxes.
+        assertEquals(
+            8,
+            ChatPanel.MAX_AUTO_TOOL_ITERATIONS,
+            "This test's name says eight. If the budget changes, rename the test — do not relax it.",
+        )
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("scope_check", """{"url":"http://evil.example/"}"""))
+
+        assertTimeoutPreemptively(Duration.ofSeconds(60)) {
+            ChatPanelTestHarness.sendUserMessage(h, "check scope repeatedly")
+            ChatPanelTestHarness.awaitToolSettled(count = ChatPanel.MAX_AUTO_TOOL_ITERATIONS)
+        }
+
+        // The chain's identity, taken from THIS test's own dispatch record rather than guessed from the
+        // audit log. That it collapses to exactly one value is itself the claim that one chain ran.
+        val chainTraceId =
+            requireNotNull(ChatPanelTestHarness.settledLabels().distinct().singleOrNull()) {
+                "Expected exactly one chain to have settled; labels were ${ChatPanelTestHarness.settledLabels()}."
+            }
+        // LICENSES THE ORDERING CLAIM BELOW, so it is asserted first. A short chain would also produce a
+        // correctly ORDERED prefix; only the count fails loudly when the chain stopped early.
+        assertEquals(
+            ChatPanel.MAX_AUTO_TOOL_ITERATIONS,
+            ChatPanelTestHarness.settledLabels().size,
+            "Eight tool workers must have settled — one per chain step.",
+        )
+        assertEquals(
+            (1..ChatPanel.MAX_AUTO_TOOL_ITERATIONS).map { it.toString() },
+            decisionsFor(chainTraceId).map { it["step"] },
+            "SC3: eight results, each recorded at its own chain step, in submission order.",
+        )
+        // The busy state is cleared exactly once per call: the chain ends in S0.
+        assertTrue(sendButton(h).isVisible, "The panel must finish the chain in S0 with Send visible.")
+        assertTrue(inputArea(h).isEnabled, "The panel must finish the chain in S0 with the input enabled.")
+    }
+
     // ── Audit + worker capture plumbing ──────────────────────────────────────────────────
 
     private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
+
+    /**
+     * Every SC3 decision record belonging to [traceId], in emission order.
+     *
+     * The trace id is the ONLY sound selector here: `AuditLogger.registerGlobalEmitter` is a
+     * process-global hook, panels built by earlier tests in this class are never shut down, and their
+     * queued `invokeLater` chains run on this test's drains. Filtering by tool name or reading
+     * positionally would silently fold in another chain's events.
+     */
+    private fun decisionsFor(traceId: String): List<Map<*, *>> = auditEvents.filter { it.first == TOOL_DECISION_EVENT && it.second["traceId"] == traceId }.map { it.second }
 
     @BeforeEach
     fun installObservers() {
@@ -111,6 +301,67 @@ private const val NO_CARD = "No ToolApprovalCard in the transcript — the SEC-0
 
 /** The AWT Event Dispatch Thread's name, which is what "not the EDT" is asserted against. */
 private const val EDT_THREAD_NAME = "AWT-EventQueue-0"
+
+/** The `AuditLogger` event type every SC3 decision record is emitted under. */
+private const val TOOL_DECISION_EVENT = "mcp_tool_decision"
+
+/**
+ * Burp's refusal text, reproduced in a double THIS SUITE controls.
+ *
+ * It is not evidence of Burp's runtime behaviour — see [ChatPanelEdtConfinementTest] S-02 — and the
+ * live confirmation is a UAT item. It reads as Burp's message so a maintainer meeting the failure
+ * recognises which real-world constraint the test encodes.
+ */
+private const val BURP_EDT_REFUSAL = "Extensions should not make HTTP requests in the Swing event dispatch thread"
+
+/**
+ * Deadlock failsafe for the SC3 handshake, in seconds.
+ *
+ * A bound on a hang, never a threshold the work is measured against: nothing compares an elapsed
+ * duration to it. Ten and not sixty because a red-before-green run against the pre-fix tree pays it in
+ * full, once, and ten seconds is the budgeted price of that demonstration.
+ */
+private const val HANDSHAKE_FAILSAFE_SECONDS = 10L
+
+/** The two halves of the SC3 mutual handshake, named so the test body reads as the protocol it is. */
+private class ToolLatches {
+    /** Counted down by the tool double the instant its body is entered. */
+    val entered = CountDownLatch(1)
+
+    /** Counted down from a runnable the test queues to the EDT; the tool double waits on it. */
+    val probeRan = CountDownLatch(1)
+}
+
+/**
+ * The trace id of the single parked decision, read reflectively off the live panel.
+ *
+ * Same helper, and the same reason, as `ChatPanelToolGateTest.kt:818`: every audit assertion needs a
+ * selector that is this chain's alone, and the trace id is the only field that qualifies.
+ */
+private fun pendingTraceId(h: ChatPanelTestHarness.Harness): String {
+    lateinit var traceId: String
+    SwingUtilities.invokeAndWait {
+        val field = ChatPanel::class.java.getDeclaredField("pendingDecisions")
+        field.isAccessible = true
+        val pending = field.get(h.panel) as Map<*, *>
+        val record = requireNotNull(pending.values.singleOrNull()) { "Expected exactly one parked decision; found ${pending.keys}." }
+        val slot = record.javaClass.getDeclaredField("traceId").also { it.isAccessible = true }
+        traceId = slot.get(record) as String
+    }
+    return traceId
+}
+
+/** The panel's real Send button — one half of the UI-SPEC S0 assertion. */
+private fun sendButton(h: ChatPanelTestHarness.Harness): JButton =
+    requireNotNull(ChatPanelTestHarness.find(h.panel.root, JButton::class.java) { it.text == "Send" }) {
+        "No JButton labelled 'Send' under ChatPanel.root — the button lookup is stale."
+    }
+
+/** The panel's real input area, found by the same `isEditable` rule the harness documents. */
+private fun inputArea(h: ChatPanelTestHarness.Harness): JTextArea =
+    requireNotNull(ChatPanelTestHarness.find(h.panel.root, JTextArea::class.java) { it.isEditable }) {
+        "No editable JTextArea under ChatPanel.root — the input area lookup is stale."
+    }
 
 /** The four D-11 labels, defined once so "is this a decision button?" is asked one way. */
 private val DECISION_LABELS = setOf("Deny", "Deny for session", "Approve once", "Approve for session")
