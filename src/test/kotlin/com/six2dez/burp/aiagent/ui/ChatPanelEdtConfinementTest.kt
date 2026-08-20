@@ -1,7 +1,9 @@
 package com.six2dez.burp.aiagent.ui
 
 import burp.api.montoya.proxy.ProxyHttpRequestResponse
+import com.six2dez.burp.aiagent.TestSettings
 import com.six2dez.burp.aiagent.audit.AuditLogger
+import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.mcp.ToolApprovalGate
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -16,6 +18,7 @@ import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.atLeast
+import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.never
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
@@ -26,10 +29,12 @@ import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.AbstractButton
 import javax.swing.JButton
 import javax.swing.JEditorPane
+import javax.swing.JList
 import javax.swing.JTextArea
 import javax.swing.SwingUtilities
 
@@ -419,6 +424,343 @@ class ChatPanelEdtConfinementTest {
         )
     }
 
+    /**
+     * S-05 / D-08 — deleting a session supersedes the tool worker its chain left running.
+     *
+     * **This scenario is the whole reason plan 23-04's Task 1 exists, and it is written so that
+     * removing that one line turns it red.** Session delete is the ONE teardown exit of four that does
+     * not route through `cancelInFlightRequest`, so it inherited nothing from plan 23-01's supersede
+     * cell (research F-5). Without the explicit `runningTool.take()` in `deleteConfirmedSession` the
+     * returning worker finds its token still current, takes the SUCCESS branch, files an `"ok"` run
+     * for a session that no longer exists, and sends a followup turn continuing that dead chain.
+     *
+     * **Two clauses are loud and two are not, and which is which was MEASURED against the reverted
+     * tree rather than assumed.** Loud: the recorded run status (`"ok"` with the defect present), and
+     * the `supersedeReason` key, which only the superseded exit merges onto the pair. Corroboration
+     * only:
+     * - the missing transcript row — `ToolCallCapture` freezes the `SessionPanel` OBJECT before
+     *   dispatch, and a deleted session's panel is DETACHED rather than destroyed, so the row really
+     *   is written on the un-superseded tree, into a panel [transcriptText] can no longer reach;
+     * - the turn count — `sendMessage` returns early when `sessionPanels[sessionId]` is null
+     *   (`ChatPanel.kt`), and a session delete removes exactly that entry, so the followup the success
+     *   branch asks for is refused one layer further down whether or not the supersede happened.
+     *
+     * Both stay, because both are the claim for a supersede whose panel SURVIVES — the unload exit
+     * below is one — and neither may ever be promoted to carry this test on its own.
+     *
+     * **`deleteConfirmedSession` rather than `deleteSession`, and the modal was not deleted to get
+     * here.** `deleteSession` opens `JOptionPane.showConfirmDialog`, which constructs a `JDialog` and
+     * throws `HeadlessException` under `-Djava.awt.headless=true`; every line of the teardown sits
+     * below it. Production keeps the confirmation in one function and the teardown in another, so
+     * this drives the real teardown while real users still meet the real modal.
+     */
+    @Test
+    fun deletingASessionSupersedesItsRunningToolAndStillAuditsTheCall() {
+        val latches = ToolLatches()
+        val discharged = CountDownLatch(1)
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenAnswer {
+            latches.entered.countDown()
+            check(latches.probeRan.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+                "The test never released the blocked tool — the delete window was never opened."
+            }
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        val traceIdRef = AtomicReference<String>()
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+            ChatPanelTestHarness.drainEdt()
+            val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+            // Substitutes a continuation into the record the REAL gate just parked, so T-22-31's
+            // "discharged rather than dropped" clause is assertable on this exit too.
+            traceIdRef.set(parkContinuation(h) { _, _ -> discharged.countDown() })
+            click(card, "Approve once")
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The tool worker never started, so there was nothing for the delete to supersede.",
+            )
+
+            // The user deletes the session out from under the running call. On the EDT, exactly as the
+            // popup-menu action listener would reach it once the modal has been answered.
+            SwingUtilities.invokeAndWait { h.panel.deleteConfirmedSession(onlySession(h)) }
+
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        // LOUD CLAUSE 1. On a tree without the explicit supersede this reads "ok": the worker's token
+        // still matched, so the tail applied a result belonging to a session that was already gone.
+        val record = decisionsFor(traceIdRef.get()).single()
+        assertEquals(
+            ChatPanel.SUPERSEDED_RUN_STATUS,
+            record["status"],
+            "D-08: a session delete must supersede the tool worker its chain left running. This exit " +
+                "does not route through the in-flight cancel, so it inherits nothing and needs its own take().",
+        )
+        // LOUD CLAUSE 2, and independent of the first: only the superseded exit merges a
+        // supersedeReason onto the pair, so this fails on the un-superseded tree even if some later
+        // change made "ok" and "cancelled" agree. E4's ordering claim rides in the same assertion.
+        assertOrderedAuditPair(h, record, traceIdRef.get(), extraKeys = setOf(SUPERSEDE_REASON_KEY))
+        // CORROBORATION. See the KDoc: sendMessage refuses a followup for a session whose panel is
+        // gone, so this clause is satisfied by the defect too. It is the real claim only where the
+        // panel survives the supersede.
+        verifySendChatCount(h, 1)
+        assertTrue(
+            discharged.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+            "T-22-31: the parked continuation must be discharged on the superseded exit, not dropped — " +
+                "no followup turn is carrying it any more.",
+        )
+        // CORROBORATION ONLY. See the KDoc: the deleted panel is detached, not destroyed, so this
+        // clause is also satisfied by the defect. It is here to fail alongside the two above, never
+        // instead of them.
+        assertFalse(
+            transcriptText(h).contains("Tool result: proxy_http_history"),
+            "UI-SPEC S4: a superseded run renders no transcript row.",
+        )
+    }
+
+    /**
+     * S-06 / D-08 / AI-SPEC E5 — a Burp project change supersedes every running tool worker.
+     *
+     * Unlike a session delete this exit inherits its supersede: `clearInMemorySessionState` calls the
+     * in-flight cancel, which takes the running-tool token. So this test is a REGRESSION guard rather
+     * than a red-before-green demonstration, and it is worth having for exactly that reason — the
+     * coverage is invisible in the source of `clearInMemorySessionState`, which mentions no worker.
+     *
+     * The E5 clause is asserted on the map state AFTER the worker has settled: a tail that wrote
+     * anything back into the session maps would resurrect a session the project change destroyed, and
+     * the user would be looking at a chat belonging to a Burp project they had already left.
+     *
+     * **Loud clauses: the run status and the `supersedeReason` key.** The turn count is corroboration
+     * on this exit for the same measured reason it is on the session-delete one — a project change
+     * clears `sessionPanels`, and `sendMessage` refuses a followup when the session's panel is gone,
+     * so no second turn appears whether or not the worker was superseded.
+     */
+    @Test
+    fun aProjectChangeSupersedesTheRunningToolAndNoWriteReachesTheDisposedPanel() {
+        val latches = ToolLatches()
+        val discharged = CountDownLatch(1)
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenAnswer {
+            latches.entered.countDown()
+            check(latches.probeRan.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+                "The test never released the blocked tool — the project-change window was never opened."
+            }
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        val traceIdRef = AtomicReference<String>()
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+            ChatPanelTestHarness.drainEdt()
+            val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+            traceIdRef.set(parkContinuation(h) { _, _ -> discharged.countDown() })
+            click(card, "Approve once")
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The tool worker never started, so there was nothing for the project change to supersede.",
+            )
+
+            // MainTab.onProjectChanged()'s whole body, reached on the EDT.
+            SwingUtilities.invokeAndWait { h.panel.clearInMemorySessionState() }
+            assertEquals(0, sessionCount(h), "Setup: the project change really did clear every session.")
+
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        val record = decisionsFor(traceIdRef.get()).single()
+        assertEquals(
+            ChatPanel.SUPERSEDED_RUN_STATUS,
+            record["status"],
+            "D-08: a project change must supersede the running tool worker.",
+        )
+        assertOrderedAuditPair(h, record, traceIdRef.get(), extraKeys = setOf(SUPERSEDE_REASON_KEY))
+        // Corroboration on THIS exit — see the KDoc. Loud on the unload exit, where the panel lives.
+        verifySendChatCount(h, 1)
+        assertTrue(
+            discharged.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+            "T-22-31: the parked continuation must be discharged when the project changes under it.",
+        )
+        // E5, read after the worker has finished its tail: nothing the returning worker did put a
+        // session back. Read before the settle this would be a claim about the project change alone.
+        assertEquals(
+            0,
+            sessionCount(h),
+            "AI-SPEC E5: no write from the returning worker may reach the disposed panel — a resurrected " +
+                "session belongs to the Burp project the user already left.",
+        )
+    }
+
+    /**
+     * S-07 / SC6 / D-08 — extension unload supersedes the worker and does NOT wait for it.
+     *
+     * **The non-blocking claim is proved as a deadlock, not as a duration.** `shutdown()` is called
+     * from a non-EDT thread while the tool double is still blocked inside its call. If unload joined
+     * the worker, nothing would ever release the tool's latch — the release below happens only after
+     * `shutdown()` returns — and `assertTimeoutPreemptively` reports that categorically. Nothing here
+     * is compared against elapsed time; this file contains no wall-clock reading at all.
+     *
+     * **What this scenario cannot catch, stated rather than implied:** a BOUNDED wait
+     * (`future.get(10, SECONDS)`), which would expire and let `shutdown()` return late instead of
+     * hanging. That shape is D-08's actual named counter-example, and the guard against it is the
+     * structural one in plan 23-04's Task 1 — `shutdown()`'s body contains no `.get(` or `.join(`.
+     * Two guards, because one covers the hang and the other covers the timeout.
+     *
+     * The daemon assertion is the other half of why not waiting is safe: a non-daemon worker would
+     * hold the JVM open past unload even with nobody waiting on it.
+     */
+    @Test
+    fun unloadSupersedesTheRunningToolWithoutWaitingForIt() {
+        val latches = ToolLatches()
+        val discharged = CountDownLatch(1)
+        val toolThread = AtomicReference<Thread?>(null)
+        val toolReturned = AtomicBoolean(false)
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenAnswer {
+            toolThread.set(Thread.currentThread())
+            latches.entered.countDown()
+            check(latches.probeRan.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+                "The test never released the blocked tool — shutdown() must have waited for it."
+            }
+            toolReturned.set(true)
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        val traceIdRef = AtomicReference<String>()
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+            ChatPanelTestHarness.drainEdt()
+            val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+            traceIdRef.set(parkContinuation(h) { _, _ -> discharged.countDown() })
+            click(card, "Approve once")
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The tool worker never started, so there was nothing for unload to supersede.",
+            )
+
+            // Burp's unload handler calls this from a Montoya thread, not the EDT — which is the case
+            // shutdown()'s own invokeAndWait exists for. Returning from here at all, with the worker
+            // demonstrably still inside its call, IS the SC6 claim.
+            h.panel.shutdown()
+            assertFalse(
+                toolReturned.get(),
+                "SC6 / D-08: unload returned only after the worker finished, so it waited for it. " +
+                    "A tool call has no cancellation token; waiting is how unload becomes a hang.",
+            )
+
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        val record = decisionsFor(traceIdRef.get()).single()
+        assertEquals(
+            ChatPanel.SUPERSEDED_RUN_STATUS,
+            record["status"],
+            "D-08: unload must supersede the running tool worker, so its result is never applied to a " +
+                "panel whose classloader Burp is tearing down.",
+        )
+        // LOUD ON THIS EXIT, unlike on the session-delete and project-change ones. Unload leaves
+        // sessionPanels intact, so sendMessage's own null-panel refusal does not stand in for the
+        // supersede here: an un-superseded tail really does dispatch a backend request into a Burp
+        // that is tearing the extension classloader down (T-22-33).
+        verifySendChatCount(h, 1)
+        assertOrderedAuditPair(h, record, traceIdRef.get(), extraKeys = setOf(SUPERSEDE_REASON_KEY))
+        assertTrue(
+            discharged.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+            "T-22-31: the parked continuation must be discharged at unload, not dropped.",
+        )
+        assertTrue(
+            requireNotNull(toolThread.get()) { "The tool body never ran." }.isDaemon,
+            "E9 / T-23-12: unload does not join the worker, so the daemon flag is what stops a stuck " +
+                "one holding the JVM open. Without it, 'we do not wait' becomes 'Burp does not exit'.",
+        )
+    }
+
+    /**
+     * S-09 / CFM 2 / T-23-10 — an approved call that is superseded mid-flight executes EXACTLY ONCE.
+     *
+     * The supersede is a compare-and-set with exactly one winner: whoever takes the token wins, and
+     * the returning worker's `clearIfMatches` loses and discards. The failure this rules out is the
+     * one that would matter most on a security tool — the resolution path and the worker both
+     * proceeding, so a single human `Approve once` click puts two requests on the wire.
+     *
+     * **A genuine `CONFIRM_EACH` tool, not a `CONFIRM` one approved once.** The two behave alike for a
+     * single call, so substituting would have quietly turned a tier-specific claim into a generic one.
+     * `scope_include` is the one CONFIRM_EACH tool that both reaches a stubbable Montoya seam and
+     * completes headlessly: `http1_request` / `http2_request` die in `HttpRequest.httpRequest`, which
+     * `McpScopeFilter.deriveScopeUrl`'s KDoc records as unavailable in pure-JVM unit tests; every
+     * `scan_*` one is Professional-only; `ai_analyze` and `ai_passive_scan` need runtime AI
+     * dependencies the chat context does not carry. Reaching it costs the settings override below,
+     * which is a real user configuration rather than a test hook.
+     *
+     * The two-button assertion is a SETUP assertion: it fails if `scope_include` ever stops being
+     * CONFIRM_EACH, rather than letting this test silently become the CONFIRM case.
+     */
+    @Test
+    fun aSupersededConfirmEachCallReachesBurpExactlyOnce() {
+        val latches = ToolLatches()
+        val h =
+            ChatPanelTestHarness.create(
+                modelResponse = toolCall("scope_include", """{"url":"http://s09.example/"}"""),
+                settings = settingsEnabling("scope_include"),
+            )
+        // Resolved to a local FIRST. `includeInScope` returns void, so the stub has to be written
+        // `doAnswer {}.whenever(mock)`, and leaving the deep-stub `h.api.scope()` call inside the
+        // `whenever(...)` argument makes Mockito read THAT call as the one being stubbed —
+        // UnfinishedStubbingException, measured.
+        val scope = h.api.scope()
+        doAnswer {
+            latches.entered.countDown()
+            check(latches.probeRan.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+                "The test never released the blocked tool — the supersede window was never opened."
+            }
+            null
+        }.whenever(scope).includeInScope(any<String>())
+
+        val traceIdRef = AtomicReference<String>()
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, "add that host to scope")
+            ChatPanelTestHarness.drainEdt()
+            val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+            assertEquals(
+                listOf("Deny", "Approve once"),
+                decisionButtons(card).map { it.text },
+                "Setup: this scenario is about CONFIRM_EACH. Two actions is what that tier offers; four " +
+                    "would mean the tool was re-tiered and this test now proves something else.",
+            )
+            traceIdRef.set(pendingTraceId(h))
+            click(card, "Approve once")
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The tool worker never started, so there was nothing to supersede.",
+            )
+
+            SwingUtilities.invokeAndWait { cancelButton(h).doClick() }
+
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        // THE CLAIM. One click, one call on the wire — read from the Montoya double the tool body
+        // actually reached, not from a counter this test keeps.
+        verify(scope, times(1)).includeInScope(any<String>())
+        // And the loser of the compare-and-set does not re-enter later: drained well past the point a
+        // second dispatch would have landed.
+        ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
+        verify(scope, times(1)).includeInScope(any<String>())
+
+        val record = decisionsFor(traceIdRef.get()).single()
+        assertEquals(
+            ChatPanel.SUPERSEDED_RUN_STATUS,
+            record["status"],
+            "The superseded call is still audited — it reached Burp and cannot be recalled (D-07).",
+        )
+        assertEquals("approve_once", record["decision"], "The decision the human really made is unchanged by the supersede.")
+        assertOrderedAuditPair(h, record, traceIdRef.get(), extraKeys = setOf(SUPERSEDE_REASON_KEY))
+    }
+
     // ── Audit + worker capture plumbing ──────────────────────────────────────────────────
 
     private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
@@ -595,6 +937,174 @@ private fun sentPrompts(h: ChatPanelTestHarness.Harness): List<String> {
         anyOrNull(),
     )
     return prompt.allValues
+}
+
+/**
+ * The extra metadata key `discardSupersededToolResult` merges onto the reporter's map.
+ *
+ * Named here so [assertOrderedAuditPair] can subtract it before comparing the two records, rather
+ * than having each caller restate the string.
+ */
+private const val SUPERSEDE_REASON_KEY = "supersedeReason"
+
+/**
+ * AI-SPEC E4 — the audit PAIR for one call, asserted as the DATA DEPENDENCY it actually is.
+ *
+ * `toolDecisionReporter.report` emits the `mcp_tool_decision` event AND returns the null-filtered copy
+ * of that same payload; `supervisor.aiRequestLogger?.log` then consumes what it returned. So "report
+ * ran first" is not a convention to be checked by call order — it is provable from the data, and this
+ * checks it there: the AI-activity metadata must BE the decision payload, minus its null values and
+ * plus [extraKeys]. A `log` call that assembled its own map, or one made with a stale one, fails this
+ * and would pass an ordering check.
+ *
+ * Both sides are selected by trace id and never by list position: `AuditLogger`'s emitter is
+ * process-global and panels built by earlier tests in this class are still alive.
+ */
+private fun assertOrderedAuditPair(
+    h: ChatPanelTestHarness.Harness,
+    decision: Map<*, *>,
+    traceId: String,
+    extraKeys: Set<String>,
+) {
+    val logged = loggedMetadataFor(h, traceId)
+    val reported = decision.entries.filter { it.value != null }.associate { it.key.toString() to it.value.toString() }
+    assertEquals(
+        reported,
+        logged - extraKeys,
+        "E4: the AI-activity record must be exactly what the decision reporter returned. A record that " +
+            "merely LOOKS right but was built separately would drift from the audit event the first time " +
+            "either shape changed, and the two sinks would then disagree about the same call.",
+    )
+    extraKeys.forEach { key ->
+        assertTrue(
+            logged.containsKey(key),
+            "The '$key' key must ride along on the AI-activity record; the pair carried ${logged.keys}.",
+        )
+    }
+}
+
+/**
+ * The metadata map handed to `AiRequestLogger.log` for [traceId].
+ *
+ * `log` takes ten parameters and every one is matched positionally, so the captor lines up with the
+ * last. `singleOrNull` is itself an assertion: exactly one AI-activity record per call is the other
+ * half of "exactly one audit pair per exit".
+ */
+private fun loggedMetadataFor(
+    h: ChatPanelTestHarness.Harness,
+    traceId: String,
+): Map<String, String> {
+    val metadata = argumentCaptor<Map<String, String>>()
+    verify(requireNotNull(h.supervisor.aiRequestLogger) { "No AiRequestLogger on the supervisor double." }, atLeast(1)).log(
+        any(),
+        any(),
+        any(),
+        any(),
+        anyOrNull(),
+        anyOrNull(),
+        anyOrNull(),
+        anyOrNull(),
+        anyOrNull(),
+        metadata.capture(),
+    )
+    return requireNotNull(metadata.allValues.singleOrNull { it["traceId"] == traceId }) {
+        "Expected exactly one AI-activity record for trace $traceId; captured ${metadata.allValues.map { it["traceId"] }}."
+    }
+}
+
+/**
+ * Substitutes [onCompleted] into the LIVE pending record the production path just parked.
+ *
+ * Ported verbatim in intent from `ChatPanelToolGateTest`, and narrow for the same reason: the only
+ * producer of a non-null `onCompleted` is `MainTab.openChatWithContext`, whose only route in blocks on
+ * an application-modal `ContextPreviewDialog` that cannot be driven under `-Djava.awt.headless=true`.
+ * So the record is built by the real gate on the real Send path and ONLY its callback slot is swapped.
+ *
+ * Runs on the EDT because `pendingDecisions` is EDT-confined (REL-01).
+ *
+ * @return the parked chain's trace id — the only field that identifies this chain's audit events
+ *   among those of every other still-live panel the global emitter also sees.
+ */
+private fun parkContinuation(
+    h: ChatPanelTestHarness.Harness,
+    onCompleted: (String, Throwable?) -> Unit,
+): String {
+    lateinit var traceId: String
+    SwingUtilities.invokeAndWait {
+        val field = ChatPanel::class.java.getDeclaredField("pendingDecisions")
+        field.isAccessible = true
+
+        @Suppress("UNCHECKED_CAST")
+        val pending = field.get(h.panel) as MutableMap<String, Any>
+        val sessionId =
+            requireNotNull(pending.keys.singleOrNull()) {
+                "Expected exactly one parked decision to substitute a continuation into; found ${pending.keys}."
+            }
+        val record = pending.getValue(sessionId)
+        val type = record.javaClass
+        val constructor =
+            requireNotNull(type.declaredConstructors.singleOrNull()) {
+                "PendingToolDecision no longer has exactly one constructor — this fixture is stale."
+            }
+        constructor.isAccessible = true
+
+        fun slot(name: String): Any? = type.getDeclaredField(name).also { it.isAccessible = true }.get(record)
+
+        traceId = slot("traceId") as String
+        pending[sessionId] =
+            constructor.newInstance(
+                slot("sessionId"),
+                slot("userText"),
+                slot("call"),
+                slot("context"),
+                slot("remainingToolIterations"),
+                traceId,
+                onCompleted,
+                slot("card"),
+            )
+    }
+    return traceId
+}
+
+/**
+ * Every session the panel currently holds, read off the production sessions-list model.
+ *
+ * The list is a SIBLING of the transcript — `MainTab` is handed it separately — so it is not under
+ * `ChatPanel.root` and has to be searched from `sessionsComponent()`.
+ */
+@Suppress("UNCHECKED_CAST")
+private fun sessions(h: ChatPanelTestHarness.Harness): List<ChatPanel.ChatSession> {
+    val list =
+        requireNotNull(ChatPanelTestHarness.find(h.panel.sessionsComponent(), JList::class.java)) {
+            "No JList under ChatPanel.sessionsComponent() — the sessions-list lookup is stale."
+        } as JList<Any?>
+    return (0 until list.model.size).map { list.model.getElementAt(it) as ChatPanel.ChatSession }
+}
+
+private fun sessionCount(h: ChatPanelTestHarness.Harness): Int = sessions(h).size
+
+/** The single session a freshly built harness holds — asserted to be single, never assumed. */
+private fun onlySession(h: ChatPanelTestHarness.Harness): ChatPanel.ChatSession =
+    requireNotNull(sessions(h).singleOrNull()) {
+        "Expected exactly one session on the panel; found ${sessions(h).map { it.title }}."
+    }
+
+/**
+ * Baseline settings with [toolIds] switched on, unsafe mode included.
+ *
+ * A real user configuration rather than a test hook: every `CONFIRM_EACH` tool that both completes
+ * headlessly and touches a stubbable Montoya seam is `unsafeOnly` and off by default, so reaching that
+ * tier at all requires the same two toggles a user would set in the MCP settings tab.
+ */
+private fun settingsEnabling(vararg toolIds: String): AgentSettings {
+    val base = TestSettings.baselineSettings()
+    return base.copy(
+        mcpSettings =
+            base.mcpSettings.copy(
+                unsafeEnabled = true,
+                toolToggles = toolIds.associateWith { true },
+            ),
+    )
 }
 
 /** The four D-11 labels, defined once so "is this a decision button?" is asked one way. */

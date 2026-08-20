@@ -1,5 +1,6 @@
 package com.six2dez.burp.aiagent.ui
 
+import burp.api.montoya.proxy.ProxyHttpRequestResponse
 import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.audit.Hashing
 import com.six2dez.burp.aiagent.mcp.ToolApprovalGate
@@ -28,8 +29,11 @@ import java.awt.Container
 import java.io.File
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.AbstractButton
+import javax.swing.JButton
 import javax.swing.JLabel
 import javax.swing.JList
 import javax.swing.ListCellRenderer
@@ -464,6 +468,120 @@ class ChatPanelToolGateTest {
         )
     }
 
+    /**
+     * REL-05 / AI-SPEC E6 — cancelling a running tool REFUNDS NO CHAIN ITERATION.
+     *
+     * The cancel variant of the eight-denial budget test above, and the threat it closes is the same
+     * monotone-budget one approached from the other direction: if a superseded step handed
+     * its iteration back and re-issued the turn, a user could hold an auto-chain open indefinitely by
+     * cancelling it — the unbounded chain D-13's counter exists to make impossible.
+     *
+     * **The measured shape of "no refund" is "no followup turn at all", and it is stronger than a
+     * budget that merely fails to grow.** `discardSupersededToolResult` sends nothing, so the chain
+     * stops dead at the cancelled step: the turn count stays at the ONE turn the user's own message
+     * started. A refund would show up here as a second turn.
+     *
+     * `Approve for session` rather than `Approve once` on purpose: with a session grant live, every
+     * later step would run with no card at all, so the chain demonstrably COULD have continued. Under
+     * `Approve once` a stopped chain proves nothing — the next card would simply have gone unanswered.
+     *
+     * **The turn count is asserted FIRST, for the reason the denial test above states:** the other
+     * clauses pass vacuously on a chain that stopped early for the wrong reason.
+     */
+    @Test
+    fun cancellingARunningToolRefundsNoChainIterationAndSendsNoFurtherTurn() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenAnswer {
+            entered.countDown()
+            check(release.await(SUPERSEDE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+                "The test never released the blocked tool — the cancel window was never opened."
+            }
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+            ChatPanelTestHarness.drainEdt()
+            // A session grant, so nothing downstream is waiting on a click.
+            click(requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }, "Approve for session")
+            assertTrue(
+                entered.await(SUPERSEDE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The tool worker never started, so there was nothing to cancel.",
+            )
+            SwingUtilities.invokeAndWait { cancelButton(h).doClick() }
+            release.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        // FIRST. Exactly the turn the user typed, and no other.
+        verifySendChatCount(h, 1)
+        // Drained far past the point a refunded iteration's followup would have landed.
+        ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
+        verifySendChatCount(h, 1)
+        // And the chain really did stop: one call reached Burp, not a second under the live grant.
+        verify(h.api.proxy(), times(1)).history()
+    }
+
+    /**
+     * REL-05 / AI-SPEC E6 — the same anti-refund rule for a supersede NOBODY CLICKED CANCEL for.
+     *
+     * The twin of the cancel variant above, and worth having separately: the anti-refund property has
+     * to belong to the SUPERSEDE TOKEN rather than to the Cancel button's action listener. Here the
+     * token is taken by a `/tool` command the user typed while the chain's step was still in flight —
+     * a different entry point that never goes near `cancelInFlightRequest` — and the budget must come
+     * out identical.
+     *
+     * **A `/tool` supersede rather than the project-change one this variant was first written
+     * against, and the reason was measured, not preferred.** `clearInMemorySessionState` clears
+     * `sessionPanels`, and `sendMessage` returns early when a session's panel is gone — so with the
+     * supersede REMOVED that variant still produced no second turn and went green against the defect.
+     * `/tool` leaves the panel alive, so the un-superseded tail really does reach `sendChat` and the
+     * turn count really does move. Verified by reverting `finishApprovedToolCall`'s
+     * `clearIfMatches` check to a constant `false`: this test fails, the earlier form did not.
+     *
+     * The `/tool` command contributes NO backend turn of its own (`handleToolCommand` returns before
+     * `sendMessage`), so the expected count stays at the one turn the user's chat message started.
+     *
+     * Turn count first, for the reason the two tests above both state.
+     */
+    @Test
+    fun aToolSupersededByASlashCommandRefundsNoChainIterationEither() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenAnswer {
+            entered.countDown()
+            check(release.await(SUPERSEDE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+                "The test never released the blocked tool — the supersede window was never opened."
+            }
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+            ChatPanelTestHarness.drainEdt()
+            click(requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }, "Approve for session")
+            assertTrue(
+                entered.await(SUPERSEDE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The tool worker never started, so there was nothing to supersede.",
+            )
+            // Mints its own running-tool token on the EDT, which is the supersede. Synchronous, so by
+            // the time this returns the chain's token is already the loser of the compare-and-set.
+            ChatPanelTestHarness.sendUserMessage(h, "/tool status {}")
+            release.countDown()
+            // Two workers: the superseding /tool one and the superseded chain one.
+            ChatPanelTestHarness.awaitToolSettled(count = 2)
+        }
+
+        verifySendChatCount(h, 1)
+        ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
+        verifySendChatCount(h, 1)
+        // The chain stopped at the superseded step rather than continuing under the live grant.
+        verify(h.api.proxy(), times(1)).history()
+    }
+
     // ── The pending-decision lifecycle (D-08's five teardown paths) ──────────────────────
 
     @Test
@@ -743,6 +861,21 @@ private const val SUCCESS_CLOSING_LINE = "Provide the final response using the t
 
 /** Comfortably longer than any chain this suite drives; over-draining an empty EDT queue is free. */
 private const val LONG_DRAIN = 24
+
+/**
+ * Deadlock failsafe for the two supersede budget variants, in seconds.
+ *
+ * A bound on a hang, never a threshold the work is measured against — the same discipline, and the
+ * same number, as `ChatPanelTestHarness.awaitToolSettled`'s own failsafe.
+ */
+private const val SUPERSEDE_FAILSAFE_SECONDS = 10L
+
+/** The panel's real Cancel button — the affordance a supersede variant has to press. */
+private fun cancelButton(h: ChatPanelTestHarness.Harness): JButton =
+    requireNotNull(ChatPanelTestHarness.find(h.panel.root, JButton::class.java) { it.text == "Cancel" }) {
+        "No JButton labelled 'Cancel' under ChatPanel.root — UI-SPEC Rule C-1 pins that label, so a " +
+            "miss here means it was renamed."
+    }
 
 /** The four D-11 labels, defined once so "is this a decision button?" is asked one way. */
 private val DECISION_LABELS = setOf("Deny", "Deny for session", "Approve once", "Approve for session")
