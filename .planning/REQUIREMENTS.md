@@ -25,7 +25,7 @@ Scope = the 17 findings of the 2026-08-05 deep code review of v0.9.2. Two of the
 
 ### Reliability & Concurrency (REL)
 
-- [x] **REL-05** (Findings 4, 8): No MCP tool execution, backend HTTP call, or `runBlocking` on an external MCP server happens on the Swing EDT; the auto tool-chain (up to 8 iterations) leaves the UI responsive throughout. Saving Settings does not block the EDT on `serverManager.stop()`'s 10-second bounded wait.
+- [ ] **REL-05** (Findings 4, 8): No MCP tool execution, backend HTTP call, or `runBlocking` on an external MCP server happens on the Swing EDT; the auto tool-chain (up to 8 iterations) leaves the UI responsive throughout. Saving Settings does not block the EDT on `serverManager.stop()`'s 10-second bounded wait.
 - [ ] **REL-06** (Finding 6): Every recurring scheduled task survives an exception in its body — `ActiveAiScanner.processQueue`, `ScannerTaskRegistry.cleanupExpired` and `CollaboratorRegistry.cleanupExpired` each keep running after a throw, matching the guard already present on `AgentSupervisor.checkHealth` and the OAST poller. Covered by a test that injects a throw and asserts the next tick still fires.
 - [ ] **REL-07** (Findings 9, 13, 14): CLI output capture is thread-safe and bounded — no unsynchronised `StringBuilder` shared across the reader thread and the timeout path, and no unbounded accumulation of a chatty CLI's output. `deleteOnExit()` no longer accumulates one shutdown-hook entry per CLI invocation. Unbounded `newCachedThreadPool()` use is replaced with bounded pools so an active scan cannot spawn threads without limit.
 
