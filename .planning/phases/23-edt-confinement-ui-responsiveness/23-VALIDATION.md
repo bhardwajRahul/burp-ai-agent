@@ -4,8 +4,8 @@ slug: edt-confinement-ui-responsiveness
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-08-20
 ---
 
@@ -14,7 +14,7 @@ created: 2026-08-20
 > Per-phase validation contract for feedback sampling during execution.
 > Seeded by plan-phase from `23-RESEARCH.md` §"Validation Architecture", which is itself grounded in
 > `23-AI-SPEC.md` §5 (dimensions E1–E10, scenarios S-01…S-12). No parallel scheme is invented here.
-> Task-level rows are filled in at plan time — the plans do not exist yet when this file is seeded.
+> Task-level rows were filled in by plan 23-05, the phase gate, once all five plans existed.
 
 ---
 
@@ -57,27 +57,34 @@ wrong name the natural one to reach for here.
 
 ## Per-Task Verification Map
 
-> Requirement-level map, seeded from research. **Task IDs are assigned at plan time** — the `Task ID`
-> and `Plan` columns are completed when `23-NN-PLAN.md` files exist. Every command runs in the fast
-> PR gate.
+> Requirement-level map, seeded from research; the `Task ID` and `Plan` columns were completed by
+> plan 23-05 once all five plans existed. Every command runs in the fast PR gate — confirmed, not
+> assumed: `./gradlew test -PexcludeHeavyTests=true` executes 762 tests across 106 suites with
+> `ChatPanelEdtConfinementTest` at 17, `McpToolExecutorEdtGuardTest` at 3 and `SettingsSaveAsyncTest`
+> at 7, while `ChatPanelConcurrencyTest` is absent from that same run — which is what makes the three
+> present counts mean something rather than showing that the filter was never applied.
+>
+> **`File Exists` reads ✅ throughout because Wave 0 landed in plan 23-01**, which is what that column
+> was tracking; the one row that read *partial — extend* was the `ChatPanelToolGateTest` extension,
+> and plan 23-04 added its two budget variants. `Status` is the outcome of the run above.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | 2 | SC1 · E2 · S-10 | V7 | `executeToolResult` throws `IllegalStateException` when entered from `invokeAndWait`, with `-ea` off | unit | `--tests '*McpToolExecutorEdtGuardTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | SC1 · E2 · S-01 | V4 | Chain call site reaches the executor on a non-EDT, daemon, **named** thread — captured, not inferred | integration | `--tests '*ChatPanelEdtConfinementTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | SC1 · E1 · S-03 | V4 | A `Deny` produces **zero** `executeToolResult` invocations and starts no worker | integration | `--tests '*ChatPanelEdtConfinementTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | SC2 · E2 · S-02 | V7 | A Montoya double that throws when called on the EDT is never called on the EDT — **red against HEAD** | integration | `--tests '*ChatPanelEdtConfinementTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | SC2 · E2 · F-4 | V4 | The guard precedes the `ext:` early return, so `routeExternalToolCall`'s `runBlocking` is covered | unit | `--tests '*McpToolExecutorEdtGuardTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | SC3 · E3 · S-01 | — | A runnable queued to the EDT runs **while** the tool is mid-call (mutual latch handshake, no wall-clock); 8 results in submission order **by trace id**; busy cleared exactly once — **red against HEAD** | integration | `--tests '*ChatPanelEdtConfinementTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 3 | SC4 · E7 · S-11 | V8 | `applyAndSaveSettings` off the EDT; EDT not blocked on `future.get(10, SECONDS)`; `currentSettings()` snapshot still taken on the EDT; both callers report from the completion callback; Save disabled in flight | integration | `--tests '*SettingsSaveAsyncTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 3 | SC4 · FLAG-23-06 | V7 | The busy seam lowers on the **failure** path, not only on success | integration | `--tests '*SettingsSaveAsyncTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 5 | SC5 · E5 | V3 | `assertEdt()` and its 6 call sites byte-identical; new `invokeLater` count stated with a per-addition reason; no worker-side read of a `@GuardedBy("EDT")` map | structural + integration | `--tests '*ChatPanelEdtConfinementTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 / 4 | SC6 · E9 · S-07 | V7 | Worker is `isDaemon` **and named**; unload does not join it and does not block; a throwing worker writes `logToError` | integration | `--tests '*ChatPanelEdtConfinementTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 / 4 | REL-05 (audit) · E4 · S-04/05/06/07/09/12 | V7 | The audit pair fires — `report` first, its `metadata` consumed by `log` — on **every** exit incl. cancel and supersede; the `Result` crosses the boundary intact | integration | `--tests '*ChatPanelEdtConfinementTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 4 | REL-05 (budget) · E6 · S-04/S-09 | V4 | Cancel and supersede send no followup turn and **refund no iteration**; chain still terminates at 8; `onCompleted` discharged on every exit | integration | extends `ChatPanelToolGateTest.kt:368` | ⚠️ partial — extend | ⬜ pending |
-| TBD | TBD | 4 | REL-05 · E10 (**rewritten negative**) · S-08 | V4 | A `/tool` racing a chain: both dispatch off-EDT, both execute, chain unharmed, and **no** `"Too many concurrent MCP requests."` appears — each chat call site mints its own limiter (`ChatPanel.kt:3019`) | integration | `--tests '*ChatPanelEdtConfinementTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 / 4 | E1 · S-03/S-09 | V1, V4 | No worker starts for a model-originated call until the gate produced `Run` **on the EDT**; exactly one `executeToolResult` per approved call; a superseded card produces no second execution | integration | `--tests '*ChatPanelEdtConfinementTest'` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 3 | E8 · S-11 | V8 | A tool worker dispatched during a settings save redacts under its **snapshot** privacy mode and is never unredacted; the stale `Redaction.kt:767-768` comment is corrected | integration + structural | `--tests '*SettingsSaveAsyncTest'` | ❌ W0 | ⬜ pending |
+| 23-02 T3 | 23-02 | 2 | SC1 · E2 · S-10 | V7 | `executeToolResult` throws `IllegalStateException` when entered from `invokeAndWait`, with `-ea` off | unit | `--tests '*McpToolExecutorEdtGuardTest'` | ✅ | ✅ green |
+| 23-01 T1 | 23-01 | 1 | SC1 · E2 · S-01 | V4 | Chain call site reaches the executor on a non-EDT, daemon, **named** thread — captured, not inferred | integration | `--tests '*ChatPanelEdtConfinementTest'` | ✅ | ✅ green |
+| 23-02 T3 | 23-02 | 2 | SC1 · E1 · S-03 | V4 | A `Deny` produces **zero** `executeToolResult` invocations and starts no worker | integration | `--tests '*ChatPanelEdtConfinementTest'` | ✅ | ✅ green |
+| 23-01 T2 | 23-01 | 1 | SC2 · E2 · S-02 | V7 | A Montoya double that throws when called on the EDT is never called on the EDT — **red against HEAD** | integration | `--tests '*ChatPanelEdtConfinementTest'` | ✅ | ✅ green |
+| 23-02 T3 | 23-02 | 2 | SC2 · E2 · F-4 | V4 | The guard precedes the `ext:` early return, so `routeExternalToolCall`'s `runBlocking` is covered | unit | `--tests '*McpToolExecutorEdtGuardTest'` | ✅ | ✅ green |
+| 23-01 T2 | 23-01 | 1 | SC3 · E3 · S-01 | — | A runnable queued to the EDT runs **while** the tool is mid-call (mutual latch handshake, no wall-clock); 8 results in submission order **by trace id**; busy cleared exactly once — **red against HEAD** | integration | `--tests '*ChatPanelEdtConfinementTest'` | ✅ | ✅ green |
+| 23-03 T3+T4 | 23-03 | 3 | SC4 · E7 · S-11 | V8 | `applyAndSaveSettings` off the EDT; EDT not blocked on `future.get(10, SECONDS)`; `currentSettings()` snapshot still taken on the EDT; both callers report from the completion callback; Save disabled in flight | integration | `--tests '*SettingsSaveAsyncTest'` | ✅ | ✅ green |
+| 23-03 T4 | 23-03 | 3 | SC4 · FLAG-23-06 | V7 | The busy seam lowers on the **failure** path, not only on success | integration | `--tests '*SettingsSaveAsyncTest'` | ✅ | ✅ green |
+| 23-05 T1 | 23-05 | 4 | SC5 · E5 | V3 | `assertEdt()`'s body byte-identical and its mention count unmoved at 6 (one declaration, one comment, four invocations — measured, and *not* six call sites as seeded here); `invokeLater` count pinned to a constant whose KDoc is the per-addition ledger; no worker-side read of a `@GuardedBy("EDT")` map, asserted structurally AND behaviourally | structural + integration | `--tests '*ChatPanelEdtConfinementTest'` | ✅ | ✅ green |
+| 23-01 T1 + 23-04 T2 | 23-01 / 23-04 | 1 / 4 | SC6 · E9 · S-07 | V7 | Worker is `isDaemon` **and named**; unload does not join it and does not block; a throwing worker writes `logToError` | integration | `--tests '*ChatPanelEdtConfinementTest'` | ✅ | ✅ green |
+| 23-01 T1+T3 + 23-04 T2 | 23-01 / 23-04 | 1 / 4 | REL-05 (audit) · E4 · S-04/05/06/07/09/12 | V7 | The audit pair fires — `report` first, its `metadata` consumed by `log` — on **every** exit incl. cancel and supersede; the `Result` crosses the boundary intact | integration | `--tests '*ChatPanelEdtConfinementTest'` | ✅ | ✅ green |
+| 23-04 T2 | 23-04 | 4 | REL-05 (budget) · E6 · S-04/S-09 | V4 | Cancel and supersede send no followup turn and **refund no iteration**; chain still terminates at 8; `onCompleted` discharged on every exit | integration | extends `ChatPanelToolGateTest.kt:368` | ✅ | ✅ green |
+| 23-04 T3 | 23-04 | 4 | REL-05 · E10 (**rewritten negative**) · S-08 | V4 | A `/tool` racing a chain: both dispatch off-EDT, both execute, chain unharmed, and **no** `"Too many concurrent MCP requests."` appears — each chat call site mints its own limiter (`ChatPanel.kt:3019`) | integration | `--tests '*ChatPanelEdtConfinementTest'` | ✅ | ✅ green |
+| 23-02 T3 + 23-04 T2 | 23-02 / 23-04 | 2 / 4 | E1 · S-03/S-09 | V1, V4 | No worker starts for a model-originated call until the gate produced `Run` **on the EDT**; exactly one `executeToolResult` per approved call; a superseded card produces no second execution | integration | `--tests '*ChatPanelEdtConfinementTest'` | ✅ | ✅ green |
+| 23-03 T2+T4 | 23-03 | 3 | E8 · S-11 | V8 | A tool worker dispatched during a settings save redacts under its **snapshot** privacy mode and is never unredacted; the stale `Redaction.kt:767-768` comment is corrected | integration + structural | `--tests '*SettingsSaveAsyncTest'` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -85,23 +92,23 @@ wrong name the natural one to reach for here.
 
 ## Wave 0 Requirements
 
-- [ ] `src/test/kotlin/.../ui/ChatPanelTestHarness.kt` — add `awaitToolSettled(count, failsafe)` plus
+- [x] `src/test/kotlin/.../ui/ChatPanelTestHarness.kt` — add `awaitToolSettled(count, failsafe)` plus
       `installSettledObserver()` / `releaseSettledObserver()`. **Prerequisite for every chat scenario
       and the phase's first commit.** The existing `drainEdt()` (`:211`) is
       `repeat(times) { SwingUtilities.invokeAndWait { } }` and is structurally blind to a daemon
       worker; `ChatPanelToolGateTest.kt:358` becomes racy without this.
-- [ ] `src/main/kotlin/.../ui/OffEdtDispatch.kt` — the production helper the harness observes.
+- [x] `src/main/kotlin/.../ui/OffEdtDispatch.kt` — the production helper the harness observes.
       **The observer must hang off this helper, not off an executor mock:** `McpToolExecutor` is an
       `object` singleton (`mcp/tools/McpToolExecutorImpl.kt:45`) with no interface, so there is no
       executor test double to put a latch in. Install/clear follows the
       `AuditLogger.registerGlobalEmitter` precedent already used in the same test class.
-- [ ] `src/test/kotlin/.../ui/ChatPanelEdtConfinementTest.kt` — SC1, SC2, SC3, SC5, SC6, E1–E6, E9, E10
-- [ ] `src/test/kotlin/.../mcp/tools/McpToolExecutorEdtGuardTest.kt` — S-10
-- [ ] `src/test/kotlin/.../ui/SettingsSaveAsyncTest.kt` — SC4, E7, E8. **Gated on the A2 spike below.**
-- [ ] `build.gradle.kts` — an `inputs.file` declaration for any newly source-read main file. Only four
+- [x] `src/test/kotlin/.../ui/ChatPanelEdtConfinementTest.kt` — SC1, SC2, SC3, SC5, SC6, E1–E6, E9, E10
+- [x] `src/test/kotlin/.../mcp/tools/McpToolExecutorEdtGuardTest.kt` — S-10
+- [x] `src/test/kotlin/.../ui/SettingsSaveAsyncTest.kt` — SC4, E7, E8. **Gated on the A2 spike below.**
+- [x] `build.gradle.kts` — an `inputs.file` declaration for any newly source-read main file. Only four
       files are currently declared inputs and three of this phase's are not among them, so a
       structural assertion would not re-run when its target changes.
-- [ ] Framework install: **none required** — JUnit, mockito-kotlin, JaCoCo and the headless flag all ship.
+- [x] Framework install: **none required** — JUnit, mockito-kotlin, JaCoCo and the headless flag all ship.
 
 ---
 
@@ -131,13 +138,28 @@ infeasible.
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] New suites confirmed to run under `-PexcludeHeavyTests=true`
-- [ ] `detekt-baseline.xml` unchanged
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s
+- [x] New suites confirmed to run under `-PexcludeHeavyTests=true`
+- [x] `detekt-baseline.xml` unchanged
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** the eight boxes above are evidence-backed, and the evidence is stated rather than
+implied:
+
+- **`<automated>` verify on every task** — 16 tasks across the five plans, 16 `<automated>` blocks. No
+  task lacks one, so the "no 3 consecutive" continuity rule is satisfied trivially rather than
+  narrowly.
+- **New suites run under the PR-gate filter** — 17 / 3 / 7 executed, with `ChatPanelConcurrencyTest`
+  absent from the same run. The absence is the control: without it, three present counts would be
+  equally consistent with the filter never having been applied.
+- **`detekt-baseline.xml` unchanged** — `grep -c '<ID>'` returns 1096 and `git diff --stat` is empty,
+  re-measured at the phase gate. One detekt finding did arise (`LargeClass` on
+  `ChatPanelEdtConfinementTest`, which grew to 17 scenarios) and was answered with an inline
+  `@Suppress` carrying its reason, never with a regenerated baseline.
+- **No watch-mode flags** — every command in this file is a one-shot Gradle invocation.
+
+`status` stays `draft`; `/gsd-validate-phase` §6 is what sets `validated`.
