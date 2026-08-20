@@ -97,11 +97,24 @@ phase must preserve and not re-open.
   everything REL-05 names — the chat path, the server path, `routeExternalToolCall`'s `runBlocking`
   (`:1126`), and both `api.http().sendRequest` sites (`:191`, `:237`). One guard there covers the
   whole requirement; a guard on `executeTool` covers only the chat half. Free for the server path,
-  which runs on Ktor coroutines and is already off the EDT. The planner should confirm no test
-  harness or future caller legitimately drives `executeToolResult` from the EDT before locking this.
+  which runs on Ktor coroutines and is already off the EDT.
 
-- **D-05:** **Mechanism: a daemon `Thread` per call plus `SwingUtilities.invokeLater`**, literally
-  the `MainTab.kt:190-215` health-check idiom SC6 names. No executor, no lifecycle for `ChatPanel` to
+  **The "confirm before locking" check has been run, and the answer is YES — one caller does.**
+  `ChatPanelToolGateTest.slashCommandPathIsNotDoublePrompted` (`:350`) drives the real `ChatPanel`
+  through `ChatPanelTestHarness.sendUserMessage`, which wraps the send in `SwingUtilities.invokeAndWait`
+  (`ChatPanelTestHarness.kt:193`), so the `/tool` path reaches `executeToolResult` **on the EDT today**.
+  Consequence for the plan, and it is a sequencing constraint rather than a blocker: **the throwing
+  guard and D-01's three call-site moves must land in the same commit.** Guard first = that test goes
+  red; moves first = the guard has nothing to catch. No production caller was found on the EDT other
+  than the three D-01 sites.
+
+- **D-05:** **Mechanism: a daemon `Thread` per call plus `SwingUtilities.invokeLater`**, following
+  the `MainTab.kt:190-215` health-check idiom SC6 names. **Correction, measured 2026-08-20:**
+  `MainTab.kt:193` is a bare `Thread { … }` and does **not** set `isDaemon`. The daemon flag must be
+  set explicitly — `Thread(task, "…").apply { isDaemon = true }`, the form used at
+  `MontoyaHttpTransport.kt:85`. This is load-bearing, not cosmetic: D-08's "a daemon thread never
+  blocks unload" is only true if the flag is actually set. Name the thread too, so a stuck worker is
+  identifiable in a thread dump. No executor, no lifecycle for `ChatPanel` to
   own, nothing to shut down — and ordering inside a chain is already structural, since one card is
   pending at a time and the next turn only starts from the previous result's callback. Rejected: a
   single-thread executor owned by `ChatPanel` (would serialise a `/tool` racing the chain and give a
@@ -252,10 +265,11 @@ Left to research and planning. Each carries a recommendation to be **confirmed, 
   the transcript as the visible marker, and D-06 gives a panel-level signal; a per-call spinner is
   new chrome for a state that usually lasts under a second.
 
-- **`ExternalMcpClientManager.kt:408` and `:442`** — two further `runBlocking` sites outside
-  `executeToolResult`'s path. Research should establish whether either is reachable from the EDT
-  (a Settings connect/test button is the plausible route). If yes, decide in planning whether they
-  fall under REL-05's *"`runBlocking` on an external MCP server"* clause or belong in Deferred.
+- ~~**`ExternalMcpClientManager.kt:408` and `:442`**~~ — **RESOLVED 2026-08-20, no longer open.**
+  Both sites are inside `fun stop()` (`:395`), and nothing in `src/main` constructs an
+  `ExternalMcpClientManager` at all — the only constructor calls are in
+  `src/test/kotlin/…/ExternalMcpClientManagerTest.kt`. Not reachable from a Settings button or any
+  other EDT path. Out of scope for REL-05; stays in Deferred.
 
 </decisions>
 
@@ -322,6 +336,14 @@ Left to research and planning. Each carries a recommendation to be **confirmed, 
   `restoreDefaultsWithConfirmation` (D-10, D-12, D-13).
 - `src/test/kotlin/com/six2dez/burp/aiagent/ui/ChatPanelTestHarness.kt` and
   `ChatPanelToolGateTest.kt` — the existing real-`ChatPanel` headless fixture SC3's test extends.
+  **Two things in it break the moment execution goes async, both measured 2026-08-20:**
+  (a) `drainEdt()` (`ChatPanelTestHarness.kt:211`) is `repeat(times) { SwingUtilities.invokeAndWait { } }`
+  — it drains the EDT queue and knows nothing about a daemon worker, so it cannot remain the sole
+  synchronisation point; (b) `ChatPanelToolGateTest.kt:358`'s
+  `verify(h.api.proxy(), times(1)).history()` fires immediately after `drainEdt()` and becomes racy.
+  The harness needs a worker-aware await (a latch, or a completion hook the production code exposes
+  for tests) before any SC3 assertion can be trusted. Budget for this — it is the mechanism SC3's
+  "deterministic, not wall-clock" recommendation depends on.
 
 ### Read-only, but do not disturb
 - `src/main/kotlin/com/six2dez/burp/aiagent/mcp/KtorMcpServerManager.kt:250-283` — the bounded
@@ -353,8 +375,11 @@ Left to research and planning. Each carries a recommendation to be **confirmed, 
 
 ### Established Patterns
 - Swing mutation from a non-EDT thread always goes through `SwingUtilities.invokeLater`; `ChatPanel`
-  currently contains exactly **10** of them and Phase 22 used that count as regression evidence. This
-  phase will raise it — state the new count and what each addition is for.
+  contains **11** of them at HEAD (lines 647, 658, 673, 715, 723, 741, 1909, 1926, 2190, 2268, 2283),
+  measured 2026-08-20. **Note the correction:** Phase 22 used a 10 → 10 count as its regression
+  evidence (`22-07-SUMMARY.md:95`) and that was true at the time; an eleventh site landed later in
+  the phase. Use the measured 11 as this phase's baseline, not the figure quoted in the Phase 22
+  summary. This phase will raise it — state the new count and what each addition is for.
 - `ChatPanel` owns **no** executor today. All asynchrony arrives from `supervisor.sendChat`
   (`supervisor/AgentSupervisor.kt:435`), whose callbacks fire on backend threads and are marshalled
   back. D-05 keeps it that way — no new owned lifecycle.
@@ -363,6 +388,15 @@ Left to research and planning. Each carries a recommendation to be **confirmed, 
   continuation.
 - Security-relevant invariants are enforced by a test, not by inspection — `McpToolParityTest`'s
   shape. SC1's *"asserted by a test, not only by inspection"* expects the same.
+- **Test naming is load-bearing in this repo — verified at source 2026-08-20.**
+  `.github/workflows/build.yml:47` runs `./gradlew test -PexcludeHeavyTests=true`, and
+  `build.gradle.kts:206-213` excludes `*IntegrationTest`, `*ConcurrencyTest`, `*BackpressureTest`,
+  `*RestartPolicyTest` and `*SupervisionTest` under that flag. **A new test named `*ConcurrencyTest`
+  would not run on the PR gate at all** — only in `nightlyRegressionTest` — so this phase's entire
+  SC1–SC5 suite could ship green without ever executing on the cross-platform matrix, which is the
+  one place a platform EDT difference would surface. `ChatPanelConcurrencyTest` is already in the
+  excluded set, which makes the wrong name the *natural* one to reach for here. Suggested names that
+  actually run: `ChatPanelEdtConfinementTest`, `McpToolExecutorEdtGuardTest`, `SettingsSaveAsyncTest`.
 
 ### Integration Points
 - `ChatPanel.kt:741` — the `invokeLater` block that calls `maybeExecuteToolCall` and branches on
@@ -418,13 +452,41 @@ Left to research and planning. Each carries a recommendation to be **confirmed, 
   neither creates nor worsens. Fix belongs with REL-07 / Phase 24 or QUAL-06 / Phase 26, not here.
 - **`isSending` is dead state** — `ChatPanel.kt:110`, written at `:942`, never read. Trivially
   removable; flagged so it is a deliberate call rather than an oversight.
-- **`ExternalMcpClientManager.kt:408,442` `runBlocking`** — outside `executeToolResult`'s path.
-  Pending the reachability check in Claude's Discretion; if not EDT-reachable, it stays deferred.
+- **`ExternalMcpClientManager.kt:408,442` `runBlocking`** — outside `executeToolResult`'s path,
+  both inside `fun stop()` (`:395`). Reachability checked 2026-08-20: **not EDT-reachable** — no
+  `src/main` code constructs the manager, only tests do. Confirmed deferred.
 - **Upgrading `assertEdt()` from a production no-op** — QUAL-07 / Phase 26, unchanged from Phase 22's
   deferral. This phase adds an inverse check elsewhere and deliberately leaves `assertEdt()` alone.
 - **`ChatPanel.kt` mega-file split** — explicitly Out of Scope for v0.10.0; carried to the backlog.
 - **A per-call progress indicator in the transcript** — considered under D-06 and left out. Revisit
   if real-world tool calls turn out to run long enough that a panel-level busy state reads as a hang.
+- **Chat-originated HTTP tool calls bypass Burp target scope entirely — NOT this phase's, but do
+  not lose it.** Verified at source 2026-08-20: `McpToolContext.scopeOnly` defaults to `false`
+  (`mcp/McpToolContext.kt:44`), and `ChatPanel.buildToolContext` (`ui/ChatPanel.kt:3005-3022`) never
+  passes it, while the MCP-server path does (`McpRuntimeContextFactory.kt:55` — `scopeOnly =
+  settings.scopeOnly`). `McpScopeFilter.rejectIfOutOfScope` is wired into all six request-sending
+  branches of `McpToolExecutorImpl` but is gated on that flag, so for a chat-originated
+  `http1_request` / `http2_request` / `repeater_tab` / intruder call the **SEC-06 approval card is
+  the only scope control that runs**. This may well be deliberate — the chat path is user-driven and
+  scope-limiting it could block legitimate testing — but the asymmetry between the two context
+  factories is undocumented either way. **Triage as a candidate requirement** (SEC-family, v0.10.0
+  backlog or v0.11.0); it is not a REL-05 concern and must not be fixed inside Phase 23.
+- **Non-transactional settings application becomes observable mid-flight.** `applyAndSaveSettings`
+  performs ~10 independent mutations with no transaction. Today EDT serialisation makes it mutually
+  exclusive with chat tool execution by construction; D-05 + D-11 remove that edge, so a tool worker
+  can observe a **half-applied** settings set (new privacy mode, old custom patterns). Every field
+  involved is `@Volatile`, so this is an atomicity question, not a visibility one — an earlier
+  claim that `AuditLogger.enabled` lacked `@Volatile` was checked and is **false** (the annotation is
+  on `audit/AuditLogger.kt:34`). Decide in planning between a settings snapshot taken before
+  dispatch, mutual exclusion, or an accepted-and-documented residual. Also: `Redaction`'s
+  `compiledCustomPatterns` `@Volatile` comment justifies itself by "writes from the EDT (save)" —
+  that rationale goes stale under D-11 even though the behaviour does not. Update the comment.
+- **`McpRequestLimiter` contention becomes reachable** — `McpRequestLimiter.kt:9-14` is a **fair**
+  `Semaphore` with a 250 ms default `tryAcquire` timeout. Today EDT serialisation makes contention
+  from the chat path impossible; with D-05's per-call daemon threads a `/tool` racing a chain can
+  genuinely collide, so `"Too many concurrent MCP requests."` becomes a reachable outcome. It fails
+  closed and is correct behaviour — **expect it, do not treat it as a regression**, and do not raise
+  the limit to make it disappear.
 
 </deferred>
 
