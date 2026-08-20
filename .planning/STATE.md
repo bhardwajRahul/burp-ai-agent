@@ -5,16 +5,16 @@ milestone_name: Security Correctness & Agent Trust
 current_phase: 23
 current_phase_name: EDT Confinement & UI Responsiveness
 status: executing
-stopped_at: Completed 23-03-PLAN.md
-last_updated: "2026-08-20T20:12:27.477Z"
+stopped_at: Completed 23-04-PLAN.md
+last_updated: "2026-08-20T21:13:31.409Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 23 execution started
-state_head: cfaa32b067650d43c4f69de5fecf8e69b54d8bd6
+state_head: efeb7d5416ff64b1beabb1db50c57382c7f22065
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 43
-  completed_plans: 41
+  completed_plans: 42
   percent: 14
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 ## Current Position
 
 Phase: 23 (EDT Confinement & UI Responsiveness) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Resume file: None
 Last activity: 2026-08-20 — Phase 23 execution started
@@ -138,6 +138,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | Phase 23 P01 | 42 min | 3 tasks | 5 files |
 | Phase 23 P02 | 25 min | 4 tasks | 6 files |
 | Phase 23 P03 | 36 min | 4 tasks | 7 files |
+| Phase 23 P04 | 61 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -190,6 +191,11 @@ Recent decisions affecting current work:
 - [Phase 23]: 23-03: setActionsBusy disables BOTH action buttons, because D-13 puts saveSettings and restoreDefaultsWithConfirmation on one async path and Restore is the other door into the double-save race
 - [Phase 23]: 23-03: FLAG-23-01 recolor IMPLEMENTED (Save goes outlineVariant/onSurfaceVariant while busy), recorded as a deliberate choice with the escape hatch left to live UAT
 - [Phase 23]: 23-03: restoreDefaultsWithConfirmation is asserted structurally, not behaviourally — JOptionPane.getRootFrame() throws HeadlessException so this caller cannot be driven headlessly; the source-read is paired with its own build.gradle.kts inputs.file declaration in the same commit
+- [Phase 23]: 23-04: deleteSession was split into a modal half and an internal deleteConfirmedSession — JOptionPane throws HeadlessException, so every line of the teardown sat below an unreachable statement and could not be asserted at all
+- [Phase 23]: 23-04: 23-01's suggested per-cause supersedeReason parameter was NOT implemented — three of four exits share cancelInFlightRequest, whose signature is a detekt-baseline ReturnCount key, so a reason reading 'cancelled' for an unload would be worse than one honest generic reason
+- [Phase 23]: 23-04: the session-delete exit clears the busy state CONDITIONALLY on a worker having been superseded — unconditionally clobbers a backend turn in another session, not at all leaves Send hidden forever
+- [Phase 23]: 23-04: transcript rows are identified by BODY text, never by header — ChatMessagePanel renders every non-user role as the literal 'AI', which made 23-01's contains('Tool result: ...') assertion false by construction and therefore unfalsifiable
+- [Phase 23]: 23-04: S-08 asserts the measured consequence (a /tool supersedes the chain step via the panel-wide running-tool cell) instead of the plan's 'chain unharmed, still terminates at 8', which that cell makes unreachable
 
 ### Roadmap Evolution
 
@@ -232,6 +238,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T20:12:14.069Z
-Stopped at: Completed 23-03-PLAN.md
+Last session: 2026-08-20T21:13:15.749Z
+Stopped at: Completed 23-04-PLAN.md
 Resume file: None

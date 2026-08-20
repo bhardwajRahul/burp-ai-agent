@@ -252,7 +252,7 @@ Plans:
 5. No regression in the REL-01 EDT-confinement guarantees for `ChatPanel` session maps — those maps must still be touched only on the EDT while the *work* moves off it.
 6. `MainTab`'s existing `Thread { … } + SwingUtilities.invokeLater` health-check pattern is reused rather than a new concurrency idiom being introduced.
 
-**Plans**: 3/5 plans executed in 4 waves
+**Plans**: 4/5 plans executed in 4 waves
 
 Plans:
 
@@ -267,7 +267,7 @@ Plans:
 
 **Wave 3** *(blocked on 23-01 and 23-02)*
 
-- [ ] 23-04-PLAN.md — the remaining teardown exits, including the **explicit** supersede `deleteSession` does not inherit, plus S-05…S-09, S-12 and the rewritten negative E10 limiter dimension (wave 3)
+- [x] 23-04-PLAN.md — the remaining teardown exits, including the **explicit** supersede `deleteSession` does not inherit, plus S-05…S-09, S-12 and the rewritten negative E10 limiter dimension (wave 3)
 
 **Wave 4** *(blocked on everything)*
 
@@ -350,7 +350,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
 | 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
 | 22. Agent Tool-Call Trust Boundary | 9/9 | Complete    | 2026-08-20 |
-| 23. EDT Confinement & UI Responsiveness | 3/5 | In Progress|  |
+| 23. EDT Confinement & UI Responsiveness | 4/5 | In Progress|  |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
 | 25. Secondary Hardening | 0/? | Not started | — |
 | 26. Coverage, Static-Analysis Debt & Docs | 0/? | Not started | — |
