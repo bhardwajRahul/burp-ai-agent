@@ -5,16 +5,16 @@ milestone_name: Security Correctness & Agent Trust
 current_phase: 23
 current_phase_name: EDT Confinement & UI Responsiveness
 status: executing
-stopped_at: Completed 23-01-PLAN.md
-last_updated: "2026-08-20T18:48:30.456Z"
+stopped_at: Completed 23-02-PLAN.md
+last_updated: "2026-08-20T19:23:44.435Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 23 execution started
-state_head: a8c0183b2303f2ce3370c5dd6a3eae950f8e24d8
+state_head: ff94d37b2703cc35dc24d09028e3fe340a50b1e5
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 43
-  completed_plans: 39
+  completed_plans: 40
   percent: 14
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 ## Current Position
 
 Phase: 23 (EDT Confinement & UI Responsiveness) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Resume file: None
 Last activity: 2026-08-20 — Phase 23 execution started
@@ -136,6 +136,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 23 P01 | 42 min | 3 tasks | 5 files |
+| Phase 23 P02 | 25 min | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -179,6 +180,10 @@ Recent decisions affecting current work:
 - [Phase ?]: Path A confirmed: kotlin-sdk stays at 0.5.0; only 3 explicit dep pins needed (no SDK or Kotlin plugin bump)
 - [Phase ?]: Wave 0 scaffold pattern: @Disabled stubs with commented production code document plan N+1 implementation contract
 - [Phase ?]: SC1 < 500 line target physically unachievable for SettingsPanel.kt: field declarations alone are ~512 lines; 855 lines is the minimum achievable floor after all method body extractions
+- [Phase 23]: Task 1 checkpoint resolved to door-guard: the throwing EDT precondition sits at McpToolExecutor.executeToolResult, not at the executeTool wrapper — the placement D-03/D-04 lock. No locked decision overridden.
+- [Phase 23]: The -ea-off demonstration is a dedicated Gradle task (edtGuardWithoutAssertionsTest, jvmArgs -da) rather than a task-wide -da on tasks.test, which would weaken every other suite's assertions to buy one suite's evidence.
+- [Phase 23]: FLAG-23-03 answered YES: the /tool command is appended to session.messages as a user ChatMessage, removing the asymmetry with openToolDialog rather than preserving it.
+- [Phase 23]: The two user-originated tool tails emit no audit decision pair — SC5 makes these paths ungated, so there is no approval record to report and inventing one would fabricate a SEC-06 log entry.
 
 ### Roadmap Evolution
 
@@ -221,6 +226,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T18:48:30.339Z
-Stopped at: Completed 23-01-PLAN.md
+Last session: 2026-08-20T19:23:34.352Z
+Stopped at: Completed 23-02-PLAN.md
 Resume file: None
