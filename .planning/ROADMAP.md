@@ -252,13 +252,13 @@ Plans:
 5. No regression in the REL-01 EDT-confinement guarantees for `ChatPanel` session maps — those maps must still be touched only on the EDT while the *work* moves off it.
 6. `MainTab`'s existing `Thread { … } + SwingUtilities.invokeLater` health-check pattern is reused rather than a new concurrency idiom being introduced.
 
-**Plans**: 5 plans in 4 waves
+**Plans**: 1/5 plans executed in 4 waves
 
 Plans:
 
 **Wave 1** *(the tracer — one path end-to-end, deliberately without the guard)*
 
-- [ ] 23-01-PLAN.md — `OffEdtDispatch` helper, harness `awaitToolSettled`, the chain call site moved with its full lifecycle (S3 busy, supersede CAS, cancel, marshalled audit tail, `ToolCallOutcome.EXECUTING`), plus `ChatPanelEdtConfinementTest` carrying S-01/S-02/S-04 red-before-green (wave 1)
+- [x] 23-01-PLAN.md — `OffEdtDispatch` helper, harness `awaitToolSettled`, the chain call site moved with its full lifecycle (S3 busy, supersede CAS, cancel, marshalled audit tail, `ToolCallOutcome.EXECUTING`), plus `ChatPanelEdtConfinementTest` carrying S-01/S-02/S-04 red-before-green (wave 1)
 
 **Wave 2** *(23-02 and 23-03 run in parallel — zero shared files)*
 
@@ -350,7 +350,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
 | 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
 | 22. Agent Tool-Call Trust Boundary | 9/9 | Complete    | 2026-08-20 |
-| 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
+| 23. EDT Confinement & UI Responsiveness | 1/5 | In Progress|  |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
 | 25. Secondary Hardening | 0/? | Not started | — |
 | 26. Coverage, Static-Analysis Debt & Docs | 0/? | Not started | — |
