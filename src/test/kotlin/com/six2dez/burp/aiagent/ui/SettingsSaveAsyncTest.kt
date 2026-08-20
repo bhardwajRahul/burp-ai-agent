@@ -27,6 +27,7 @@ import org.mockito.Answers
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
+import java.io.File
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -386,6 +387,38 @@ class SettingsSaveAsyncTest {
         }
     }
 
+    /**
+     * Rule C-2 / D-13 — `restoreDefaultsWithConfirmation` reports from the completion callback, and its
+     * confirmation stays on the EDT before dispatch.
+     *
+     * **Asserted structurally, and that bound is measured rather than chosen.** This path opens with
+     * `JOptionPane.showConfirmDialog`, and `JOptionPane.getRootFrame()` throws `HeadlessException`
+     * (`CONCERNS.md`), so the caller cannot be driven headlessly at all — the sibling save path carries
+     * the behavioural version of the same claim, since D-13 puts both callers on ONE async path. The
+     * form follows `ChatPanelToolGateTest.userDialogPathIsNotDoublePrompted`, and `build.gradle.kts`
+     * declares this file as a `tasks.test` input so an edit to it actually re-runs this assertion
+     * instead of being served from cache — the measured 22-09 stale-cache defect.
+     *
+     * `"Defaults restored and applied."` is printed today from inside the callback. Printed on the line
+     * after an async call returns it would be a lie, which is the concrete regression this pins.
+     */
+    @Test
+    fun restoreDefaultsConfirmsBeforeDispatchAndReportsFromTheCallback() {
+        val body = restoreDefaultsSource()
+        val confirm = body.indexOf("showConfirmDialog")
+        val applyToUi = body.indexOf("applySettingsToUi(defaults)")
+        val startBanner = body.indexOf("\"Restoring defaults...\"")
+        val dispatch = body.indexOf("applyAndSaveSettingsAsync(")
+        val successBanner = body.indexOf("\"Defaults restored and applied.\"")
+        val failureBanner = body.indexOf("\"Restore failed: ")
+
+        assertTrue(confirm in 0 until dispatch, "Rule T-3: the confirmation must precede the dispatch.")
+        assertTrue(applyToUi in 0 until dispatch, "Rule T-3: applySettingsToUi writes Swing, so it stays on the EDT.")
+        assertTrue(startBanner in 0 until dispatch, "Rule C-2: every T1 entry needs a T1 banner.")
+        assertTrue(successBanner > dispatch, "Rule C-2: the success line must come from the completion callback.")
+        assertTrue(failureBanner > dispatch, "Rule C-2: the failure line must come from the completion callback too.")
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Fixture
     // ---------------------------------------------------------------------------------------------
@@ -465,5 +498,43 @@ class SettingsSaveAsyncTest {
             null
         }
         return prefs
+    }
+
+    /**
+     * The source text of `restoreDefaultsWithConfirmation`, read from disk.
+     *
+     * Named, resolved and asserted rather than left to surface as a bare `FileNotFoundException`, which
+     * is what a build-layout change would otherwise produce here. `build.gradle.kts` declares this path
+     * as a `tasks.test` input, so an edit to it invalidates the cache and this assertion re-runs.
+     */
+    private fun restoreDefaultsSource(): String {
+        val file = File(ACTIONS_SOURCE)
+        assertTrue(
+            file.isFile,
+            "Expected to find `$ACTIONS_SOURCE` relative to the test working directory " +
+                "`${System.getProperty("user.dir")}`, resolved as `${file.absolutePath}`. If the build " +
+                "layout changed, fix the path here and in the matching `tasks.test` input declaration.",
+        )
+        val source = file.readText()
+        val start = source.indexOf("fun SettingsPanel.restoreDefaultsWithConfirmation()")
+        require(start >= 0) {
+            "No restoreDefaultsWithConfirmation in $ACTIONS_SOURCE — this structural assertion is stale."
+        }
+        val open = source.indexOf('{', start)
+        var depth = 0
+        var index = open
+        while (index < source.length) {
+            if (source[index] == '{') depth++
+            if (source[index] == '}') {
+                depth--
+                if (depth == 0) return source.substring(open, index + 1)
+            }
+            index++
+        }
+        error("Unbalanced braces after restoreDefaultsWithConfirmation in $ACTIONS_SOURCE.")
+    }
+
+    private companion object {
+        const val ACTIONS_SOURCE = "src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelActions.kt"
     }
 }

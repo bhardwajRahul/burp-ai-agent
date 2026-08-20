@@ -199,6 +199,18 @@ tasks.test {
         .file("src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt")
         .withPropertyName("chatPanelStructuralSource")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // REL-05 / SC4 / Rule C-2: SettingsSaveAsyncTest reads this file from disk in
+    // `restoreDefaultsSource` to assert the one ordering it cannot drive headlessly — the
+    // restore-defaults path opens with `JOptionPane.showConfirmDialog`, and `getRootFrame()` throws
+    // `HeadlessException`. Same defect as the four declarations above: moving
+    // `"Defaults restored and applied."` back out of the completion callback changes the source text
+    // but can leave the compiled output of the surrounding class close enough that the cache key
+    // survives, so the guard would be served from cache and never run in exactly the case it exists
+    // to catch.
+    inputs
+        .file("src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelActions.kt")
+        .withPropertyName("settingsActionsStructuralSource")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     val excludeHeavyTests =
         (project.findProperty("excludeHeavyTests") as? String)
             ?.trim()
