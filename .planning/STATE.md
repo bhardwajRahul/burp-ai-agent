@@ -1,17 +1,19 @@
 ---
 gsd_state_version: 1.0
 milestone: v0.10.0
-milestone_name: — Security Correctness & Agent Trust
+milestone_name: Security Correctness & Agent Trust
+current_phase: 23
 status: verifying
-stopped_at: Phase 23 context gathered
-last_updated: "2026-08-20T09:38:40.208Z"
+stopped_at: Phase 23 UI-SPEC approved
+last_updated: "2026-08-20T12:04:22.566Z"
 last_activity: 2026-08-20
+state_head: 1697d91d791e33de567d05d0d91f983a750c72be
 progress:
   total_phases: 7
-  completed_phases: 3
+  completed_phases: 1
   total_plans: 38
   completed_plans: 38
-  percent: 43
+  percent: 14
 ---
 
 # Project State
@@ -28,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 Phase: 23
 Plan: Not started
 Status: Phase 22 complete (UAT 4/4, verification 6/6, security 41/41, code review 14/14) — Phase 23 not started
-Resume file: .planning/phases/23-edt-confinement-ui-responsiveness/23-CONTEXT.md
+Resume file: .planning/phases/23-edt-confinement-ui-responsiveness/23-UI-SPEC.md
 Last activity: 2026-08-20
 
 ## Milestone Origin
@@ -212,6 +214,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T09:38:40.203Z
-Stopped at: Phase 23 context gathered
+Last session: 2026-08-20T12:04:22.455Z
+Stopped at: Phase 23 UI-SPEC approved
 Resume file: None
