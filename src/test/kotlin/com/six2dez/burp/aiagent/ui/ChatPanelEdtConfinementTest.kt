@@ -2,16 +2,21 @@ package com.six2dez.burp.aiagent.ui
 
 import burp.api.montoya.proxy.ProxyHttpRequestResponse
 import com.six2dez.burp.aiagent.audit.AuditLogger
+import com.six2dez.burp.aiagent.mcp.ToolApprovalGate
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
+import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.atLeast
+import org.mockito.kotlin.never
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
@@ -349,6 +354,71 @@ class ChatPanelEdtConfinementTest {
         verifySendChatCount(h, 1)
     }
 
+    /**
+     * S-03 / SC1 / AI-SPEC E1 — a Deny executes nothing and STARTS nothing, and the model is still told.
+     *
+     * **The dispatch record is the load-bearing selector, and reading the settle record instead would
+     * make this test pass vacuously.** A settle event is written from the EDT tail's `finally`, so in
+     * precisely the world this assertion exists to catch — a denial that dispatched a worker anyway —
+     * that worker has not finished when the assertion runs and its label is missing from the settle
+     * record too. The dispatch record is written synchronously with the dispatch statement itself
+     * (`OffEdtDispatch.kt`), so absence there is a claim about what happened rather than about timing.
+     *
+     * The captured `Thread` is the same argument one layer down: `never()` on the Montoya double proves
+     * Burp was not reached, and a null capture proves no worker got far enough to reach for it.
+     *
+     * **This is AI-SPEC E1's PASS clause.** Phase 23 changes WHERE an approved call runs; it must never
+     * change WHETHER a call runs. The SEC-06 trust boundary is still evaluated on the EDT, before any
+     * dispatch, and a refusal still refuses.
+     */
+    @Test
+    fun aDeniedToolCallStartsNoWorkerAndStillContinuesTheConversation() {
+        val toolThread = AtomicReference<Thread?>(null)
+        // A CONFIRM-tier tool, deliberately: an AUTO-tier one raises no card at all, so it could not
+        // tell a working gate from a missing one.
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenAnswer {
+            toolThread.set(Thread.currentThread())
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        val traceIdRef = AtomicReference<String>()
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+            ChatPanelTestHarness.drainEdt()
+            val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+            // Captured while exactly one decision is parked, before the click resolves it.
+            traceIdRef.set(pendingTraceId(h))
+            click(card, "Deny")
+            ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
+        }
+
+        verify(h.api.proxy(), never()).history()
+        assertNull(
+            toolThread.get(),
+            "SEC-06 / E1: the tool body ran on ${toolThread.get()?.name} after a Deny. A refusal that " +
+                "still reaches Burp is the whole failure this gate exists to prevent.",
+        )
+        assertFalse(
+            ChatPanelTestHarness.dispatchedLabels().contains(traceIdRef.get()),
+            "REL-05 / E1: a denied call must start NO worker. Read from the dispatch record, which is " +
+                "written synchronously with the dispatch — an unfinished worker is absent from the " +
+                "settle record too, so that record could not tell these two worlds apart. " +
+                "Dispatched: ${ChatPanelTestHarness.dispatchedLabels()}.",
+        )
+        val prompts = sentPrompts(h)
+        assertTrue(
+            prompts.size >= 2,
+            "D-12: a refusal must be answerable — the model gets the denial back and the session " +
+                "continues. Turns: ${prompts.size}.",
+        )
+        assertTrue(
+            prompts.any { it.contains(ToolApprovalGate.DENIAL_RESULT) },
+            "The followup must carry the one D-12 denial constant verbatim, so the model is told the " +
+                "call was refused rather than left to infer it from silence.",
+        )
+    }
+
     // ── Audit + worker capture plumbing ──────────────────────────────────────────────────
 
     private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
@@ -385,6 +455,12 @@ class ChatPanelEdtConfinementTest {
 // ── Helpers ──────────────────────────────────────────────────────────────────────────────
 
 private const val NO_CARD = "No ToolApprovalCard in the transcript — the SEC-06 gate did not raise a decision."
+
+/**
+ * Comfortably longer than any followup this suite drives after a decision click; over-draining an
+ * empty EDT queue is free, and under-draining would leave the denial's followup turn unsent.
+ */
+private const val LONG_DRAIN = 24
 
 /** The AWT Event Dispatch Thread's name, which is what "not the EDT" is asserted against. */
 private const val EDT_THREAD_NAME = "AWT-EventQueue-0"
@@ -474,6 +550,7 @@ private fun transcriptText(h: ChatPanelTestHarness.Harness): String =
  *
  * `sendChat` takes 13 parameters; all are matched positionally so the verification lines up.
  */
+
 private fun verifySendChatCount(
     h: ChatPanelTestHarness.Harness,
     expected: Int,
@@ -493,6 +570,31 @@ private fun verifySendChatCount(
         anyOrNull(),
         anyOrNull(),
     )
+}
+
+/**
+ * Every prompt handed to the backend, in turn order.
+ *
+ * `sendChat` takes 13 parameters; all are matched positionally so the captor lines up with the third.
+ */
+private fun sentPrompts(h: ChatPanelTestHarness.Harness): List<String> {
+    val prompt = argumentCaptor<String>()
+    verify(h.supervisor, atLeast(1)).sendChat(
+        any(),
+        any(),
+        prompt.capture(),
+        anyOrNull(),
+        anyOrNull(),
+        any(),
+        any(),
+        any(),
+        any(),
+        anyOrNull(),
+        anyOrNull(),
+        anyOrNull(),
+        anyOrNull(),
+    )
+    return prompt.allValues
 }
 
 /** The four D-11 labels, defined once so "is this a decision button?" is asked one way. */

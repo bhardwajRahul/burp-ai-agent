@@ -214,6 +214,28 @@ tasks.test {
     }
 }
 
+// REL-05 / SC1 / S-10: `tasks.test` above enables `-ea`, so a green McpToolExecutorEdtGuardTest there
+// proves the guard throws in a JVM where the debug-time assertion facility is ON — which is not the JVM
+// SC1 is about. Shipped Burp runs WITHOUT `-ea`, and SC1's whole objection to the existing ChatPanel
+// assertion is that it is a no-op there. This task re-runs that one class with assertions DISABLED, so
+// "the guard fires where it matters" is demonstrated rather than asserted. It stays out of `check` on
+// purpose: it duplicates coverage the fast PR gate already has, and its value is the flag, not the
+// assertions. Run it with: ./gradlew edtGuardWithoutAssertionsTest
+tasks.register<Test>("edtGuardWithoutAssertionsTest") {
+    description = "Runs the executor's EDT door guard with JVM assertions disabled (REL-05 / SC1)."
+    group = "verification"
+    useJUnitPlatform()
+    val testSourceSet = sourceSets.test.get()
+    testClassesDirs = testSourceSet.output.classesDirs
+    classpath = testSourceSet.runtimeClasspath
+    // `-da`, and no `-ea` anywhere: this is the flag the whole task exists for.
+    jvmArgs("-da", "-Djava.awt.headless=true")
+    systemProperty("storeBuild.expected", storeBuild.toString())
+    filter {
+        includeTestsMatching("*McpToolExecutorEdtGuardTest")
+    }
+}
+
 tasks.register<Test>("nightlyRegressionTest") {
     description = "Runs integration, concurrency, and resilience suites intended for nightly validation."
     group = "verification"
