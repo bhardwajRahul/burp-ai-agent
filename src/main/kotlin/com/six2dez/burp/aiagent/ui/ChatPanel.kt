@@ -884,37 +884,80 @@ class ChatPanel(
                 javax.swing.JOptionPane.YES_NO_OPTION,
             )
         if (confirm == javax.swing.JOptionPane.YES_OPTION) {
-            // Teardown path 2 of 5. Ahead of the try, so the card and its state are still intact even
-            // if removeChatSession throws and the finally strips the maps out from under it.
-            resolvePending(session.id, ImplicitDenyReason.SESSION_DELETED)
-            try {
-                supervisor.removeChatSession(session.id)
-                val removedPanel = sessionPanels.remove(session.id)
-                if (removedPanel != null) {
-                    chatCards.remove(removedPanel.root)
-                }
-            } finally {
-                sessionStates.remove(session.id)
-                sessionsById.remove(session.id)
-                sessionDrafts.remove(session.id)
-                sessionsModel.removeElement(session)
-                // Clean persisted data
-                try {
-                    projectData().setString(sessionMsgKeyPrefix + session.id, "")
-                } catch (_: Exception) {
-                }
-            }
-
-            if (sessionsModel.isEmpty()) {
-                // Create a default session if all gone
-                createSession("Chat 1")
-            } else if (sessionsList.isSelectionEmpty) {
-                sessionsList.selectedIndex = sessionsModel.size - 1
-            } else {
-                sessionsList.selectedValue?.id?.let { switchToSession(it) }
-            }
-            updateUsageStatsLabel()
+            deleteConfirmedSession(session)
         }
+    }
+
+    /**
+     * Everything a session deletion does once the user has confirmed it.
+     *
+     * **Split from [deleteSession] so this teardown is reachable without the modal.**
+     * `JOptionPane.showConfirmDialog` builds a `JDialog`, which throws `HeadlessException` under
+     * `-Djava.awt.headless=true`, so a headless test driving [deleteSession] never reaches a single
+     * line below — including the supersede this function exists to guarantee. The modal is not
+     * removed and nothing a user can observe changes; the split moves the boundary of what can be
+     * ASSERTED, which for a teardown path nobody exercises by hand is the difference between a
+     * guarded invariant and a hoped-for one.
+     *
+     * `internal` for the same reason [clearChatState] and [MAX_AUTO_TOOL_ITERATIONS] are: module
+     * scoped, so it stays invisible to any consumer of the extension while the test source set can
+     * reach it without reflection.
+     *
+     * **EDT-confined** like every other function here that touches the session maps, and deliberately
+     * carrying no assertion of its own: SC5's evidence is that the private EDT assertion helper keeps
+     * exactly the call sites it had, and a new one would move the number that IS the evidence. Its
+     * only caller is [deleteSession], which is reached from a Swing action listener.
+     */
+    internal fun deleteConfirmedSession(session: ChatSession) {
+        // Teardown path 2 of 5 — and the ONE exit that inherits nothing. The other three supersedes
+        // (the Cancel button, a Burp project change and extension unload) all route through
+        // cancelInFlightRequest(), which takes the running-tool token on their behalf. This path does
+        // not call it and never has, so without the take() below a session delete leaves a tool worker
+        // running that returns into a panel this function has already disposed: it would render its
+        // result row into a detached transcript and send a followup turn continuing a chain whose
+        // session no longer exists (D-08, research F-5). The line is redundant for three exits and
+        // load-bearing for this one — do not delete it as duplication.
+        //
+        // Both it and the resolvePending() below sit ahead of the try, so the card and the state
+        // behind it are still intact even if removeChatSession throws and the finally strips the maps
+        // out from under them.
+        //
+        // Returning the panel to S0 is conditional on a worker actually having been superseded, and
+        // that is not defensiveness: cancelInFlightRequest() does it for the other three exits and
+        // this path does not call it, so without the clear the Send button stays hidden forever with
+        // nothing running. Doing it UNCONDITIONALLY would clobber a backend turn still streaming in
+        // another session. No Rule C-1 transcript line is written here for the same reason: the only
+        // transcript that could carry it is the one being deleted, and putting it in an unrelated
+        // session's would be a message about a run that session never made.
+        if (runningTool.take() != null) setSendingState(false)
+        resolvePending(session.id, ImplicitDenyReason.SESSION_DELETED)
+        try {
+            supervisor.removeChatSession(session.id)
+            val removedPanel = sessionPanels.remove(session.id)
+            if (removedPanel != null) {
+                chatCards.remove(removedPanel.root)
+            }
+        } finally {
+            sessionStates.remove(session.id)
+            sessionsById.remove(session.id)
+            sessionDrafts.remove(session.id)
+            sessionsModel.removeElement(session)
+            // Clean persisted data
+            try {
+                projectData().setString(sessionMsgKeyPrefix + session.id, "")
+            } catch (_: Exception) {
+            }
+        }
+
+        if (sessionsModel.isEmpty()) {
+            // Create a default session if all gone
+            createSession("Chat 1")
+        } else if (sessionsList.isSelectionEmpty) {
+            sessionsList.selectedIndex = sessionsModel.size - 1
+        } else {
+            sessionsList.selectedValue?.id?.let { switchToSession(it) }
+        }
+        updateUsageStatsLabel()
     }
 
     /** Export current session as a Markdown file */
@@ -1572,6 +1615,14 @@ class ChatPanel(
             // @GuardedBy("EDT") like every other session map here. No backend turn is started from
             // this path: dispatching a request while Burp tears down the extension classloader is how
             // a safety control turns into an unload hang (T-22-33).
+            //
+            // A RUNNING tool worker is superseded through the in-flight cancel below, which takes the
+            // running-tool token — this path needs no second take() of its own (D-08). And it
+            // deliberately does not WAIT for that worker: a bounded join here would put the same
+            // ten-second blocking wait back on the EDT that plan 23-03 removed from the Settings save
+            // path. What makes that safe is the daemon flag OffEdtDispatch sets explicitly — a daemon
+            // thread never holds JVM exit open — plus the supersede, which is what stops the worker's
+            // tail writing into a panel whose classloader is being torn down.
             resolveAllPending(ImplicitDenyReason.UNLOAD)
             cancelInFlightRequest()
             sessionPanels.values.forEach { it.stopAllTimers() }
@@ -1597,6 +1648,14 @@ class ChatPanel(
         // Teardown path 4 of 5, reached from MainTab.onProjectChanged(). The same dangling
         // continuation as a session delete, but across every session at once — and D-08 does not list
         // it either. Resolved first, while the cards and the states behind them still exist.
+        //
+        // A RUNNING tool worker is superseded through the in-flight cancel below, which takes the
+        // running-tool token and returns the panel to S0 on this path's behalf; no second take() is
+        // needed here (D-08). That supersede is what stops a worker started under the OLD Burp
+        // project writing its result into the new one after every map below has been cleared.
+        //
+        // The symbol is described rather than named on purpose: an occurrence count over this file is
+        // SC5's evidence, and prose that moves it makes the evidence a measurement of comments.
         resolveAllPending(ImplicitDenyReason.PROJECT_CHANGED)
         cancelInFlightRequest()
         sessionPanels.values.forEach { it.stopAllTimers() }
