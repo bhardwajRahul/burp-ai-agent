@@ -25,6 +25,7 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.awt.Component
 import java.awt.Container
+import java.io.File
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -342,7 +343,7 @@ class ChatPanelEdtConfinementTest {
             "UI-SPEC C-1: the backend-turn line is FALSE on the tool path — the request was not cancelled.",
         )
         assertFalse(
-            transcript.contains("Tool result: proxy_http_history"),
+            transcript.contains(EMPTY_HISTORY_ROW),
             "UI-SPEC S4: a superseded run renders no transcript row for its discarded result.",
         )
         // D-07's corollary: the call reached Burp and cannot be recalled, so it stays in the record.
@@ -515,7 +516,7 @@ class ChatPanelEdtConfinementTest {
         // clause is also satisfied by the defect. It is here to fail alongside the two above, never
         // instead of them.
         assertFalse(
-            transcriptText(h).contains("Tool result: proxy_http_history"),
+            transcriptText(h).contains(EMPTY_HISTORY_ROW),
             "UI-SPEC S4: a superseded run renders no transcript row.",
         )
     }
@@ -759,6 +760,217 @@ class ChatPanelEdtConfinementTest {
         )
         assertEquals("approve_once", record["decision"], "The decision the human really made is unchanged by the supersede.")
         assertOrderedAuditPair(h, record, traceIdRef.get(), extraKeys = setOf(SUPERSEDE_REASON_KEY))
+    }
+
+    /**
+     * S-12 / AI-SPEC E9 — a tool body that throws produces a row, a record and a `logToError` line,
+     * and leaves the panel usable. Silence is the failure mode being ruled out.
+     *
+     * **Burp does not catch or report exceptions thrown on threads an extension created**, so a
+     * throwable that escaped this worker would vanish: no Burp error-log entry, no transcript row, and
+     * a panel stuck in UI-SPEC state S3 with nothing running. Every clause below is one half of that
+     * silence closed.
+     *
+     * **The failure is an [Error], not an [Exception], and that is measured rather than stylistic.**
+     * `McpTool.runTool` catches `SerializationException` and `Exception` and converts both into an
+     * error RESULT, which the tail reports as a run with status `"error"` and then CHAINS — a
+     * different branch entirely. Only a `Throwable` `runTool` does not catch escapes
+     * `McpToolExecutor.executeTool` into `OffEdtDispatch`'s `runCatching`, which is the
+     * `reportFailedToolCall` branch this scenario is about. `ChatPanelToolGateTest` reached the same
+     * conclusion independently and injects the same shape.
+     *
+     * **`errorClass` is read off the AI-ACTIVITY metadata, not the audit event.**
+     * `reportFailedToolCall` merges the key onto the map the reporter RETURNED, after the reporter has
+     * already emitted its own payload — so the audit event never carries it and an assertion there
+     * would be red for the wrong reason. That the value is the real exception's `simpleName` is the
+     * evidence that the `Throwable` crossed the thread boundary intact instead of as text.
+     */
+    @Test
+    fun aThrowingToolBodyIsReportedRatherThanSwallowed() {
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenThrow(InjectedWorkerFailure(INJECTED_FAILURE_MESSAGE))
+
+        val escaped = AtomicReference<Throwable?>(null)
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { _, thrown -> escaped.set(thrown) }
+        val traceIdRef = AtomicReference<String>()
+        try {
+            assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+                ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+                ChatPanelTestHarness.drainEdt()
+                val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+                traceIdRef.set(pendingTraceId(h))
+                click(card, "Approve once")
+                // Reaching this at all is half the claim: the settle observer fires from the EDT tail's
+                // `finally`, so a worker whose throw had taken its tail down with it would never settle
+                // and this would time out instead of failing an assertion.
+                ChatPanelTestHarness.awaitToolSettled(count = 1)
+            }
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previousHandler)
+        }
+
+        val record = decisionsFor(traceIdRef.get()).single()
+        assertEquals("error", record["status"], "An approved call that threw is recorded as a failed run, not as 'ok'.")
+        val logged = loggedMetadataFor(h, traceIdRef.get())
+        assertEquals(
+            InjectedWorkerFailure::class.java.simpleName,
+            logged["errorClass"],
+            "E9: the Throwable must cross the worker/EDT boundary INTACT. A stringified failure would " +
+                "still produce a row and a record, but 'which class blew up?' — the one question a " +
+                "maintainer reading the audit log has — would be unanswerable.",
+        )
+        assertOrderedAuditPair(h, record, traceIdRef.get(), extraKeys = setOf("errorClass"))
+        // Burp reports nothing itself for a thread it did not create, so this line is the ONLY place a
+        // background failure becomes visible to the user at all.
+        assertTrue(
+            loggedErrors(h).any { it.contains(InjectedWorkerFailure::class.java.simpleName) },
+            "E9: the failure must reach Burp's error log naming its class. Logged: ${loggedErrors(h)}.",
+        )
+        assertTrue(
+            transcriptText(h).contains("Error: "),
+            "The user asked for this answer in the transcript, so the failure belongs there too — not " +
+                "only in a log they have no reason to open. Transcript: ${transcriptText(h)}",
+        )
+        // UI-SPEC S0. The chain STOPS at a failure with no followup turn, so nothing downstream would
+        // clear the busy state; without an explicit clear the Send button stays hidden forever.
+        assertTrue(sendButton(h).isVisible, "A failed tool must leave the panel usable: Send is back.")
+        assertTrue(inputArea(h).isEnabled, "A failed tool must leave the panel usable: the input is live.")
+        assertNull(
+            escaped.get(),
+            "Nothing may escape the worker: `OffEdtDispatch` wraps both the body and its EDT tail. " +
+                "An escaped throwable reached the default handler: ${escaped.get()}",
+        )
+    }
+
+    /**
+     * S-08 / AI-SPEC E10 — a `/tool` fired while a chain step is in flight never reports limiter
+     * exhaustion, because each chat call site mints its OWN [McpRequestLimiter].
+     *
+     * **A NEGATIVE dimension, and it is worth reading twice before deciding it tests nothing.** The
+     * premise E10 was drafted on — that per-call workers make limiter contention newly reachable —
+     * was verified FALSE at source: `ChatPanel.buildToolContext` constructs a fresh limiter on every
+     * call, and the MCP-server path holds a separate instance minted once per runtime context in
+     * `McpRuntimeContextFactory`. Two chat calls can therefore never contend today. The dimension
+     * exists to catch the FUTURE refactor that hoists that construction out of `buildToolContext` "to
+     * avoid an allocation" and silently couples two independent user actions. If the string below ever
+     * reaches a chat transcript, a limiter became shared and it is a real defect.
+     *
+     * **`maxConcurrentRequests = 1` is what gives the negative clause teeth.** The baseline is 4, and
+     * two concurrent calls would fit inside a SHARED limiter of 4 without complaint — so against the
+     * baseline this test would pass under the very refactor it exists to catch. With one permit, a
+     * shared limiter refuses the second call after its 250 ms `tryAcquire` and writes the exhaustion
+     * string into the transcript.
+     *
+     * **What this scenario does NOT claim, measured rather than glossed:** that the chain survives.
+     * The running-tool supersede cell is panel-wide by design, so the `/tool` command takes the token
+     * and the chain's in-flight step lands in state S4 — no row, no followup, chain over. That is
+     * correct behaviour, asserted below rather than worked around. It is also barely reachable by a
+     * real user: the panel is in state S3 while a tool runs, with Send hidden and the input disabled,
+     * so only this harness can type into it. The paired structural guard is
+     * [theChatToolLimiterIsConstructedPerCall], which does not depend on any of that.
+     */
+    @Test
+    fun aSlashCommandRacingAChainStepNeverReportsLimiterExhaustion() {
+        val latches = ToolLatches()
+        val chainThread = AtomicReference<Thread?>(null)
+        val slashThread = AtomicReference<Thread?>(null)
+        val h =
+            ChatPanelTestHarness.create(
+                modelResponse = toolCall("scope_check", """{"url":"http://e10.example/"}"""),
+                settings = settingsWithSingleMcpPermit(),
+            )
+        whenever(h.api.scope().isInScope(any<String>())).thenAnswer {
+            chainThread.set(Thread.currentThread())
+            latches.entered.countDown()
+            check(latches.probeRan.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+                "The test never released the blocked chain step — the race window was never opened."
+            }
+            false
+        }
+        whenever(h.api.proxy().history()).thenAnswer {
+            slashThread.set(Thread.currentThread())
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            // AUTO tier: no card, so the chain's first step is dispatched and blocked straight away.
+            ChatPanelTestHarness.sendUserMessage(h, "check scope repeatedly")
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The chain worker never started, so there was no in-flight call to race.",
+            )
+            // The second user action, fired while the first is demonstrably still inside its call and
+            // still holding its own limiter permit.
+            ChatPanelTestHarness.sendUserMessage(h, """/tool proxy_http_history {"count":5}""")
+            // WAIT FOR THE /tool WORKER TO FINISH BEFORE RELEASING THE CHAIN, and the ordering is the
+            // whole of the negative clause. Releasing first lets the chain drop its permit inside the
+            // second call's 250 ms tryAcquire window, so a SHARED limiter would often acquire anyway
+            // and the assertion would be green against the defect — measured, by hoisting the limiter
+            // to a panel field and watching this test stay green. The chain is still blocked, so the
+            // first worker to settle is necessarily the /tool one.
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        // THE NEGATIVE CLAUSE. `finishUserOriginatedToolCall` renders whatever the executor returned,
+        // so a refused acquisition arrives as a visible transcript row rather than as an exception.
+        val transcript = transcriptText(h)
+        assertFalse(
+            transcript.contains(LIMITER_EXHAUSTED),
+            "E10: each chat call site mints its own McpRequestLimiter, so two user actions can never " +
+                "contend. This string in a chat transcript means the construction was hoisted out of " +
+                "buildToolContext and two independent actions are now coupled. Transcript: $transcript",
+        )
+        // Both really executed — the negative clause above is worthless if neither call ran.
+        verify(h.api.proxy(), times(1)).history()
+        assertTrue(
+            transcript.contains(EMPTY_HISTORY_ROW),
+            "The /tool call must have produced its own result row. Transcript: $transcript",
+        )
+        // Both off the EDT, read from Threads the production code created.
+        listOf("chain" to chainThread, "/tool" to slashThread).forEach { (name, captured) ->
+            val thread = requireNotNull(captured.get()) { "The $name tool body never ran." }
+            assertNotEquals(EDT_THREAD_NAME, thread.name, "SC1: the $name call must not execute on the EDT.")
+            assertTrue(thread.isDaemon, "E9: the $name worker must be a daemon.")
+        }
+        assertEquals(2, ChatPanelTestHarness.dispatchedLabels().size, "Exactly two workers were dispatched.")
+        // The measured consequence, asserted rather than avoided: the /tool minted a new running-tool
+        // token, so the chain's step lost the compare-and-set and landed in UI-SPEC state S4.
+        val chainTraceId =
+            requireNotNull(ChatPanelTestHarness.dispatchedLabels().singleOrNull { !it.startsWith("chat-tool-") }) {
+                "Expected exactly one chain-dispatched label; got ${ChatPanelTestHarness.dispatchedLabels()}."
+            }
+        assertEquals(
+            ChatPanel.SUPERSEDED_RUN_STATUS,
+            decisionsFor(chainTraceId).single()["status"],
+            "The /tool command takes the panel-wide running-tool token, so the chain step it raced is " +
+                "superseded. Correct, and documented in this test's KDoc rather than designed around.",
+        )
+    }
+
+    /**
+     * S-08 / AI-SPEC E10, structural half — the limiter is constructed INSIDE `buildToolContext`.
+     *
+     * The guard the behavioural test above cannot be: a hoisted limiter only shows up as a defect when
+     * two calls overlap, and overlapping them at all takes a harness that types into a disabled input.
+     * This one fails the moment the construction moves, with no timing involved.
+     *
+     * `ChatPanel.kt` is already declared a `tasks.test` input in `build.gradle.kts`, so an edit that
+     * changes only this source text still invalidates the cache and this assertion actually re-runs —
+     * the 22-09 defect, and the reason no new declaration is needed here.
+     */
+    @Test
+    fun theChatToolLimiterIsConstructedPerCall() {
+        assertTrue(
+            functionBody("private fun buildToolContext(").contains("McpRequestLimiter("),
+            "E10: every chat tool call must mint its OWN McpRequestLimiter. Hoisting the construction " +
+                "to a field or a singleton — the obvious 'avoid an allocation' refactor — would make a " +
+                "/tool command and an auto-chain step share one semaphore, so one user action could " +
+                "make another fail with 'Too many concurrent MCP requests.' They are independent, and " +
+                "this is what keeps them that way.",
+        )
     }
 
     // ── Audit + worker capture plumbing ──────────────────────────────────────────────────
@@ -1105,6 +1317,98 @@ private fun settingsEnabling(vararg toolIds: String): AgentSettings {
                 toolToggles = toolIds.associateWith { true },
             ),
     )
+}
+
+/**
+ * Baseline settings with the MCP concurrency cap at ONE permit.
+ *
+ * The baseline is four, which is enough for two overlapping calls to fit inside a SHARED limiter
+ * without complaint — so the E10 negative clause would pass under the exact refactor it exists to
+ * catch. One permit is the smallest configuration in which a shared limiter is observably shared.
+ */
+private fun settingsWithSingleMcpPermit(): AgentSettings {
+    val base = TestSettings.baselineSettings()
+    return base.copy(mcpSettings = base.mcpSettings.copy(maxConcurrentRequests = 1))
+}
+
+/**
+ * The BODY text a `proxy_http_history` call produces against an empty-history double.
+ *
+ * **Transcript rows are identified by their body here, never by their header, and that is a measured
+ * constraint rather than a preference.** `ChatMessagePanel` renders every non-user role as the
+ * literal string `"AI"` (`ChatPanel.kt`), so the role handed to `addMessage` — `"Tool result:
+ * proxy_http_history"` — reaches no component at all and appears in no transcript. A
+ * `contains("Tool result: ...")` is therefore FALSE BY CONSTRUCTION, which makes the negative form of
+ * it an assertion that cannot fail: it passes just as happily against a superseded run that DID
+ * render its row. Found by measurement, not review — the positive form of the same assertion failed
+ * in S-08 against a row that was demonstrably on screen.
+ *
+ * This string is the tool's own output, so it appears if and only if the row was really rendered.
+ */
+private const val EMPTY_HISTORY_ROW = "Tool executed: proxy_http_history"
+
+/** The exhaustion message `McpTool.runTool` writes when a limiter permit cannot be acquired. */
+private const val LIMITER_EXHAUSTED = "Too many concurrent MCP requests."
+
+/** The message carried by the injected tool failure, so the assertion and the throw cannot drift. */
+private const val INJECTED_FAILURE_MESSAGE = "proxy history exploded"
+
+/**
+ * The failure injected into an APPROVED tool call.
+ *
+ * An [Error] on purpose — see the comment at the injection site — and named rather than reusing
+ * [AssertionError] so it can never be confused with a JUnit assertion failing for real.
+ *
+ * Distinct from `ChatPanelToolGateTest`'s equivalent rather than shared: a file-private top-level
+ * CLASS still produces a real JVM class in this package, so two of the same name in one package are a
+ * redeclaration error — unlike the file-private consts and functions both suites already duplicate.
+ */
+private class InjectedWorkerFailure(
+    message: String,
+) : Error(message)
+
+/** Every string Burp's error log received, in order. */
+private fun loggedErrors(h: ChatPanelTestHarness.Harness): List<String> {
+    val message = argumentCaptor<String>()
+    verify(h.api.logging(), atLeast(1)).logToError(message.capture())
+    return message.allValues
+}
+
+/** Declared as a `tasks.test` input in `build.gradle.kts`; the two must stay in step. */
+private const val CHAT_PANEL_SOURCE = "src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt"
+
+/**
+ * The source text of one `ChatPanel` function, brace-matched from its declaration.
+ *
+ * Reading source is the sanctioned fallback for a claim no headless drive can make — here, that a
+ * construction stays lexically inside one function. Every other assertion in this file reads executed
+ * behaviour.
+ */
+private fun functionBody(declaration: String): String {
+    val file = File(CHAT_PANEL_SOURCE)
+    // Named and asserted rather than left to surface as a bare FileNotFoundException, which is what a
+    // build-layout change would otherwise produce here.
+    assertTrue(
+        file.isFile,
+        "Expected to find `$CHAT_PANEL_SOURCE` relative to the test working directory " +
+            "`${System.getProperty("user.dir")}`, resolved as `${file.absolutePath}`. If the build " +
+            "layout changed, fix the path here and in the matching `tasks.test` input declaration.",
+    )
+    val source = file.readText()
+    val start = source.indexOf(declaration)
+    require(start >= 0) { "No '$declaration' in ChatPanel.kt — this structural assertion is stale." }
+    val open = source.indexOf('{', start)
+    var depth = 0
+    var index = open
+    while (index < source.length) {
+        if (source[index] == '{') depth++
+        if (source[index] == '}') {
+            depth--
+            if (depth == 0) break
+        }
+        index++
+    }
+    return source.substring(open, index + 1)
 }
 
 /** The four D-11 labels, defined once so "is this a decision button?" is asked one way. */
