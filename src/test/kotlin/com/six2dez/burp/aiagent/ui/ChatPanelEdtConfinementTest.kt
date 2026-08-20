@@ -23,6 +23,7 @@ import org.mockito.kotlin.never
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import java.awt.CardLayout
 import java.awt.Component
 import java.awt.Container
 import java.io.File
@@ -57,7 +58,19 @@ import javax.swing.SwingUtilities
  * **No assertion in this file compares an elapsed duration to a threshold.** Every timeout present is a
  * deadlock failsafe whose margin over the work is four orders of magnitude — categorically unlike the
  * `RedactionTest` wall-clock flake, where a 50 ms deadline bounds work of the same order.
+ *
+ * **`LargeClass` is suppressed inline, and the alternatives are worse rather than merely harder.**
+ * detekt's threshold is a real signal on production code and a poor one here: this class is 17
+ * acceptance scenarios for one requirement, each carrying the KDoc that records what its assertion
+ * measures and why the obvious cheaper form would pass vacuously. Splitting it would mint a second
+ * suite name, and the naming constraint above is exactly why that is not a free move — a new suite
+ * that lands on one of the five excluded suffixes never runs on the cross-platform matrix at all.
+ * A baseline entry is also unavailable: `detekt-baseline.xml` is pinned at 1096 entries as the
+ * v0.10.0 milestone metric Phase 26 improves against, so adding one moves the metric the wrong way to
+ * silence a finding about a test file. The inline suppression with its reason attached follows the
+ * same convention `ExternalMcpClientManager` and plan 23-03's two-layer `finally` already use.
  */
+@Suppress("LargeClass")
 class ChatPanelEdtConfinementTest {
     /**
      * S-01 / SC1 / SC2 / AI-SPEC E2 + E9 — the tool body runs on a named daemon thread that is not the
@@ -973,6 +986,195 @@ class ChatPanelEdtConfinementTest {
         )
     }
 
+    // ── SC5 — the REL-01 confinement contract did NOT regress (plan 23-05) ───────────────
+
+    /**
+     * SC5 / AI-SPEC E5, first half — `assertEdt()` is exactly as Phase 17 left it.
+     *
+     * **This test exists because SC5 is an ABSENCE claim, and an absence claim stated only in a
+     * summary is worth nothing.** Phase 23 moved the *work* off the EDT; REL-01's guarantee is that the
+     * five `@GuardedBy("EDT")` session maps stay confined to it. The cheapest and most direct evidence
+     * that the guarantee did not move with the work is that the method encoding it is untouched —
+     * exactly the evidence Phase 22 produced for the same contract (`22-07-SUMMARY.md`). Phase 26 /
+     * QUAL-07 owns upgrading `assertEdt()` from the JVM assertion facility to something that fires in
+     * shipped Burp; this phase deliberately leaves it alone and adds its inverse check at a different
+     * seam instead — the throwing door guard on `McpToolExecutor.executeToolResult` (plan 23-02).
+     *
+     * **The mention count is 6, and that number is a MEASUREMENT rather than a description.** Its six
+     * occurrences are one declaration, one comment that names the method, and four invocations. Earlier
+     * Phase 23 artifacts call all six "call sites"; they are not, and stating it precisely here costs
+     * nothing and stops the next reader hunting for two invocations that do not exist. What makes 6
+     * evidence is that it is *unmoved from HEAD*: plan 23-01 had to rewrite two of its own KDoc
+     * sentences after prose alone pushed this counter to 7, so the number is only meaningful while
+     * every mention is accounted for.
+     *
+     * `ChatPanel.kt` is already a declared `tasks.test` input (`build.gradle.kts`), so this assertion
+     * really does re-run when the source text changes even if the bytecode does not — the 22-09
+     * stale-cache defect. No new declaration is needed, and adding a read of any OTHER main file here
+     * would need one.
+     */
+    @Test
+    fun theEdtConfinementAssertionIsByteIdenticalAndStillHasSixMentions() {
+        val body = functionBody("private fun assertEdt()")
+        assertTrue(
+            body.contains("assert(SwingUtilities.isEventDispatchThread())"),
+            "REL-01 / SC5: assertEdt() must still test EDT-ness. Body was:\n$body",
+        )
+        assertTrue(
+            body.contains(REL_01_DATA_RACE_MESSAGE),
+            "REL-01 / SC5: assertEdt()'s message is the contract in prose — it is what tells whoever " +
+                "meets the failure that an off-EDT map touch is a silent data race rather than a style " +
+                "nit. Phase 23 moved work off the EDT and must not have softened it. Body was:\n$body",
+        )
+        assertEquals(
+            CHAT_PANEL_ASSERT_EDT_MENTIONS,
+            occurrencesOf("assertEdt()", chatPanelSource()),
+            "SC5: the number of assertEdt() mentions in ChatPanel.kt must be unmoved from the measured " +
+                "HEAD baseline of $CHAT_PANEL_ASSERT_EDT_MENTIONS. FEWER means a confinement point was " +
+                "deleted while the work around it went asynchronous — the regression SC5 exists to " +
+                "catch. MORE means this phase added an EDT assertion, which would make the number stop " +
+                "being evidence of an unchanged contract. If you are legitimately changing this, change " +
+                "the constant and say why in its KDoc.",
+        )
+    }
+
+    /**
+     * SC5, second half — every marshalling point in `ChatPanel.kt` is accounted for.
+     *
+     * A bare count is not evidence; a count with a per-addition reason attached is. See
+     * [CHAT_PANEL_INVOKE_LATER_SITES] for the ledger this asserts against.
+     */
+    @Test
+    fun everyMarshallingPointInChatPanelIsAccountedFor() {
+        assertEquals(
+            CHAT_PANEL_INVOKE_LATER_SITES,
+            occurrencesOf("SwingUtilities.invokeLater", chatPanelSource()),
+            "SC5: ChatPanel.kt's marshalling-point count moved. Every one is a place where work hops " +
+                "onto the EDT, so an unexplained addition is an unexplained new interleaving. The " +
+                "justification ledger is the KDoc on CHAT_PANEL_INVOKE_LATER_SITES — add your line " +
+                "there and move the constant, or remove the marshalling point.",
+        )
+    }
+
+    /**
+     * SC5 / AI-SPEC E5, structural half — no off-EDT worker body names a `@GuardedBy("EDT")` map.
+     *
+     * Scoped to the `work =` argument of each [OffEdtDispatch] dispatch, which is the only code in
+     * `ChatPanel.kt` that runs off the EDT. It is deliberately NOT a file-wide grep: `shutdown()`'s own
+     * `work` lambda reads `sessionPanels`, and it is *supposed* to — that block is marshalled onto the
+     * EDT with `invokeAndWait` before it runs.
+     *
+     * **The site count is asserted first, and that is the part that stops this test being vacuous.**
+     * A `none { … }` over an empty list passes; if a refactor renamed the parameter or moved the
+     * dispatch, this would silently become an assertion about nothing.
+     *
+     * Paired with the behavioural half below, because a source assertion alone survives a renamed
+     * field and a behavioural assertion alone can pass by luck of timing.
+     */
+    @Test
+    fun noOffEdtWorkerLambdaTouchesAGuardedSessionMap() {
+        val lambdas = dispatchedWorkLambdas()
+        assertEquals(
+            OFF_EDT_DISPATCH_SITES,
+            lambdas.size,
+            "Expected $OFF_EDT_DISPATCH_SITES OffEdtDispatch.run call sites in ChatPanel.kt (the " +
+                "auto-chain step, the tool dialog and the /tool command). Finding a different number " +
+                "means either a new off-EDT path exists that this assertion has not inspected, or the " +
+                "extraction is stale and the assertion below is inspecting nothing.",
+        )
+        for (lambda in lambdas) {
+            for (map in GUARDED_SESSION_MAPS) {
+                assertFalse(
+                    lambda.contains(map),
+                    "REL-01 / E5: an off-EDT worker body references `$map`, which is @GuardedBy(\"EDT\"). " +
+                        "An off-EDT read of one of these maps is the data race REL-01 exists to " +
+                        "prevent, and it corrupts silently rather than failing loudly. Everything the " +
+                        "worker needs is frozen into ToolCallCapture on the EDT before dispatch; " +
+                        "everything the TAIL needs it may read, because the tail runs on the EDT. " +
+                        "Offending lambda:\n$lambda",
+                )
+            }
+        }
+    }
+
+    /**
+     * SC5 / AI-SPEC E5, behavioural half — the tail writes into its CAPTURED panel, not a live lookup.
+     *
+     * The source assertion above says the worker names no guarded map. This one says the same thing
+     * about the values that actually reach the transcript, and it is written so that resolving the
+     * panel from a map instead of from [ChatPanel.ToolCallCapture] turns it red.
+     *
+     * **How the trap is set.** While the tool worker is blocked mid-call, the user clicks *New
+     * Session*. `createSession` writes `sessionsById`, `sessionPanels`, `sessionStates` and
+     * `sessionDrafts`, moves `activeSessionId` and flips the card layout — so from that instant every
+     * live map lookup answers *session 2* while the capture still says *session 1*. The two worlds are
+     * now distinguishable, which they are not at any other moment in the run. Then the worker is
+     * released, and the question is simply which transcript the result row landed in.
+     *
+     * **Why New Session and not one of the teardown paths.** Session delete, project change, unload and
+     * Cancel all supersede the running worker (plans 23-01 and 23-04), so its tail renders nothing at
+     * all and there would be no row to locate. Creating a session mutates every guarded map and
+     * supersedes nothing, which is exactly the window this claim needs.
+     *
+     * The two-card assertion is the anti-vacuity clause: without it, a run in which the click silently
+     * did nothing would leave one card holding both strings and pass.
+     */
+    @Test
+    fun theToolTailWritesIntoItsCapturedPanelWhileTheGuardedMapsMoveUnderneathIt() {
+        val latches = ToolLatches()
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenAnswer {
+            latches.entered.countDown()
+            check(latches.probeRan.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+                "The test never released the blocked tool — the map-mutation window was never opened."
+            }
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, E5_QUESTION)
+            ChatPanelTestHarness.drainEdt()
+            click(requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }, "Approve once")
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The tool worker never started, so the guarded maps were never moved underneath it.",
+            )
+            // The real button, on the EDT, exactly as the AWT event pump would deliver the click.
+            SwingUtilities.invokeAndWait { newSessionButton(h).doClick() }
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+            ChatPanelTestHarness.drainEdt(times = LONG_DRAIN)
+        }
+
+        val cards = sessionCards(h).map { transcriptTextOf(it) }
+        // ANTI-VACUITY. If the click did nothing there is only one transcript, the capture and the live
+        // lookup agree, and every clause below passes without having distinguished anything.
+        assertEquals(
+            2,
+            cards.size,
+            "The New Session click did not create a second session card, so the guarded maps never " +
+                "moved and this test distinguished nothing. Cards: ${cards.size}.",
+        )
+        val asked = cards.filter { it.contains(E5_QUESTION) }
+        assertEquals(
+            1,
+            asked.size,
+            "Expected the original question in exactly one transcript; found it in ${asked.size}.",
+        )
+        assertTrue(
+            asked.single().contains(EMPTY_HISTORY_ROW),
+            "REL-01 / E5: the tool result landed somewhere other than the session that asked for it. " +
+                "finishApprovedToolCall must render through `captured.panel` — the SessionPanel frozen " +
+                "into ToolCallCapture on the EDT before dispatch — and never through a live " +
+                "sessionPanels lookup, whose answer changed the moment the user made a new session.",
+        )
+        assertTrue(
+            cards.none { !it.contains(E5_QUESTION) && it.contains(EMPTY_HISTORY_ROW) },
+            "REL-01 / E5: a tool result appeared in a transcript that never asked for it — the row " +
+                "followed the CURRENT session rather than the captured one.",
+        )
+    }
+
     // ── Audit + worker capture plumbing ──────────────────────────────────────────────────
 
     private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
@@ -1385,16 +1587,7 @@ private const val CHAT_PANEL_SOURCE = "src/main/kotlin/com/six2dez/burp/aiagent/
  * behaviour.
  */
 private fun functionBody(declaration: String): String {
-    val file = File(CHAT_PANEL_SOURCE)
-    // Named and asserted rather than left to surface as a bare FileNotFoundException, which is what a
-    // build-layout change would otherwise produce here.
-    assertTrue(
-        file.isFile,
-        "Expected to find `$CHAT_PANEL_SOURCE` relative to the test working directory " +
-            "`${System.getProperty("user.dir")}`, resolved as `${file.absolutePath}`. If the build " +
-            "layout changed, fix the path here and in the matching `tasks.test` input declaration.",
-    )
-    val source = file.readText()
+    val source = chatPanelSource()
     val start = source.indexOf(declaration)
     require(start >= 0) { "No '$declaration' in ChatPanel.kt — this structural assertion is stale." }
     val open = source.indexOf('{', start)
@@ -1410,6 +1603,159 @@ private fun functionBody(declaration: String): String {
     }
     return source.substring(open, index + 1)
 }
+
+/**
+ * `ChatPanel.kt`'s source text.
+ *
+ * One reader for every structural assertion in this file, so the "does the file exist?" diagnostic is
+ * written once. Named and asserted rather than left to surface as a bare `FileNotFoundException`,
+ * which is what a build-layout change would otherwise produce here.
+ */
+private fun chatPanelSource(): String {
+    val file = File(CHAT_PANEL_SOURCE)
+    assertTrue(
+        file.isFile,
+        "Expected to find `$CHAT_PANEL_SOURCE` relative to the test working directory " +
+            "`${System.getProperty("user.dir")}`, resolved as `${file.absolutePath}`. If the build " +
+            "layout changed, fix the path here and in the matching `tasks.test` input declaration.",
+    )
+    return file.readText()
+}
+
+/** Literal (not regex) occurrences of [needle] in [source] — occurrences, never matching lines. */
+private fun occurrencesOf(
+    needle: String,
+    source: String,
+): Int {
+    var count = 0
+    var index = source.indexOf(needle)
+    while (index >= 0) {
+        count++
+        index = source.indexOf(needle, index + needle.length)
+    }
+    return count
+}
+
+/**
+ * The measured number of `assertEdt()` mentions in `ChatPanel.kt` — SC5's frozen counter.
+ *
+ * Six, and its composition is: the declaration, one comment that names the method, and four
+ * invocations. Unmoved across all five Phase 23 plans. Every one of those mentions is accounted for,
+ * which is what stops the number drifting on prose — plan 23-01 rewrote two of its own KDoc sentences
+ * after they alone pushed this counter to 7.
+ */
+private const val CHAT_PANEL_ASSERT_EDT_MENTIONS = 6
+
+/** The REL-01 contract, in the words `assertEdt()` itself uses. */
+private const val REL_01_DATA_RACE_MESSAGE = "off-EDT access is a data race (REL-01)"
+
+/**
+ * The number of `SwingUtilities.invokeLater` marshalling points in `ChatPanel.kt`, and the ledger of
+ * why each addition above the baseline exists.
+ *
+ * **HEAD baseline before Phase 23: 11** — measured at lines 647, 658, 673, 715, 723, 741, 1909, 1926,
+ * 2190, 2268 and 2283 of the pre-phase file.
+ *
+ * **Additions made by Phase 23: none.** That is not an omission, it is the design. Plan 23-01 put the
+ * phase's single marshalling point inside [OffEdtDispatch], which owns one `invokeLater` for the whole
+ * phase; every later plan — the two user-originated call sites in 23-02, the Settings save in 23-03,
+ * the teardown supersedes in 23-04 — marshalled back through that one seam rather than queueing its
+ * own. So there is no per-addition line to write here, and if a future change adds one, this KDoc is
+ * where its reason goes:
+ *
+ * - `12`: _reason for the twelfth marshalling point_
+ *
+ * A bare number with no reason is not evidence. A number that fails loudly when someone adds an
+ * unexplained marshalling point is.
+ */
+private const val CHAT_PANEL_INVOKE_LATER_SITES = 11
+
+/** The five `@GuardedBy("EDT")` session maps REL-01 confines to the EDT. */
+private val GUARDED_SESSION_MAPS =
+    listOf("sessionPanels", "sessionStates", "sessionsById", "sessionDrafts", "pendingDecisions")
+
+/** The auto-chain step, the tool dialog and the `/tool` command — D-01's three call sites. */
+private const val OFF_EDT_DISPATCH_SITES = 3
+
+/**
+ * The `work = { … }` argument of every `OffEdtDispatch.run(…)` call in `ChatPanel.kt`.
+ *
+ * Scoped to the dispatch's own argument list rather than grepped file-wide, because `shutdown()` also
+ * declares a local named `work` and that one legitimately reads `sessionPanels` — it is handed to
+ * `SwingUtilities.invokeAndWait`, so it runs ON the EDT. A file-wide scan would report it as a
+ * violation and this assertion would be deleted as a false alarm.
+ */
+private fun dispatchedWorkLambdas(): List<String> {
+    val source = chatPanelSource()
+    val lambdas = mutableListOf<String>()
+    var at = source.indexOf(OFF_EDT_DISPATCH_CALL)
+    while (at >= 0) {
+        val callEnd = matchingCloser(source, source.indexOf('(', at), '(', ')')
+        val workAt = source.indexOf(WORK_ARGUMENT, at)
+        if (workAt in (at + 1) until callEnd) {
+            val open = source.indexOf('{', workAt)
+            lambdas += source.substring(open, matchingCloser(source, open, '{', '}') + 1)
+        }
+        at = source.indexOf(OFF_EDT_DISPATCH_CALL, at + OFF_EDT_DISPATCH_CALL.length)
+    }
+    return lambdas
+}
+
+private const val OFF_EDT_DISPATCH_CALL = "OffEdtDispatch.run("
+
+private const val WORK_ARGUMENT = "work = {"
+
+/** The index of the delimiter closing the one opened at [open]; [open] must hold [opener]. */
+private fun matchingCloser(
+    source: String,
+    open: Int,
+    opener: Char,
+    closer: Char,
+): Int {
+    require(open >= 0 && source[open] == opener) { "Expected '$opener' at $open — the extraction is stale." }
+    var depth = 0
+    var index = open
+    while (index < source.length) {
+        if (source[index] == opener) depth++
+        if (source[index] == closer) {
+            depth--
+            if (depth == 0) return index
+        }
+        index++
+    }
+    error("Unbalanced '$opener' from offset $open in ChatPanel.kt — the extraction is stale.")
+}
+
+/** The question the E5 behavioural scenario asks, used to identify the transcript that asked it. */
+private const val E5_QUESTION = "summarise the proxy history for the E5 capture check"
+
+/** The panel's real New Session button — the mutation E5's behavioural half drives the maps with. */
+private fun newSessionButton(h: ChatPanelTestHarness.Harness): JButton =
+    requireNotNull(ChatPanelTestHarness.find(h.panel.sessionsComponent(), JButton::class.java) { it.text == "New Session" }) {
+        "No JButton labelled 'New Session' under ChatPanel.sessionsComponent() — the lookup is stale."
+    }
+
+/**
+ * One [Container] per session transcript, in the order the cards were added.
+ *
+ * [transcriptText] joins every `JEditorPane` under `ChatPanel.root` into one string, which is the
+ * right shape for a single-session drive and the wrong one for a claim about WHICH transcript a row
+ * landed in. The session cards are the children of the `CardLayout` panel, so grouping by card is the
+ * only way to ask that question.
+ */
+private fun sessionCards(h: ChatPanelTestHarness.Harness): List<Container> {
+    val cards =
+        requireNotNull(
+            allDescendants(h.panel.root).filterIsInstance<Container>().firstOrNull { it.layout is CardLayout },
+        ) { "No CardLayout container under ChatPanel.root — the session-card lookup is stale." }
+    return cards.components.filterIsInstance<Container>()
+}
+
+/** One session card's rendered transcript, read through the `HTMLDocument` as [transcriptText] is. */
+private fun transcriptTextOf(card: Container): String =
+    allDescendants(card)
+        .filterIsInstance<JEditorPane>()
+        .joinToString(" ") { pane -> pane.document.getText(0, pane.document.length) }
 
 /** The four D-11 labels, defined once so "is this a decision button?" is asked one way. */
 private val DECISION_LABELS = setOf("Deny", "Deny for session", "Approve once", "Approve for session")
