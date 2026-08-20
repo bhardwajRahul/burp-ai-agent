@@ -1,7 +1,8 @@
 ---
 phase: 23
 slug: edt-confinement-ui-responsiveness
-status: draft
+status: approved
+reviewed_at: 2026-08-20
 shadcn_initialized: false
 preset: none
 created: 2026-08-20
@@ -588,7 +589,13 @@ that follows, which is where a user can actually act on it.
 
 ## UI Considerations
 
-Applicable state considerations resolved: **7 covered, 2 backstop, 1 unresolved.**
+> Populated by the ui-phase UI-consideration probe (Step 9.5), run **after** checker approval against
+> five described surfaces. The probe proposed **29** applicable considerations; the authored rows below
+> resolve 11 of them and the remainder are dismissed with reasons in the block that follows. Empty- and
+> error-state COPY lives in `## Copywriting Contract` — these rows cover STATE and reference that copy
+> rather than restating it.
+
+Applicable state considerations resolved: **7 covered, 3 backstop, 1 unresolved** (18 dismissed with reason).
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
@@ -601,6 +608,7 @@ Applicable state considerations resolved: **7 covered, 2 backstop, 1 unresolved.
 | overflow | settings banner, `Save failed: {message}` | ✅ covered | Width and widget unchanged from the shipped synchronous path; this phase interpolates no longer message than `:69` already does |
 | long-text | chat transcript, tool-cancel line (~160 chars) | 🧪 backstop | Renders through `MarkdownRenderer.toHtml` into a `JEditorPane` wrapping at 75 % of viewport width (`ChatPanel.kt:1991-2005`), so it wraps rather than clips — needs a headless render check, not an assertion on a string |
 | populated | chat panel, S3→S1 chain handoff | 🧪 backstop | The panel must not present S0 between a chain step and its tool. Deterministically assertable through the existing `ChatPanelTestHarness` EDT drain; a wall-clock assertion is forbidden (`CONCERNS.md` §`RedactionTest` wall-clock flake) |
+| unclassified | settings save-failure modal (`JOptionPane`) | 🧪 backstop | The prose classifier matched no element kind, which is correct rather than a miss: a modal shows one interpolated string and one OK button and has no empty / list / overflow state to cover. It is also **measurably not headless-testable** — `JOptionPane.getRootFrame()` throws `HeadlessException` (`CONCERNS.md` §"UI layer has no integration tests"). Verified in `23-HUMAN-UAT.md`; at verify time this routes to `insufficient_spec → human_needed`, never a silent pass |
 | loading | auto-approved chain step, sub-frame Send↔Cancel flicker between `:658` and `:741` | ⚠ unresolved | Two back-to-back `invokeLater` blocks can be separated by a repaint. Accepted residual (Rule S-3); the fix would restructure `maybeExecuteToolCall` in a file this phase must not restructure. Planner treats as a stated assumption, confirmable only by live UAT |
 
 <!-- Status vocabulary (locked by probe-core projectTruths):
@@ -609,6 +617,17 @@ Applicable state considerations resolved: **7 covered, 2 backstop, 1 unresolved.
                     evidence → insufficient_spec → human_needed (never a silent pass, #1154)
      ⚠ unresolved → an explicit planner assumption (surfaced, never silently dropped)
      Rows are REPLACED (not appended) on a probe re-run — idempotent. -->
+
+### Dismissed by the probe resolution loop — recorded, not silently dropped
+
+The probe proposes every category against every element by design; that exhaustiveness is what makes
+it useful, and it means most proposals are shape-inapplicable rather than gaps. Two dismissal
+groups, each a deliberate call:
+
+| Group | Categories dismissed | Reason |
+|-------|---------------------|--------|
+| **E3 — the Phase 22 tool approval card** (all 8: empty, loading, error, populated, partial, overflow, zero-one-many, long-text) | 8 | The card ships and Phase 23 changes **nothing** about it — not its layout, not its four actions, not its payload preview, not its pending lifecycle. This phase only changes what happens *after* a decision resolves. Its state coverage belongs to the phase that built it. Covering it here would re-open a shipped surface inside a concurrency phase and manufacture scope this phase did not plan for. |
+| **E1 / E2 / E4 — shape-inapplicable residue** (`empty` and `partial` on the control cluster and the settings action bar; `overflow` on the control cluster; `empty` on the transcript) | 10 | A two-button control cluster and a save action bar have no empty state, no partial state and no overflow — the widgets are always present and always populated. Writing "the Send button is never empty" would dilute the rows above that carry real obligations, which is the *measuring everything produces noise* failure `references/ai-evals.md` §Common Pitfalls names directly. |
 
 ---
 
@@ -771,14 +790,31 @@ and source, and each is flagged so the maintainer can overrule it cheaply.
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS — both truthfulness hazards closed (C-1 cancel sibling, C-2 completion-callback emission)
+- [x] Dimension 2 Visuals: PASS — T-2 token-only recolor for the opaque button, S-4 closes the blank-transcript hazard
+- [x] Dimension 3 Color: PASS — zero new tokens; accent list quoted from `09-UI-SPEC.md`, not extended
+- [x] Dimension 4 Typography: PASS — zero new roles; `UIManager` multipliers, correct for an inherited-font stack
+- [x] Dimension 5 Spacing: PASS — zero new values; the two off-grid values are listed as inherited, not declared
+- [x] Dimension 6 Registry Safety: PASS — no registry exists for Java Swing (ADR-2); nothing to vet
 
-**Approval:** pending
+**Approval:** approved 2026-08-20 — `gsd-ui-checker`, 6/6 dimensions, 0 blocking issues
+
+### Checker recommendations carried to planning (non-blocking)
+
+1. **Both buttons disable, which extends D-10 rather than contradicting it.** D-10's text says "Save
+   disables"; the Settings state table also disables `restoreButton`. The reason is sound — D-13 puts
+   both callers on one async path, so disabling only Save re-enters the double-save race through the
+   other door. Recorded here so a later reader does not mistake it for drift from a locked decision.
+2. **`JOptionPane` is not headless-testable** (`.planning/codebase/CONCERNS.md` §"UI layer has no
+   integration tests", measured). D-12's verification is correctly bounded at Rule T-3: assert the
+   banner and the seam lowering; the modal goes to `23-HUMAN-UAT.md`. Carry that split verbatim.
+3. **FLAG-23-06 (the seam must lower in a `finally`) deserves a test, not just a flag.** It is the
+   highest-consequence failure in the phase: a completion path that returns without lowering the seam
+   leaves Settings permanently unsaveable. The plan must assert the seam lowers on the **failure**
+   path, not only the success path.
+4. **Citation reconciliation, resolved 2026-08-20.** `clearIfMatches` is at `ChatPanel.kt:655` — this
+   spec was correct and `23-CONTEXT.md` D-07's `:654` has been corrected. `saveButton.background` is
+   at `BottomTabsPanel.kt:61`; Rule T-2's `:60-63` range is correct as a range.
 
 **Note for the checker.** Dimensions 2–5 have an unusual shape here because this phase declares
 **zero** new spacing values, typography roles, color tokens, glyphs and components. Those sections

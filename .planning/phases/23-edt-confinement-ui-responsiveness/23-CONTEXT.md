@@ -145,7 +145,7 @@ phase must preserve and not re-open.
   Montoya's `sendRequest` takes no cancellation, so the honest contract is: the worker runs to
   completion, its result is dropped, no followup turn is sent, the panel returns to idle. This is
   required by D-06 — `cancelBtn` (`:498`) calls `cancelInFlightRequest()`, which takes
-  `inFlightConnection`, and that was already cleared at `:654` before the tool started, so a busy
+  `inFlightConnection`, and that was already cleared at `:655` before the tool started, so a busy
   panel would otherwise show an **inert** cancel button. **Load-bearing corollary: the call did reach
   Burp, so Phase 22's SC3 audit event must still fire, with the cancellation recorded.** A cancelled
   call must not become an unlogged one — that would put a hole in SEC-06's record exactly where a
