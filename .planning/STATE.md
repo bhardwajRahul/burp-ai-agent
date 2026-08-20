@@ -4,17 +4,17 @@ milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
 current_phase: 23
 current_phase_name: EDT Confinement & UI Responsiveness
-status: executing
-stopped_at: Completed 23-04-PLAN.md
-last_updated: "2026-08-20T21:13:31.409Z"
+status: verifying
+stopped_at: Completed 23-05-PLAN.md
+last_updated: "2026-08-20T21:44:04.281Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 23 execution started
-state_head: efeb7d5416ff64b1beabb1db50c57382c7f22065
+state_head: 373fab86e96373b20efd5fe47cf91cb70ef68444
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 43
-  completed_plans: 42
+  completed_plans: 43
   percent: 14
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 Phase: 23 (EDT Confinement & UI Responsiveness) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Resume file: None
 Last activity: 2026-08-20 — Phase 23 execution started
 
@@ -139,6 +139,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | Phase 23 P02 | 25 min | 4 tasks | 6 files |
 | Phase 23 P03 | 36 min | 4 tasks | 7 files |
 | Phase 23 P04 | 61 min | 3 tasks | 4 files |
+| Phase 23 P05 | 27 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -196,6 +197,12 @@ Recent decisions affecting current work:
 - [Phase 23]: 23-04: the session-delete exit clears the busy state CONDITIONALLY on a worker having been superseded — unconditionally clobbers a backend turn in another session, not at all leaves Send hidden forever
 - [Phase 23]: 23-04: transcript rows are identified by BODY text, never by header — ChatMessagePanel renders every non-user role as the literal 'AI', which made 23-01's contains('Tool result: ...') assertion false by construction and therefore unfalsifiable
 - [Phase 23]: 23-04: S-08 asserts the measured consequence (a /tool supersedes the chain step via the panel-wide running-tool cell) instead of the plan's 'chain unharmed, still terminates at 8', which that cell makes unreachable
+- [Phase 23]: 23-05: SC5's evidence is a POSITIVE body assertion plus two frozen counters, not a diff — the working branch IS main, so git merge-base HEAD main equals HEAD and the diff-based criterion was empty by construction
+- [Phase 23]: 23-05: the E5 source assertion is scoped to each OffEdtDispatch call's own work argument — a file-wide scan reports shutdown()'s EDT-marshalled block, which legitimately reads sessionPanels, and that false positive is how a real guard gets deleted as noise
+- [Phase 23]: 23-05: assert an extraction's site count BEFORE asserting anything about what it extracted — a none{} over an empty list is a passing test about nothing
+- [Phase 23]: 23-05: 'assertEdt() and its six call sites' is a mis-measurement carried by four Phase 23 artifacts — the six grep hits are one declaration, one comment and FOUR invocations; the count of 6 is still SC5's evidence because it is unmoved
+- [Phase 23]: 23-05: detekt LargeClass on the grown test class answered with an inline @Suppress carrying its reason — the suite name is pinned by the PR-gate filter so splitting is not free, and detekt-baseline.xml is the v0.10.0 milestone metric
+- [Phase 23]: 23-05: SC6 evidenced structurally — the phase has ONE dispatch seam (OffEdtDispatch), which is why ChatPanel.kt's invokeLater count is still 11 after four plans of new asynchronous work
 
 ### Roadmap Evolution
 
@@ -238,6 +245,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T21:13:15.749Z
-Stopped at: Completed 23-04-PLAN.md
+Last session: 2026-08-20T21:44:04.177Z
+Stopped at: Completed 23-05-PLAN.md
 Resume file: None

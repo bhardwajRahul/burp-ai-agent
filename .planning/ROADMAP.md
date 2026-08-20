@@ -252,7 +252,7 @@ Plans:
 5. No regression in the REL-01 EDT-confinement guarantees for `ChatPanel` session maps — those maps must still be touched only on the EDT while the *work* moves off it.
 6. `MainTab`'s existing `Thread { … } + SwingUtilities.invokeLater` health-check pattern is reused rather than a new concurrency idiom being introduced.
 
-**Plans**: 4/5 plans executed in 4 waves
+**Plans**: 5/5 plans executed in 4 waves
 
 Plans:
 
@@ -271,7 +271,7 @@ Plans:
 
 **Wave 4** *(blocked on everything)*
 
-- [ ] 23-05-PLAN.md — SC5 regression evidence (`assertEdt()` byte-identity, the justified `invokeLater` count, no worker-side guarded-map read), SC6's stated evidence, `23-HUMAN-UAT.md`, the completed `23-VALIDATION.md` and the phase gate (wave 4)
+- [x] 23-05-PLAN.md — SC5 regression evidence (`assertEdt()` byte-identity, the justified `invokeLater` count, no worker-side guarded-map read), SC6's stated evidence, `23-HUMAN-UAT.md`, the completed `23-VALIDATION.md` and the phase gate (wave 4)
 
 **Sequencing constraint that shapes the whole phase** (verified at source, `23-RESEARCH.md` Open Question 6):
 `ChatPanelToolGateTest.slashCommandPathIsNotDoublePrompted` (`:350`) reaches `executeToolResult` **on the EDT today**
@@ -350,7 +350,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
 | 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
 | 22. Agent Tool-Call Trust Boundary | 9/9 | Complete    | 2026-08-20 |
-| 23. EDT Confinement & UI Responsiveness | 4/5 | In Progress|  |
+| 23. EDT Confinement & UI Responsiveness | 5/5 | In Progress|  |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
 | 25. Secondary Hardening | 0/? | Not started | — |
 | 26. Coverage, Static-Analysis Debt & Docs | 0/? | Not started | — |
