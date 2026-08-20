@@ -4,11 +4,16 @@ import burp.api.montoya.proxy.ProxyHttpRequestResponse
 import com.six2dez.burp.aiagent.audit.AuditLogger
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertTimeoutPreemptively
+import org.mockito.kotlin.any
+import org.mockito.kotlin.anyOrNull
+import org.mockito.kotlin.times
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.awt.Component
 import java.awt.Container
@@ -19,6 +24,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.AbstractButton
 import javax.swing.JButton
+import javax.swing.JEditorPane
 import javax.swing.JTextArea
 import javax.swing.SwingUtilities
 
@@ -262,6 +268,87 @@ class ChatPanelEdtConfinementTest {
         assertTrue(inputArea(h).isEnabled, "The panel must finish the chain in S0 with the input enabled.")
     }
 
+    /**
+     * S-04 / D-07 / UI-SPEC Rules S-5 and C-1 — Cancel is a live affordance while a tool is running,
+     * and it tells the user the truth about what happened to their request.
+     *
+     * The five things Cancel must do in state S3 are asserted together, because each of them is a way
+     * the others could be satisfied dishonestly: the panel returns to S0 **immediately** (not when the
+     * worker finishes), the transcript says the request was already sent rather than cancelled, the
+     * result is discarded with no followup turn, no chain iteration is refunded — and the call is
+     * **still audited**, which is D-07's load-bearing corollary. A cancelled call that became an
+     * unlogged call would put a hole in the SEC-06 record at exactly the point a user interrupted
+     * something.
+     *
+     * The worker is never interrupted and this test does not check for an interrupt: Montoya's
+     * `sendRequest` takes no cancellation token, so an interrupt would work for one transport and
+     * silently no-op for Burp's. A cancel that works sometimes is worse than one that states its limits.
+     */
+    @Test
+    fun cancellingARunningToolDiscardsItsResultAndStillAuditsTheCall() {
+        val latches = ToolLatches()
+        val h = ChatPanelTestHarness.create(modelResponse = toolCall("proxy_http_history", """{"count":5}"""))
+        whenever(h.api.proxy().history()).thenAnswer {
+            latches.entered.countDown()
+            check(latches.probeRan.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+                "The test never released the blocked tool — the cancel window was never opened."
+            }
+            emptyList<ProxyHttpRequestResponse>()
+        }
+
+        val traceIdRef = AtomicReference<String>()
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, "summarise the proxy history")
+            ChatPanelTestHarness.drainEdt()
+            val card = requireNotNull(ChatPanelTestHarness.findApprovalCard(h.panel.root)) { NO_CARD }
+            traceIdRef.set(pendingTraceId(h))
+            click(card, "Approve once")
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The tool worker never started, so there was nothing to cancel.",
+            )
+
+            // The real Cancel button, clicked on the EDT exactly as the AWT pump would dispatch it,
+            // WHILE the tool is still blocked inside its call.
+            SwingUtilities.invokeAndWait { cancelButton(h).doClick() }
+
+            // ASSERTED BEFORE THE LATCH IS RELEASED, and that ordering is the claim. "The panel returns
+            // to S0 immediately" is only meaningful while the worker is demonstrably still running —
+            // read after the release it would also pass on an implementation that made the user wait.
+            assertTrue(sendButton(h).isVisible, "UI-SPEC S-5: Cancel returns the panel to S0 at once.")
+            assertTrue(inputArea(h).isEnabled, "UI-SPEC S-5: the input is usable again at once.")
+
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        val transcript = transcriptText(h)
+        assertTrue(
+            transcript.contains("was already sent to Burp and will finish"),
+            "UI-SPEC C-1: the user must be told the request really was sent. Transcript: $transcript",
+        )
+        assertFalse(
+            transcript.contains("Request cancelled."),
+            "UI-SPEC C-1: the backend-turn line is FALSE on the tool path — the request was not cancelled.",
+        )
+        assertFalse(
+            transcript.contains("Tool result: proxy_http_history"),
+            "UI-SPEC S4: a superseded run renders no transcript row for its discarded result.",
+        )
+        // D-07's corollary: the call reached Burp and cannot be recalled, so it stays in the record.
+        val record = decisionsFor(traceIdRef.get()).single()
+        assertEquals(
+            ChatPanel.SUPERSEDED_RUN_STATUS,
+            record["status"],
+            "The cancelled call must be audited, with the cancellation recorded rather than filed as a " +
+                "malfunction or as a policy refusal.",
+        )
+        assertEquals("approve_once", record["decision"], "The decision the user really made is unchanged by the cancel.")
+        // No followup turn: exactly the one turn the user's own message started. A second would mean the
+        // discarded result was fed back to the model anyway.
+        verifySendChatCount(h, 1)
+    }
+
     // ── Audit + worker capture plumbing ──────────────────────────────────────────────────
 
     private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
@@ -362,6 +449,51 @@ private fun inputArea(h: ChatPanelTestHarness.Harness): JTextArea =
     requireNotNull(ChatPanelTestHarness.find(h.panel.root, JTextArea::class.java) { it.isEditable }) {
         "No editable JTextArea under ChatPanel.root — the input area lookup is stale."
     }
+
+/** The panel's real Cancel button — the affordance UI-SPEC Rule S-5 says must not be inert in S3. */
+private fun cancelButton(h: ChatPanelTestHarness.Harness): JButton =
+    requireNotNull(ChatPanelTestHarness.find(h.panel.root, JButton::class.java) { it.text == "Cancel" }) {
+        "No JButton labelled 'Cancel' under ChatPanel.root — Rule C-1 pins that label, so a miss here " +
+            "means it was renamed."
+    }
+
+/**
+ * The transcript's rendered text, tags stripped.
+ *
+ * Read through the `HTMLDocument` rather than off `JEditorPane.text`: the transcript renders through
+ * `MarkdownRenderer.toHtml`, so the raw property is markup in which a sentence can be split by tags,
+ * and a `contains` over it would be a claim about the renderer instead of about the copy.
+ */
+private fun transcriptText(h: ChatPanelTestHarness.Harness): String =
+    allDescendants(h.panel.root)
+        .filterIsInstance<JEditorPane>()
+        .joinToString(" ") { pane -> pane.document.getText(0, pane.document.length) }
+
+/**
+ * Asserts the exact number of backend turns.
+ *
+ * `sendChat` takes 13 parameters; all are matched positionally so the verification lines up.
+ */
+private fun verifySendChatCount(
+    h: ChatPanelTestHarness.Harness,
+    expected: Int,
+) {
+    verify(h.supervisor, times(expected)).sendChat(
+        any(),
+        any(),
+        any(),
+        anyOrNull(),
+        anyOrNull(),
+        any(),
+        any(),
+        any(),
+        any(),
+        anyOrNull(),
+        anyOrNull(),
+        anyOrNull(),
+        anyOrNull(),
+    )
+}
 
 /** The four D-11 labels, defined once so "is this a decision button?" is asked one way. */
 private val DECISION_LABELS = setOf("Deny", "Deny for session", "Approve once", "Approve for session")

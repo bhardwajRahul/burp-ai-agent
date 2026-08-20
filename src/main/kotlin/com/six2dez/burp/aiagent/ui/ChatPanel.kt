@@ -982,17 +982,47 @@ class ChatPanel(
      */
     fun cancelInFlightRequest(): Boolean {
         assertEdt()
-        val conn = inFlightConnection.take() ?: return false
+        // TAKEN BEFORE THE CONNECTION, and the order is the whole of UI-SPEC Rule S-5. By the time a
+        // tool is running the backend turn's connection has already been cleared by `clearIfMatches` in
+        // the completion handler, so a busy panel in state S3 holds no connection at all — and an early
+        // return on the connection alone would present a Cancel button that does nothing and says
+        // nothing, which is the worst possible affordance on a security tool.
+        val toolToken = runningTool.take() as? RunningToolToken
+        val conn = inFlightConnection.take()
+        if (toolToken == null && conn == null) return false
+        // S0 immediately. The user does not wait for the worker: Montoya's sendRequest takes no
+        // cancellation token, so the worker runs to completion and its return lands in S4 instead
+        // (finishApprovedToolCall's supersede branch — the token it holds no longer matches).
         setSendingState(false)
-        try {
-            conn.stop()
-        } catch (_: Exception) {
+        if (conn != null) {
+            try {
+                conn.stop()
+            } catch (_: Exception) {
+            }
         }
         val sessionId = sessionsList.selectedValue?.id ?: return true
         val panel = sessionPanels[sessionId] ?: return true
-        panel.addMessage("System", "Request cancelled.")
+        // SELECTED BY WHAT WAS TAKEN, never by which button was pressed and never by which state the
+        // panel believes it is in (UI-SPEC Rule C-1). A backend turn really was cancelled, so its
+        // existing line stays byte-identical; a tool call was NOT cancelled, so it gets a sibling that
+        // says so. Telling a penetration tester their request was cancelled when it was actually sent to
+        // the target is the kind of wrong that ends up in someone's report.
+        val line = if (conn != null) "Request cancelled." else toolCancelLine(requireNotNull(toolToken).tool)
+        panel.addMessage("System", line)
         return true
     }
+
+    /**
+     * UI-SPEC Rule C-1's locked tool-cancel copy — three facts, in the order a tester needs them.
+     *
+     * **(1)** it happened anyway, **(2)** nothing was done with the answer, **(3)** you can still find
+     * out what it was. Fact 3 is not decoration: it is the user-visible half of D-07's corollary that a
+     * cancelled call must never become an unlogged one, and it tells the user where to look.
+     *
+     * One string serves every origin — a cancelled chain step and a cancelled `/tool` or dialog
+     * invocation say the same true thing.
+     */
+    private fun toolCancelLine(tool: String): String = "Cancelled: $tool was already sent to Burp and will finish. Its result was discarded and no follow-up was sent to the AI. The call is in the audit log."
 
     fun openToolDialog() {
         if (!mcpAvailable) {
@@ -2909,7 +2939,7 @@ class ChatPanel(
         // sessionsById, sessionDrafts or pendingDecisions: those are @GuardedBy("EDT"), an off-EDT read
         // of one is the REL-01 data race, and it would corrupt silently rather than fail loudly.
         setSendingState(true)
-        val token = Any()
+        val token = RunningToolToken(call.tool)
         runningTool.set(token)
         OffEdtDispatch.run(
             threadName = "burp-ai-tool-exec",
@@ -2923,6 +2953,21 @@ class ChatPanel(
         )
         return ToolCallOutcome.EXECUTING
     }
+
+    /**
+     * The supersede token for one running tool call.
+     *
+     * Still opaque to [RunningToolTracker], which compares tokens by IDENTITY through
+     * `AtomicReference.compareAndSet` and never by value — so this is a plain class rather than a
+     * `data class`, and two runs of the same tool are two distinct tokens.
+     *
+     * It carries [tool] because [cancelInFlightRequest] needs the tool's name to write UI-SPEC Rule
+     * C-1's line, and that name must come from the run that was actually cancelled rather than from
+     * whatever the panel happens to be showing.
+     */
+    private class RunningToolToken(
+        val tool: String,
+    )
 
     /**
      * Everything an approved tool call's worker or its EDT tail needs, read on the EDT before dispatch.
