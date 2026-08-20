@@ -265,7 +265,7 @@ Left to research and planning. Each carries a recommendation to be **confirmed, 
   the transcript as the visible marker, and D-06 gives a panel-level signal; a per-call spinner is
   new chrome for a state that usually lasts under a second.
 
-- ~~**`ExternalMcpClientManager.kt:408` and `:442`**~~ — **RESOLVED 2026-08-20, no longer open.**
+- ~~**`mcp/external/ExternalMcpClientManager.kt:408` and `:442`**~~ — **RESOLVED 2026-08-20, no longer open.**
   Both sites are inside `fun stop()` (`:395`), and nothing in `src/main` constructs an
   `ExternalMcpClientManager` at all — the only constructor calls are in
   `src/test/kotlin/…/ExternalMcpClientManagerTest.kt`. Not reachable from a Settings button or any
@@ -341,9 +341,16 @@ Left to research and planning. Each carries a recommendation to be **confirmed, 
   — it drains the EDT queue and knows nothing about a daemon worker, so it cannot remain the sole
   synchronisation point; (b) `ChatPanelToolGateTest.kt:358`'s
   `verify(h.api.proxy(), times(1)).history()` fires immediately after `drainEdt()` and becomes racy.
-  The harness needs a worker-aware await (a latch, or a completion hook the production code exposes
-  for tests) before any SC3 assertion can be trusted. Budget for this — it is the mechanism SC3's
-  "deterministic, not wall-clock" recommendation depends on.
+  The harness needs a worker-aware await before any SC3 assertion can be trusted. Budget for this —
+  it is the mechanism SC3's "deterministic, not wall-clock" recommendation depends on.
+
+  **Constraint discovered in phase research, 2026-08-20 — it rules out the obvious shape.**
+  `McpToolExecutor` is an `object` singleton (`mcp/tools/McpToolExecutorImpl.kt:45`) with no
+  interface, so **there is no executor test double to put a latch in** — phrasing this document and
+  the AI-SPEC both used. The await must hang off the new dispatch helper (a completion observer the
+  production code exposes for tests), not off a mock of the executor. `23-RESEARCH.md` recommends the
+  `AuditLogger.registerGlobalEmitter` install/clear pattern, which has precedent in the same test
+  class.
 
 ### Read-only, but do not disturb
 - `src/main/kotlin/com/six2dez/burp/aiagent/mcp/KtorMcpServerManager.kt:250-283` — the bounded
@@ -452,7 +459,7 @@ Left to research and planning. Each carries a recommendation to be **confirmed, 
   neither creates nor worsens. Fix belongs with REL-07 / Phase 24 or QUAL-06 / Phase 26, not here.
 - **`isSending` is dead state** — `ChatPanel.kt:110`, written at `:942`, never read. Trivially
   removable; flagged so it is a deliberate call rather than an oversight.
-- **`ExternalMcpClientManager.kt:408,442` `runBlocking`** — outside `executeToolResult`'s path,
+- **`mcp/external/ExternalMcpClientManager.kt:408,442` `runBlocking`** — outside `executeToolResult`'s path,
   both inside `fun stop()` (`:395`). Reachability checked 2026-08-20: **not EDT-reachable** — no
   `src/main` code constructs the manager, only tests do. Confirmed deferred.
 - **Upgrading `assertEdt()` from a production no-op** — QUAL-07 / Phase 26, unchanged from Phase 22's
@@ -481,12 +488,18 @@ Left to research and planning. Each carries a recommendation to be **confirmed, 
   dispatch, mutual exclusion, or an accepted-and-documented residual. Also: `Redaction`'s
   `compiledCustomPatterns` `@Volatile` comment justifies itself by "writes from the EDT (save)" —
   that rationale goes stale under D-11 even though the behaviour does not. Update the comment.
-- **`McpRequestLimiter` contention becomes reachable** — `McpRequestLimiter.kt:9-14` is a **fair**
-  `Semaphore` with a 250 ms default `tryAcquire` timeout. Today EDT serialisation makes contention
-  from the chat path impossible; with D-05's per-call daemon threads a `/tool` racing a chain can
-  genuinely collide, so `"Too many concurrent MCP requests."` becomes a reachable outcome. It fails
-  closed and is correct behaviour — **expect it, do not treat it as a regression**, and do not raise
-  the limit to make it disappear.
+- ~~**`McpRequestLimiter` contention becomes reachable**~~ — **RETRACTED 2026-08-20, verified at
+  source during phase research.** The premise was false. `ChatPanel.buildToolContext` constructs
+  `limiter = McpRequestLimiter(settings.mcpSettings.maxConcurrentRequests)` **per call**
+  (`ChatPanel.kt:3019`), so a `/tool` racing a chain builds its **own fresh semaphore** and the two
+  can never contend. The MCP-server path has its own separate instance
+  (`McpRuntimeContextFactory.kt:28`). `"Too many concurrent MCP requests."` is therefore **not**
+  reachable from the chat path, before or after this phase.
+
+  **Do not simply delete this — invert it.** It is now a useful *negative* guard: if that string
+  ever appears in a chat transcript, something shared a limiter that must not be shared. The
+  corresponding AI-SPEC dimension E10 has been rewritten as a negative dimension on the same basis.
+  Left visible rather than removed so the claim is not independently rediscovered and re-acted on.
 
 </deferred>
 

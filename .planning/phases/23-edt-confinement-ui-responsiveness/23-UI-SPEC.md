@@ -773,13 +773,13 @@ and source, and each is flagged so the maintainer can overrule it cheaply.
   §UI Considerations. Add it to `23-HUMAN-UAT.md` as an observation item ("approve a tool with
   approve-for-session, watch for a Send/Cancel flash between chain steps"), not as a pass/fail gate.
 
-- **FLAG-23-05 — `McpRequestLimiter` rejection becomes user-visible.** `McpRequestLimiter.kt:9-14` is
-  a fair `Semaphore` with a 250 ms `tryAcquire` timeout. Today EDT serialisation makes contention from
-  the chat path impossible; with per-call workers a `/tool` racing a chain can genuinely collide and
-  surface `"Too many concurrent MCP requests."` in the transcript. **This is correct fail-closed
-  behaviour and correct copy — expect it, do not treat it as a UI regression, and do not raise the
-  limit to make it disappear.** Carried from CONTEXT.md §Deferred; repeated here because it is the one
-  new *string* a user may see that this phase does not author.
+- **FLAG-23-05 — WITHDRAWN 2026-08-20; inverted into a negative guard.** This flag claimed that
+  per-call workers would make `"Too many concurrent MCP requests."` newly user-visible. **Verified
+  false at source:** `ChatPanel.buildToolContext` constructs a fresh `McpRequestLimiter` per call
+  (`ChatPanel.kt:3019`), so a `/tool` and a chain hold different semaphores and cannot contend. This
+  phase therefore introduces **no new user-visible string** beyond the three this document authors.
+  Inverted rather than deleted: if that string ever does appear in a chat transcript, a limiter was
+  shared across call sites and it is a real defect. Tracked as AI-SPEC dimension E10.
 
 - **FLAG-23-06 — the settings busy seam must lower in a `finally`.** Not a design choice, a hazard
   worth naming twice: any completion path that returns without lowering the seam leaves the Settings
