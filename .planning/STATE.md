@@ -5,16 +5,16 @@ milestone_name: Security Correctness & Agent Trust
 current_phase: 23
 current_phase_name: EDT Confinement & UI Responsiveness
 status: executing
-stopped_at: Completed 23-02-PLAN.md
-last_updated: "2026-08-20T19:23:44.435Z"
+stopped_at: Completed 23-03-PLAN.md
+last_updated: "2026-08-20T20:12:27.477Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 23 execution started
-state_head: ff94d37b2703cc35dc24d09028e3fe340a50b1e5
+state_head: cfaa32b067650d43c4f69de5fecf8e69b54d8bd6
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 43
-  completed_plans: 40
+  completed_plans: 41
   percent: 14
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 ## Current Position
 
 Phase: 23 (EDT Confinement & UI Responsiveness) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Resume file: None
 Last activity: 2026-08-20 — Phase 23 execution started
@@ -137,6 +137,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 |------|----------|-------|-------|
 | Phase 23 P01 | 42 min | 3 tasks | 5 files |
 | Phase 23 P02 | 25 min | 4 tasks | 6 files |
+| Phase 23 P03 | 36 min | 4 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -184,6 +185,11 @@ Recent decisions affecting current work:
 - [Phase 23]: The -ea-off demonstration is a dedicated Gradle task (edtGuardWithoutAssertionsTest, jvmArgs -da) rather than a task-wide -da on tasks.test, which would weaken every other suite's assertions to buy one suite's evidence.
 - [Phase 23]: FLAG-23-03 answered YES: the /tool command is appended to session.messages as a user ChatMessage, removing the asymmetry with openToolDialog rather than preserving it.
 - [Phase 23]: The two user-originated tool tails emit no audit decision pair — SC5 makes these paths ungated, so there is no approval record to report and inventing one would fabricate a SEC-06 log entry.
+- [Phase 23]: 23-03: E8 answered documented-residual — the residual is one named window (a tool worker's snapshot privacyMode from before a save paired with the custom-pattern list from after it); both halves are always fully published, so no call is ever redacted under no rules
+- [Phase 23]: 23-03: the busy seam uses TWO finally layers behind one compare-and-set — the EDT tail covers a throwing completion callback, the worker's catch covers a worker that dies before posting its tail, and the CAS keeps the observed transition exactly [true, false]
+- [Phase 23]: 23-03: setActionsBusy disables BOTH action buttons, because D-13 puts saveSettings and restoreDefaultsWithConfirmation on one async path and Restore is the other door into the double-save race
+- [Phase 23]: 23-03: FLAG-23-01 recolor IMPLEMENTED (Save goes outlineVariant/onSurfaceVariant while busy), recorded as a deliberate choice with the escape hatch left to live UAT
+- [Phase 23]: 23-03: restoreDefaultsWithConfirmation is asserted structurally, not behaviourally — JOptionPane.getRootFrame() throws HeadlessException so this caller cannot be driven headlessly; the source-read is paired with its own build.gradle.kts inputs.file declaration in the same commit
 
 ### Roadmap Evolution
 
@@ -226,6 +232,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-20T19:23:34.352Z
-Stopped at: Completed 23-02-PLAN.md
+Last session: 2026-08-20T20:12:14.069Z
+Stopped at: Completed 23-03-PLAN.md
 Resume file: None
