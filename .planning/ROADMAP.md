@@ -252,7 +252,37 @@ Plans:
 5. No regression in the REL-01 EDT-confinement guarantees for `ChatPanel` session maps — those maps must still be touched only on the EDT while the *work* moves off it.
 6. `MainTab`'s existing `Thread { … } + SwingUtilities.invokeLater` health-check pattern is reused rather than a new concurrency idiom being introduced.
 
-**Plans**: TBD
+**Plans**: 5 plans in 4 waves
+
+Plans:
+
+**Wave 1** *(the tracer — one path end-to-end, deliberately without the guard)*
+
+- [ ] 23-01-PLAN.md — `OffEdtDispatch` helper, harness `awaitToolSettled`, the chain call site moved with its full lifecycle (S3 busy, supersede CAS, cancel, marshalled audit tail, `ToolCallOutcome.EXECUTING`), plus `ChatPanelEdtConfinementTest` carrying S-01/S-02/S-04 red-before-green (wave 1)
+
+**Wave 2** *(23-02 and 23-03 run in parallel — zero shared files)*
+
+- [ ] 23-02-PLAN.md — the throwing door guard at `executeToolResult` **and** the two user-originated call sites, in one commit (D-04's sequencing constraint), plus Rule S-4's `/tool` echo and `McpToolExecutorEdtGuardTest` (wave 2, has a `checkpoint:decision`)
+- [ ] 23-03-PLAN.md — Settings: the A2 headless spike, the busy seam, `applyAndSaveSettings` off the EDT with one marshalled tail, D-13's shared async path for both callers, the E8 residual and `SettingsSaveAsyncTest` (wave 2, has a `checkpoint:decision`)
+
+**Wave 3** *(blocked on 23-01 and 23-02)*
+
+- [ ] 23-04-PLAN.md — the remaining teardown exits, including the **explicit** supersede `deleteSession` does not inherit, plus S-05…S-09, S-12 and the rewritten negative E10 limiter dimension (wave 3)
+
+**Wave 4** *(blocked on everything)*
+
+- [ ] 23-05-PLAN.md — SC5 regression evidence (`assertEdt()` byte-identity, the justified `invokeLater` count, no worker-side guarded-map read), SC6's stated evidence, `23-HUMAN-UAT.md`, the completed `23-VALIDATION.md` and the phase gate (wave 4)
+
+**Sequencing constraint that shapes the whole phase** (verified at source, `23-RESEARCH.md` Open Question 6):
+`ChatPanelToolGateTest.slashCommandPathIsNotDoublePrompted` (`:350`) reaches `executeToolResult` **on the EDT today**
+via `ChatPanelTestHarness.sendUserMessage`'s `invokeAndWait` (`ChatPanelTestHarness.kt:193`). Guard-first turns that
+test red; moves-first leaves the guard with nothing to catch. The guard and all three call-site moves must therefore
+land in one commit — which is why the tracer (23-01) carries the mechanism and 23-02 carries the guard.
+
+**Two gates the standard `ktlintCheck detekt test` run does not cover, both phase-blocking:**
+`./gradlew test -PexcludeHeavyTests=true` must show non-zero executed counts for all three new suites
+(`build.gradle.kts:206-213` excludes five suffixes and `*ConcurrencyTest` is the natural wrong name to reach for here),
+and `git diff --stat detekt-baseline.xml` must be empty (signature-keyed, pinned at 1096 as the v0.10.0 milestone metric).
 
 ---
 
