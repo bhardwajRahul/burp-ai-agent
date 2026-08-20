@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: — Security Correctness & Agent Trust
 status: executing
-stopped_at: Phase 22 UI-SPEC approved
-last_updated: "2026-08-13T14:17:54.414Z"
-last_activity: 2026-08-13 -- Phase 22 execution started
+stopped_at: Phase 22 complete — all gates passed
+last_updated: "2026-08-20T08:05:33.287Z"
+last_activity: 2026-08-20
 progress:
   total_phases: 7
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 38
-  completed_plans: 29
-  percent: 29
+  completed_plans: 38
+  percent: 43
 ---
 
 # Project State
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-05)
 
 **Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable.
-**Current focus:** Phase 22 — agent-tool-call-trust-boundary
+**Current focus:** Phase 23 — edt-confinement-ui-responsiveness
 
 ## Current Position
 
-Phase: 22 (agent-tool-call-trust-boundary) — EXECUTING
-Plan: 1 of 9
-Status: Executing Phase 22
+Phase: 23
+Plan: Not started
+Status: Phase 22 complete (UAT 4/4, verification 6/6, security 41/41, code review 14/14) — Phase 23 not started
 Resume file: .planning/phases/22-agent-tool-call-trust-boundary/22-UI-SPEC.md
-Last activity: 2026-08-13 -- Phase 22 execution started
+Last activity: 2026-08-20
 
 ## Milestone Origin
 
@@ -75,7 +75,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 
 **Velocity:**
 
-- Total plans completed: 61
+- Total plans completed: 70
 - Average duration: —
 - Total execution time: 0 hours
 
@@ -95,6 +95,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | 16 | 6 | - | - |
 | 20 | 10 | - | - |
 | 21 | 19 | - | - |
+| 22 | 9 | - | - |
 
 **Recent Trend:**
 

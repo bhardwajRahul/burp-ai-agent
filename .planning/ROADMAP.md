@@ -319,7 +319,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
 | 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
-| 22. Agent Tool-Call Trust Boundary | 9/9 | Complete   | 2026-08-14 |
+| 22. Agent Tool-Call Trust Boundary | 9/9 | Complete    | 2026-08-20 |
 | 23. EDT Confinement & UI Responsiveness | 0/? | Not started | — |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
 | 25. Secondary Hardening | 0/? | Not started | — |
