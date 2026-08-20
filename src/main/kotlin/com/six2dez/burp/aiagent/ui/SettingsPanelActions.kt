@@ -36,6 +36,11 @@ fun SettingsPanel.setDialogParent(component: JComponent) {
     dialogParent = component
 }
 
+/** Installs the busy seam the async save path raises and lowers. See [SettingsPanel.busyListener]. */
+fun SettingsPanel.setBusyListener(listener: (Boolean) -> Unit) {
+    busyListener = listener
+}
+
 fun SettingsPanel.generalTabComponent(): JComponent = generalTab
 
 fun SettingsPanel.passiveScannerTabComponent(): JComponent = passiveScannerTab
@@ -61,23 +66,33 @@ fun SettingsPanel.updateUsageSummary(
 }
 
 fun SettingsPanel.saveSettings() {
+    // currentSettings() reads the Swing components, so it stays on the EDT before dispatch.
+    val updated = currentSettings()
     updateSaveFeedback("Saving settings...", DesignTokens.Colors.statusWarning)
-    try {
-        applyAndSaveSettings(currentSettings())
-        updateSaveFeedback("Saved and applied.", DesignTokens.Colors.statusSuccess, resetMs = 3000)
-    } catch (e: Exception) {
-        updateSaveFeedback("Save failed: ${e.message ?: "unknown error"}", DesignTokens.Colors.statusError, resetMs = 5000)
-        api.logging().logToError("AI Agent settings save failed: ${e.message}")
-        JOptionPane.showMessageDialog(
-            dialogParentComponent(),
-            "Failed to save settings: ${e.message ?: "unknown error"}",
-            "Custom AI Agent",
-            JOptionPane.ERROR_MESSAGE,
-        )
+    applyAndSaveSettingsAsync(updated) { result ->
+        result
+            .onSuccess {
+                updateSaveFeedback("Saved and applied.", DesignTokens.Colors.statusSuccess, resetMs = 3000)
+            }.onFailure { e ->
+                updateSaveFeedback(
+                    "Save failed: ${e.message ?: "unknown error"}",
+                    DesignTokens.Colors.statusError,
+                    resetMs = 5000,
+                )
+                api.logging().logToError("AI Agent settings save failed: ${e.message}")
+                JOptionPane.showMessageDialog(
+                    dialogParentComponent(),
+                    "Failed to save settings: ${e.message ?: "unknown error"}",
+                    "Custom AI Agent",
+                    JOptionPane.ERROR_MESSAGE,
+                )
+            }
     }
 }
 
 fun SettingsPanel.restoreDefaultsWithConfirmation() {
+    // Rule T-3: the confirmation and the component writes below stay on the EDT, before dispatch.
+    // A confirmation that runs after the work has started is not a confirmation.
     val confirmed =
         JOptionPane.showConfirmDialog(
             dialogParent,
@@ -88,8 +103,26 @@ fun SettingsPanel.restoreDefaultsWithConfirmation() {
     if (confirmed != JOptionPane.YES_OPTION) return
     val defaults = settingsRepo.defaultSettings()
     applySettingsToUi(defaults)
-    applyAndSaveSettings(defaults)
-    updateSaveFeedback("Defaults restored and applied.", DesignTokens.Colors.statusSuccess, resetMs = 3000)
+    updateSaveFeedback("Restoring defaults...", DesignTokens.Colors.statusWarning)
+    applyAndSaveSettingsAsync(defaults) { result ->
+        result
+            .onSuccess {
+                updateSaveFeedback("Defaults restored and applied.", DesignTokens.Colors.statusSuccess, resetMs = 3000)
+            }.onFailure { e ->
+                updateSaveFeedback(
+                    "Restore failed: ${e.message ?: "unknown error"}",
+                    DesignTokens.Colors.statusError,
+                    resetMs = 5000,
+                )
+                api.logging().logToError("AI Agent settings restore failed: ${e.message}")
+                JOptionPane.showMessageDialog(
+                    dialogParentComponent(),
+                    "Failed to restore defaults: ${e.message ?: "unknown error"}",
+                    "Custom AI Agent",
+                    JOptionPane.ERROR_MESSAGE,
+                )
+            }
+    }
 }
 
 fun SettingsPanel.setPreferredBackend(value: String) {
@@ -297,7 +330,7 @@ internal fun SettingsPanel.refreshPrivacyNotice() {
 
     // WR-02: the first three arguments are genuinely live UI state — a user can flip them without
     // saving and the banner must follow immediately. The pattern list is not. It is *engine* state
-    // that only applyAndSaveSettings can change, and validateAndCollectCustomPatterns drops every
+    // that only applyAndSaveSettingsBody can change, and validateAndCollectCustomPatterns drops every
     // line failing SafeRegex.isPatternSafe before it is stored, so unsaved or invalid text is not
     // merely stale — it may never become active at all. Inferring "your custom patterns are applied"
     // from the editor's text therefore downgrades a real risk warning on the strength of text that

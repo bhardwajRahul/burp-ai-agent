@@ -91,6 +91,28 @@ class BottomTabsPanel(
         root.add(contentPanel, BorderLayout.CENTER)
 
         settingsPanel.setDialogParent(root)
+        settingsPanel.setBusyListener { busy -> setActionsBusy(busy) }
+    }
+
+    /**
+     * UI-SPEC state T1: both action buttons go inert while a save is in flight, and come back on
+     * every completion path. Called on the EDT from `SettingsPanel`'s async save seam.
+     *
+     * **Both buttons, not only Save.** `saveSettings()` and `restoreDefaultsWithConfirmation()` share
+     * one async path, so leaving Restore enabled would let it start a second save mid-flight — the
+     * double-save race, re-entered through the other door.
+     *
+     * Rule T-2: `saveButton` is `isOpaque = true` with an explicit `primary` background, and a Swing
+     * button keeps painting that fill when disabled — only its text falls back to the L&F's disabled
+     * foreground, which reads as Burp orange with grey text. Recoloring through `outlineVariant` /
+     * `onSurfaceVariant` makes the inert state legible; both tokens resolve from `UIManager`, so it
+     * inverts with the theme. `restoreButton` already has a `surface` background and needs no recolor.
+     */
+    private fun setActionsBusy(busy: Boolean) {
+        saveButton.isEnabled = !busy
+        restoreButton.isEnabled = !busy
+        saveButton.background = if (busy) UiTheme.Colors.outlineVariant else UiTheme.Colors.primary
+        saveButton.foreground = if (busy) UiTheme.Colors.onSurfaceVariant else UiTheme.Colors.onPrimary
     }
 
     /** Public API for keyboard shortcut (Escape key) */

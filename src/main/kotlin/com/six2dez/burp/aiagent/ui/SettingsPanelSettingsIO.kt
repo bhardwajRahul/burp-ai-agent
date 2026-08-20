@@ -13,6 +13,8 @@ import com.six2dez.burp.aiagent.scanner.ScanMode
 import com.six2dez.burp.aiagent.scanner.applyOptimizationSettings
 import com.six2dez.burp.aiagent.ui.design.DesignTokens
 import com.six2dez.burp.aiagent.ui.panels.BackendConfigState
+import java.util.concurrent.atomic.AtomicBoolean
+import javax.swing.SwingUtilities
 
 internal fun SettingsPanel.currentSettings(): AgentSettings {
     val mcpSettings =
@@ -453,15 +455,36 @@ internal fun SettingsPanel.parseContentTypePrefixesInput(
     return if (parsed.isEmpty()) fallback else parsed
 }
 
-internal fun SettingsPanel.applyAndSaveSettings(updated: AgentSettings) {
+/**
+ * The synchronous body of a Settings save. Runs on the `burp-ai-settings-save` worker, never the EDT.
+ *
+ * REL-05 / SC4: this reaches `McpSupervisor.applySettings` → `McpSupervisor.stop()` →
+ * `KtorMcpServerManager.stop()`'s bounded `future.get(10, TimeUnit.SECONDS)`, and it also does
+ * `settingsRepo.save()` (disk) and `backends.reload()`. All three are why the whole body is off the
+ * EDT. `KtorMcpServerManager.stop()` itself stays blocking (D-14): `McpSupervisor.stop()` resets its
+ * attempt counters, stops the stdio bridge and clears the registries only after `serverManager.stop`
+ * has completed, and that callback fires on the calling thread.
+ *
+ * It touches no Swing component. The snapshot it applies was read off the components by
+ * `currentSettings()` on the EDT before dispatch; the Swing tail lives in
+ * [applyAndSaveSettingsAsync]'s `onEdt`.
+ *
+ * `settings = updated` moves with the body rather than staying on the EDT: the snapshot has already
+ * been taken before dispatch, and splitting that field write from the ten mutations that depend on it
+ * would put two rules in one function.
+ */
+internal fun SettingsPanel.applyAndSaveSettingsBody(updated: AgentSettings) {
     settings = updated
     settingsRepo.save(updated)
     // Re-prime the BountyPrompt cache off-thread so menu builds never touch disk (BApp #231, finding 2).
+    // Called from this worker it starts a second, nested daemon thread. That nesting is harmless and
+    // deliberate: the cache refresh is fire-and-forget, this worker never reads its result, and the
+    // same call is made from App.initialize on the startup thread, where a synchronous form would
+    // block extension load on a directory listing and a JSON parse per definition.
     UiActions.refreshBountyPromptCache(updated)
     AgentProfileLoader.setActiveProfile(updated.agentProfile)
     backends.reload()
     supervisor.applySettings(updated)
-    audit.setEnabled(updated.auditEnabled)
     mcpSupervisor.applySettings(
         updated.mcpSettings,
         updated.privacyMode,
@@ -469,6 +492,15 @@ internal fun SettingsPanel.applyAndSaveSettings(updated: AgentSettings) {
         updated.toPreprocessorSettings(),
     )
 
+    // E8: the two privacy-relevant global writes are kept contiguous so the window a concurrent tool
+    // worker can observe is one readable block rather than scattered across ten mutations. A tool
+    // worker running during a save redacts under the privacy mode captured in its own immutable
+    // McpToolContext snapshot, taken on the EDT before its dispatch, and against whichever custom
+    // pattern list is current when it reads. Both halves are always fully published: setCustomPatterns
+    // assigns a whole new List<Pattern> to a @Volatile field, and audit.setEnabled flips a @Volatile
+    // boolean. There is no state in which a call is redacted under no rules, and no state in which a
+    // partially compiled pattern list is readable.
+    audit.setEnabled(updated.auditEnabled)
     // PRIV-02: push validated custom patterns into the live redaction pipeline so edits
     // take effect without a restart (per 13-RESEARCH A7 / Open Question 1).
     com.six2dez.burp.aiagent.redact.Redaction
@@ -497,11 +529,70 @@ internal fun SettingsPanel.applyAndSaveSettings(updated: AgentSettings) {
     activeAiScanner.setEnabled(updated.activeAiEnabled)
 
     api.logging().logToOutput("AI Agent settings saved.")
-    onSettingsChanged?.invoke(updated)
-    refreshPassiveAiStatus()
-    refreshActiveAiStatus()
-    updateProfileWarnings()
-    updateRiskWarnings()
+}
+
+/**
+ * Applies [updated] on the `burp-ai-settings-save` worker and reports the outcome to [onDone] on the EDT.
+ *
+ * Call this from the EDT with a snapshot already read off the Swing components. It returns as soon as
+ * the worker is started; nothing after the dispatch waits on it (REL-05 / SC4).
+ *
+ * **The busy seam and its two `finally` layers (UI-SPEC Rule T-1, FLAG-23-06).** The seam is raised
+ * here, before dispatch, and lowered exactly once — `lowered` is a compare-and-set, so both layers can
+ * fire and the listener still sees one `false`. The inner layer is the `finally` around the EDT tail,
+ * covering a completion callback that throws. The outer layer runs on the worker and posts the
+ * lowering itself, covering a worker that dies on the way out before its tail can be posted. A path
+ * that returns without lowering leaves the Settings tab permanently unsaveable, with no error and no
+ * way back short of reloading the extension.
+ *
+ * The `Throwable` catch cannot be narrowed: the seam must lower for ANY throwable the worker produces,
+ * and the one the worker is least able to survive — an `Error` — is exactly the one that would
+ * otherwise leave Settings permanently unsaveable. It is rethrown, never swallowed.
+ */
+@Suppress("TooGenericExceptionCaught")
+internal fun SettingsPanel.applyAndSaveSettingsAsync(
+    updated: AgentSettings,
+    onDone: (Result<Unit>) -> Unit,
+) {
+    val lowered = AtomicBoolean(false)
+    val lowerBusy = {
+        if (lowered.compareAndSet(false, true)) {
+            busyListener?.invoke(false)
+        }
+    }
+    busyListener?.invoke(true)
+    OffEdtDispatch.run(
+        // Named so a stuck save is identifiable in a thread dump; the label identifies this unit of
+        // work in OffEdtDispatch's two observers and in the error log.
+        threadName = "burp-ai-settings-save",
+        label = "settings-save",
+        logError = { api.logging().logToError(it) },
+        work = {
+            try {
+                applyAndSaveSettingsBody(updated)
+            } catch (failure: Throwable) {
+                // Outer layer. The dispatcher posts its EDT tail after routing this throwable to
+                // logError; a sink that throws on the way out would leave the seam raised forever.
+                SwingUtilities.invokeLater(lowerBusy)
+                throw failure
+            }
+        },
+        onEdt = { result ->
+            try {
+                result.onSuccess {
+                    onSettingsChanged?.invoke(updated)
+                    refreshPassiveAiStatus()
+                    refreshActiveAiStatus()
+                    updateProfileWarnings()
+                    updateRiskWarnings()
+                }
+                onDone(result)
+            } finally {
+                // Inner layer, covering a completion callback that throws.
+                lowerBusy()
+            }
+        },
+    )
 }
 
 internal fun parseAllowedOriginsInput(raw: String): List<String> =

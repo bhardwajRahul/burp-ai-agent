@@ -47,6 +47,14 @@ class SettingsPanel(
     var onActiveAiEnabledChanged: ((Boolean) -> Unit)? = null
     var onSettingsChanged: ((AgentSettings) -> Unit)? = null
     internal var dialogParent: JComponent? = null
+
+    /**
+     * Raised `true` before a Settings save is dispatched and lowered `false` on every completion
+     * path, both on the EDT. `BottomTabsPanel` installs it to disable its own action buttons — they
+     * are its private fields, so this panel has no other handle on them (UI-SPEC Rule T-1).
+     */
+    internal var busyListener: ((Boolean) -> Unit)? = null
+
     internal var saveFeedbackResetTimer: Timer? = null
     internal var statusRefreshTimer: Timer? = null
     internal lateinit var generalTab: JComponent

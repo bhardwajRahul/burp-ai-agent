@@ -764,8 +764,11 @@ object Redaction {
         )
     }
 
-    // (PRIV-02) Custom user patterns compiled by setCustomPatterns. Volatile so writes from the
-    // EDT (save) are immediately visible to the redaction thread (apply) without full synchronization.
+    // (PRIV-02) Custom user patterns compiled by setCustomPatterns. The writer is the settings worker
+    // (`burp-ai-settings-save`); the readers are the MCP tool workers and the scanner threads. Volatile
+    // so a write is immediately visible to those readers without full synchronization, and so the
+    // whole compiled list publishes at once — a reader sees the previous list or the new one, never a
+    // partially compiled one.
     @Volatile
     private var compiledCustomPatterns: List<Pattern> = emptyList()
 
@@ -774,7 +777,7 @@ object Redaction {
      * java.util.regex.Pattern; entries that fail to compile (PatternSyntaxException) are silently
      * dropped. Passing an empty list clears all custom patterns.
      *
-     * Call this from applyAndSaveSettings after the persisted list has been validated by
+     * Call this from applyAndSaveSettingsBody after the persisted list has been validated by
      * SafeRegex.isPatternSafe so the patterns in this list are already known-safe.
      */
     fun setCustomPatterns(patterns: List<String>) {
