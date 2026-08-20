@@ -185,7 +185,7 @@ The window is now one readable block in `applyAndSaveSettingsBody` — `audit.se
 - `src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanel.kt` — `busyListener`, beside `dialogParent`.
 - `src/main/kotlin/com/six2dez/burp/aiagent/ui/BottomTabsPanel.kt` — the seam install line and `setActionsBusy`.
 - `src/main/kotlin/com/six2dez/burp/aiagent/redact/Redaction.kt` — the corrected `compiledCustomPatterns` comment.
-- `src/test/kotlin/com/six2dez/burp/aiagent/ui/SettingsSaveAsyncTest.kt` (new, 469 lines) — seven tests.
+- `src/test/kotlin/com/six2dez/burp/aiagent/ui/SettingsSaveAsyncTest.kt` (new, 540 lines) — seven tests.
 - `build.gradle.kts` — one added `inputs.file` declaration (4 → 5), extending 23-02's block.
 
 ## Verification Results
@@ -352,7 +352,7 @@ None — no external service configuration, and no package was added to `build.g
 
 ## Self-Check: PASSED
 
-- `src/test/kotlin/com/six2dez/burp/aiagent/ui/SettingsSaveAsyncTest.kt` — FOUND (469 lines, ≥ 60 required, contains `class SettingsSaveAsyncTest`)
+- `src/test/kotlin/com/six2dez/burp/aiagent/ui/SettingsSaveAsyncTest.kt` — FOUND (540 lines, ≥ 60 required, contains `class SettingsSaveAsyncTest`)
 - Commits `929f0d9`, `d28bded`, `caa3523`, `ca95a29` — all present in `git log`
 - Key link `BottomTabsPanel.kt` → `setBusyListener` — present, installed immediately after `settingsPanel.setDialogParent(root)`
 - Key link `SettingsPanelSettingsIO.kt` → `OffEdtDispatch.run` — present inside `applyAndSaveSettingsAsync`, with `burp-ai-settings-save`
