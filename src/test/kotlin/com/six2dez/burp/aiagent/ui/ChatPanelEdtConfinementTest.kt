@@ -2,6 +2,7 @@ package com.six2dez.burp.aiagent.ui
 
 import burp.api.montoya.proxy.ProxyHttpRequestResponse
 import com.six2dez.burp.aiagent.TestSettings
+import com.six2dez.burp.aiagent.audit.ActivityType
 import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.mcp.ToolApprovalGate
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertTimeoutPreemptively
+import org.mockito.Mockito.mockingDetails
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.argumentCaptor
@@ -32,6 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.AbstractButton
 import javax.swing.JButton
@@ -1316,6 +1319,150 @@ class ChatPanelEdtConfinementTest {
         }
     }
 
+    /**
+     * WR-04 / D-07's load-bearing corollary — a superseded user-originated call is still audited.
+     *
+     * Against the tree as committed at `2a0c703` the supersede branch is a bare
+     * `if (!runningTool.clearIfMatches(token)) return`: the call reached Burp and hit a real target,
+     * and then vanished from every surface. The chain path's `discardSupersededToolResult` has emitted
+     * a record for exactly this case since 23-04, on the stated grounds that suppressing it would put
+     * a hole in the SEC-06 audit log at the precise point a user interrupted something.
+     *
+     * **Asserted on the `aiRequestLogger` record, never on transcript text.** `ChatMessagePanel`
+     * renders every non-user role as the literal `"AI"`, so a `contains("Tool result: …")` clause is
+     * false by construction and its negative form can never fail. The record is the only surface on
+     * which this claim is falsifiable at all — by design, since S4 renders nothing.
+     *
+     * **Superseded through Cancel rather than through a session delete**, and the choice is what makes
+     * the sibling row-count test real: `deleteConfirmedSession` removes the panel from `sessionPanels`
+     * and from the card layout, so a wrongly-rendered row would land in a detached transcript that no
+     * assertion can see. Cancel is a first-class user-originated supersede (UI-SPEC Rule S-5) and the
+     * panel survives it.
+     */
+    @Test
+    fun aSupersededUserOriginatedToolCallIsStillAudited() {
+        val latches = ToolLatches()
+        val h = harnessForUserOriginatedTool(latches)
+
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, SLASH_TOOL_COMMAND)
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The /tool worker never started, so there was nothing to supersede.",
+            )
+            SwingUtilities.invokeAndWait { cancelButton(h).doClick() }
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        val record =
+            requireNotNull(toolCallRecords(h).singleOrNull()) {
+                "Expected exactly one MCP_TOOL_CALL activity record for the discarded /tool call; " +
+                    "captured ${toolCallRecords(h)}."
+            }
+        assertEquals(
+            "result discarded before it was applied",
+            record.metadata[SUPERSEDE_REASON_KEY],
+            "WR-04: the discarded user-originated call must name WHY it was discarded, in the same " +
+                "words discardSupersededToolResult uses for a discarded chain step.",
+        )
+        assertEquals(
+            ChatPanel.SUPERSEDED_RUN_STATUS,
+            record.metadata["runStatus"],
+            "The run status must distinguish a discarded call from one that completed normally — the " +
+                "distinction the audit log could not make before.",
+        )
+        assertEquals("proxy_http_history", record.metadata["tool"], "The record must name the tool that was discarded.")
+        assertTrue(
+            record.detail.contains("proxy_http_history"),
+            "An operator reading the detail line must be able to say which tool it was. Detail: ${record.detail}",
+        )
+    }
+
+    /**
+     * UI-SPEC S4 — the superseded run stays invisible in the transcript and leaves S0 alone.
+     *
+     * **The clause is a row COUNT, and that is the whole design of this test.** The obvious form —
+     * `assertFalse(transcript.contains("Tool result: proxy_http_history"))` — is false by construction,
+     * because `ChatMessagePanel` renders every non-user role as the literal `"AI"` and the role string
+     * never reaches a component. 23-04 shipped exactly that shape and caught it only when the POSITIVE
+     * form failed against a row that was demonstrably on screen. A count changes if and only if a row
+     * was really added, whatever text it carries.
+     *
+     * The busy-state clause is the second half of the S4 contract: the tail must not re-enter S3 and
+     * must not clear a state Cancel already returned to S0, because whatever superseded this run may
+     * have started something since.
+     */
+    @Test
+    fun aSupersededUserOriginatedToolCallRendersNoResultRow() {
+        val latches = ToolLatches()
+        val h = harnessForUserOriginatedTool(latches)
+        val rowsAfterCancel = AtomicInteger()
+
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, SLASH_TOOL_COMMAND)
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The /tool worker never started, so there was nothing to supersede.",
+            )
+            SwingUtilities.invokeAndWait { cancelButton(h).doClick() }
+            // SNAPSHOT TAKEN AFTER THE CANCEL and BEFORE the release: the Rule C-1 line Cancel appends
+            // is part of the baseline, so the only thing that can move this number afterwards is the
+            // superseded worker rendering a row it must not render.
+            rowsAfterCancel.set(transcriptRowCount(h))
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        assertEquals(
+            rowsAfterCancel.get(),
+            transcriptRowCount(h),
+            "UI-SPEC S4: a superseded run must add no transcript row. Counting rows rather than " +
+                "matching row TEXT is deliberate — the role a tool result carries never reaches a " +
+                "component, so a text clause here could not fail.",
+        )
+        assertTrue(
+            sendButton(h).isVisible,
+            "UI-SPEC S4: the superseded tail must leave the busy state alone. Cancel already returned " +
+                "the panel to S0 and may have started something since.",
+        )
+    }
+
+    /**
+     * The negative control for [aSupersededUserOriginatedToolCallIsStillAudited].
+     *
+     * Without it, that test passes just as happily against an implementation that emits a supersede
+     * record on EVERY completion — which would make the audit log unable to tell a discarded call from
+     * a normal one in the opposite direction, and would be a worse defect than the one being fixed.
+     * Driven red by moving the emission above the `clearIfMatches` check.
+     */
+    @Test
+    fun anUnsupersededUserOriginatedToolCallEmitsNoSupersedeRecord() {
+        val h =
+            ChatPanelTestHarness.create(
+                modelResponse = "no tool call here",
+                settings = settingsEnabling("proxy_http_history"),
+            )
+        whenever(h.api.proxy().history()).thenReturn(emptyList<ProxyHttpRequestResponse>())
+
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, SLASH_TOOL_COMMAND)
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        assertTrue(
+            transcriptText(h).contains(EMPTY_HISTORY_ROW),
+            "Precondition: this control is only meaningful if the call really did run to completion " +
+                "and render its result. Transcript: ${transcriptText(h)}",
+        )
+        assertEquals(
+            emptyList<Map<String, String>>(),
+            toolCallRecords(h).filter { it.metadata.containsKey(SUPERSEDE_REASON_KEY) }.map { it.metadata },
+            "A call that completed normally must emit NO supersede record. An unconditional emission " +
+                "would pass the positive test while making the audit log wrong in the other direction.",
+        )
+    }
+
     // ── Audit + worker capture plumbing ──────────────────────────────────────────────────
 
     private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
@@ -1978,3 +2125,49 @@ private fun harnessForUserOriginatedTool(latches: ToolLatches): ChatPanelTestHar
  * button-state assertion vacuous the moment a second `JButton` carried the same label.
  */
 private fun toolsButton(h: ChatPanelTestHarness.Harness): JButton = ChatPanelTestHarness.toolsButton(h)
+
+/**
+ * One `AiRequestLogger.log` call, reduced to the three fields the WR-04 assertions read.
+ *
+ * A named shape rather than a raw argument array, so a signature change fails at compile time in one
+ * place instead of silently shifting every positional index.
+ */
+private data class ActivityRecord(
+    val type: ActivityType,
+    val detail: String,
+    val metadata: Map<String, String>,
+)
+
+/**
+ * Every `MCP_TOOL_CALL` activity record the panel emitted, in emission order.
+ *
+ * Read off the mock's own invocation list rather than through `verify(..., atLeast(1))`, because the
+ * negative control asserts a count of ZERO — and a captor-based verification of a mock that was never
+ * called fails for the wrong reason, turning "no record was emitted" into an error rather than a pass.
+ *
+ * `log` takes ten parameters; the three read here are positional, which is what [ActivityRecord]
+ * exists to state once.
+ */
+private fun toolCallRecords(h: ChatPanelTestHarness.Harness): List<ActivityRecord> {
+    val logger = requireNotNull(h.supervisor.aiRequestLogger) { "No AiRequestLogger on the supervisor double." }
+    return mockingDetails(logger)
+        .invocations
+        .filter { it.method.name == "log" }
+        .map { invocation ->
+            @Suppress("UNCHECKED_CAST")
+            ActivityRecord(
+                type = invocation.arguments[0] as ActivityType,
+                detail = invocation.arguments[3] as String,
+                metadata = invocation.arguments[9] as Map<String, String>,
+            )
+        }.filter { it.type == ActivityType.MCP_TOOL_CALL }
+}
+
+/**
+ * The number of message rows on screen, counted as rendered transcript panes.
+ *
+ * The falsifiable form of "no result row appeared". See
+ * [ChatPanelEdtConfinementTest.aSupersededUserOriginatedToolCallRendersNoResultRow] for why the
+ * text-matching form of that claim cannot fail.
+ */
+private fun transcriptRowCount(h: ChatPanelTestHarness.Harness): Int = allDescendants(h.panel.root).filterIsInstance<JEditorPane>().size
