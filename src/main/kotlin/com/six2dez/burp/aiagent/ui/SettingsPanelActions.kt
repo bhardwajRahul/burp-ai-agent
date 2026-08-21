@@ -160,7 +160,24 @@ fun SettingsPanel.setActiveAiEnabled(enabled: Boolean) {
     updatePrivacyWarnings()
 }
 
+/**
+ * Teardown hook for the Settings panel, reached from `MainTab.shutdown()` — which `App.shutdown()`
+ * calls FIRST, before `passiveAiScanner.shutdown()`, `activeAiScanner.shutdown()` and
+ * `mcpSupervisor.shutdown()`.
+ *
+ * The first two statements supersede any `burp-ai-settings-save` worker still in flight (CR-01), so it
+ * cannot restart the MCP server or re-enable a scanner after `App.shutdown()` has torn them down. See
+ * [SettingsPanel.saveGeneration] for the guarantee stated at its true strength.
+ *
+ * **Neither statement takes a lock and neither waits on anything, on purpose (D-08).** Joining or
+ * awaiting the save worker here would put a bounded blocking wait back on the EDT — the exact shape of
+ * `future.get(10, TimeUnit.SECONDS)` this phase exists to remove, and the alternative D-08 already
+ * rejected for `ChatPanel`'s teardown for the same reason. A `@Volatile` write plus an `AtomicLong`
+ * increment costs unload nothing.
+ */
 fun SettingsPanel.shutdown() {
+    disposed = true
+    saveGeneration.incrementAndGet()
     statusRefreshTimer?.stop()
     statusRefreshTimer = null
     saveFeedbackResetTimer?.stop()

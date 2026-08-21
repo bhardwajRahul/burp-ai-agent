@@ -27,6 +27,9 @@ import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.mockito.Answers
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
+import org.mockito.kotlin.times
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.io.File
 import java.time.Duration
@@ -539,6 +542,80 @@ class SettingsSaveAsyncTest {
                     "dispatch. OFF here — the value the test set beforehand — means the component write " +
                     "was lost along with the host notifications.",
             )
+        }
+    }
+
+    /**
+     * CR-01 / T-23-08-01 — a save still in flight when the extension unloads never reaches the MCP
+     * supervisor.
+     *
+     * `App.shutdown()` calls `MainTab.shutdown()` — and so `SettingsPanel.shutdown()` — FIRST, before
+     * `mcpSupervisor.shutdown()`. Without a supersede, the save worker's `mcpSupervisor.applySettings`
+     * can land afterwards and leave an MCP server LISTENING on `127.0.0.1` owned by an unloaded
+     * extension's classloader, with no live extension behind SEC-04's access-control checks.
+     *
+     * **Why the settle await above the `never()` is not decoration.** After an asynchronous dispatch a
+     * bare `never()` passes *vacuously and faster* than it would with the bug absent — the worker has
+     * simply not reached the call yet. The await is asserted with a message so the assertion below can
+     * only be read once the body has provably finished or returned. Its paired positive control,
+     * [aSaveThatIsNotSupersededDoesReachTheMcpSupervisor], is what distinguishes "guarded" from
+     * "never wired at all".
+     *
+     * `supervisor.applySettings` is the parking point because it is the statement immediately before
+     * the guard, so the worker is provably INSIDE the body when `shutdown()` lands. `@AfterEach`
+     * already calls `shutdown()` on every fixture panel, so the explicit call here is an additional,
+     * earlier one rather than the only one.
+     */
+    @Test
+    fun aSaveSupersededByShutdownNeverReachesTheMcpSupervisor() {
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            val fixture = newFixture()
+            val insideBody = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            whenever(fixture.supervisor.applySettings(any())).thenAnswer {
+                insideBody.countDown()
+                release.await(20, TimeUnit.SECONDS)
+                null
+            }
+
+            SwingUtilities.invokeAndWait { fixture.panel.saveSettings() }
+            assertTrue(insideBody.await(20, TimeUnit.SECONDS), "The save never entered the body at all.")
+            fixture.panel.shutdown()
+            release.countDown()
+
+            assertTrue(
+                settledSignal.await(25, TimeUnit.SECONDS),
+                "CR-01: the superseded save never settled, so the never() below would pass vacuously.",
+            )
+            verify(fixture.mcpSupervisor, never()).applySettings(any(), any(), any(), any())
+        }
+    }
+
+    /**
+     * The positive control for [aSaveSupersededByShutdownNeverReachesTheMcpSupervisor].
+     *
+     * Identical fixture, identical latch shape, no `shutdown()`. Without it, the `never()` above would
+     * be equally green if `mcpSupervisor.applySettings` had simply been deleted from the save body —
+     * an assertion that cannot distinguish "guarded" from "never wired at all".
+     */
+    @Test
+    fun aSaveThatIsNotSupersededDoesReachTheMcpSupervisor() {
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            val fixture = newFixture()
+            val insideBody = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            whenever(fixture.supervisor.applySettings(any())).thenAnswer {
+                insideBody.countDown()
+                release.await(20, TimeUnit.SECONDS)
+                null
+            }
+
+            SwingUtilities.invokeAndWait { fixture.panel.saveSettings() }
+            assertTrue(insideBody.await(20, TimeUnit.SECONDS), "The save never entered the body at all.")
+            release.countDown()
+
+            assertTrue(settledSignal.await(25, TimeUnit.SECONDS), "The unsuperseded save never settled.")
+            verify(fixture.mcpSupervisor, times(1)).applySettings(any(), any(), any(), any())
         }
     }
 

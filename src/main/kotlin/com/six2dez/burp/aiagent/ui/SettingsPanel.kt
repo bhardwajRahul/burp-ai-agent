@@ -15,6 +15,7 @@ import com.six2dez.burp.aiagent.ui.design.applyAreaStyle
 import com.six2dez.burp.aiagent.ui.panels.BackendConfigPanel
 import com.six2dez.burp.aiagent.ui.panels.BackendConfigState
 import com.six2dez.burp.aiagent.ui.panels.ExternalServersPanel
+import java.util.concurrent.atomic.AtomicLong
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
@@ -54,6 +55,30 @@ class SettingsPanel(
      * are its private fields, so this panel has no other handle on them (UI-SPEC Rule T-1).
      */
     internal var busyListener: ((Boolean) -> Unit)? = null
+
+    /**
+     * The supersede seam for the `burp-ai-settings-save` worker (CR-01).
+     *
+     * [shutdown] sets [disposed] and increments [saveGeneration]; `applyAndSaveSettingsAsync` mints a
+     * generation on the EDT before dispatch and hands the worker an `isCurrent()` predicate that
+     * compares it back. `applyAndSaveSettingsBody` re-tests that predicate immediately before each of
+     * the three externally visible mutations CR-01 names — `mcpSupervisor.applySettings` and the two
+     * scanner `setEnabled` calls — so a save still in flight when the extension unloads cannot start an
+     * MCP listener on `127.0.0.1` owned by a dead classloader, or re-arm a scanner `App.shutdown()`
+     * has already disabled and torn down.
+     *
+     * **Stated at its true strength, and no stronger.** These two fields bound which externally visible
+     * mutations may still *begin* after unload. They do NOT stop a mutation already in progress: a call
+     * that is already past its `isCurrent()` check runs to completion. Closing that last window would
+     * require joining the worker at unload, which D-08 rejected — it puts a bounded blocking wait back
+     * on the EDT, the exact shape of `future.get(10, TimeUnit.SECONDS)` this phase exists to remove.
+     * Overclaiming here would be worse than the defect, because the next reader would stop looking.
+     */
+    internal val saveGeneration = AtomicLong(0)
+
+    /** See [saveGeneration]. `@Volatile` because it is written on the EDT and read on the worker. */
+    @Volatile
+    internal var disposed = false
 
     internal var saveFeedbackResetTimer: Timer? = null
     internal var statusRefreshTimer: Timer? = null

@@ -507,8 +507,26 @@ internal fun SettingsPanel.parseContentTypePrefixesInput(
  * `settings = updated` moves with the body rather than staying on the EDT: the snapshot has already
  * been taken before dispatch, and splitting that field write from the ten mutations that depend on it
  * would put two rules in one function.
+ *
+ * **[isCurrent] is CR-01's supersede check.** It is re-tested immediately before each of the three
+ * externally visible mutations that outlive this panel — `mcpSupervisor.applySettings` and the two
+ * scanner `setEnabled` calls — so a `SettingsPanel.shutdown()` landing mid-body cannot leave an MCP
+ * listener on `127.0.0.1` owned by an unloaded extension's classloader, or re-arm a scanner
+ * `App.shutdown()` has already disabled and torn down. The default `{ true }` keeps every existing call
+ * shape valid and keeps this function independently testable; a predicate rather than a raw generation
+ * value, so the body never has to know what a generation is.
+ *
+ * **The ordering consequence, stated rather than hidden.** A supersede detected mid-body abandons the
+ * remaining mutations, including `audit.setEnabled` and `Redaction.setCustomPatterns`. That is correct
+ * during teardown — `App.shutdown()` calls `Redaction.clearMappings()` immediately afterwards and the
+ * audit sink is being torn down anyway — and it is unreachable outside teardown, because D-10 disables
+ * both Save settings and Restore defaults for the whole flight, so there is no second concurrent save
+ * to supersede this one.
  */
-internal fun SettingsPanel.applyAndSaveSettingsBody(updated: AgentSettings) {
+internal fun SettingsPanel.applyAndSaveSettingsBody(
+    updated: AgentSettings,
+    isCurrent: () -> Boolean = { true },
+) {
     settings = updated
     settingsRepo.save(updated)
     // Re-prime the BountyPrompt cache off-thread so menu builds never touch disk (BApp #231, finding 2).
@@ -520,6 +538,9 @@ internal fun SettingsPanel.applyAndSaveSettingsBody(updated: AgentSettings) {
     AgentProfileLoader.setActiveProfile(updated.agentProfile)
     backends.reload()
     supervisor.applySettings(updated)
+    // CR-01, guard 1 of 3. The mutation below is the one whose loss CR-01 names first and the only one
+    // that can leave a socket LISTENING after the extension is gone.
+    if (!isCurrent()) return
     mcpSupervisor.applySettings(
         updated.mcpSettings,
         updated.privacyMode,
@@ -589,6 +610,10 @@ internal fun SettingsPanel.applyAndSaveSettingsAsync(
     updated: AgentSettings,
     onDone: (Result<Unit>) -> Unit,
 ) {
+    // Minted FIRST, on the calling thread, before the seam is raised and before anything is dispatched.
+    // Same placement rule and same reason as OffEdtDispatch's dispatchedObserver and
+    // SettingsPersistQueue.submit: the generation must be the CLICK's, not the thread-start's.
+    val generation = saveGeneration.incrementAndGet()
     val lowered = AtomicBoolean(false)
     val lowerBusy = {
         if (lowered.compareAndSet(false, true)) {
@@ -604,7 +629,10 @@ internal fun SettingsPanel.applyAndSaveSettingsAsync(
         logError = { api.logging().logToError(it) },
         work = {
             try {
-                applyAndSaveSettingsBody(updated)
+                applyAndSaveSettingsBody(
+                    updated,
+                    isCurrent = { saveGeneration.get() == generation && !disposed },
+                )
             } catch (failure: Throwable) {
                 // Outer layer. The dispatcher posts its EDT tail after routing this throwable to
                 // logError; a sink that throws on the way out would leave the seam raised forever.
