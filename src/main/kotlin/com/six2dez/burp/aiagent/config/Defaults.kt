@@ -51,6 +51,32 @@ object Defaults {
     const val PAYLOAD_MAX_OUTPUT_TOKENS = 1024
     const val OPENCODE_IDLE_TIMEOUT_MS = 30_000L
 
+    // (REL-07 / SC4) Cap on the characters a CLI subprocess capture buffer retains, consumed by
+    // CliOutputBuffer. 256 Ki UTF-16 characters — a round power of two, which is the whole
+    // derivation. For scale: approximately eight times LARGE_PROMPT_THRESHOLD (the true ratio is
+    // 8.192, because a clean eightfold of 32_000 would be 256_000 and this value is exactly eight
+    // times 32_768), and roughly a hundred and thirty times the 2000-character head the two CLI
+    // error paths take. The captured value IS the real model response, not a diagnostic tail, so
+    // the cap has to be far above any realistic answer or it would silently corrupt output.
+    const val MAX_CLI_OUTPUT_CHARS = 262_144
+
+    // (REL-07 / SC4) Marker appended to a CLI capture snapshot ONLY when the cap above was actually
+    // hit. Carries no digits on purpose: raising the cap must not require a second edit here.
+    const val CLI_OUTPUT_TRUNCATION_MARKER = "\n[output truncated: the CLI capture cap was reached; the head was kept]"
+
+    // (REL-07 / SC6) Ceiling for the active scanner's per-request executor. Three times the hard
+    // coerceIn(1, 10) ceiling on activeAiMaxConcurrent, leaving headroom for orphaned request
+    // threads before the pool starts rejecting.
+    const val MAX_SCAN_REQUEST_THREADS = 32
+
+    // (REL-07 / SC6) Idle keep-alive for the same pool. Matches the JDK cached-pool keep-alive so
+    // idle behaviour is unchanged by the bounding.
+    const val SCAN_REQUEST_THREAD_KEEPALIVE_SECONDS = 60L
+
+    // (REL-07 / SC6) Ceiling for the extension-wide worker pool. Two backends can each own a
+    // service, and once the log pump moves off the pool only short bursty restart tasks remain.
+    const val MAX_WORKER_THREADS = 4
+
     // (PRIV-06 / D-04) Window width for the body-redaction stage in Redaction.apply — a window
     // width, NOT a skip threshold. Input at or below this length is processed in a single pass
     // whose cost and behaviour are identical to the pre-Phase-21 implementation, which covers the

@@ -13,6 +13,7 @@ import com.six2dez.burp.aiagent.config.Defaults
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
 import com.six2dez.burp.aiagent.util.IssueUtils
+import com.six2dez.burp.aiagent.util.scheduleGuarded
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -337,9 +338,17 @@ class ActiveAiScanner(
         executor = Executors.newFixedThreadPool(maxConcurrent)
         scheduledExecutor = Executors.newSingleThreadScheduledExecutor()
 
-        scheduledExecutor?.scheduleWithFixedDelay({
-            processQueue()
-        }, 0, 500, TimeUnit.MILLISECONDS)
+        // REL-06: routed through scheduleGuarded so a throw on one tick cannot silently cancel the
+        // queue drain for the rest of the Burp session. See util/GuardedScheduling.kt for the full
+        // failure mode.
+        scheduledExecutor?.scheduleGuarded(
+            "ActiveAiScanner",
+            "queue processing",
+            { api.logging().logToError(it) },
+            0,
+            500,
+            TimeUnit.MILLISECONDS,
+        ) { processQueue() }
 
         // Single poller for out-of-band (Collaborator) confirmations — polls every 60 s and matches
         // interactions against pending payloads, so no scanner thread blocks waiting (BApp #231).

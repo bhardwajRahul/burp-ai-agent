@@ -1,6 +1,7 @@
 package com.six2dez.burp.aiagent.mcp.tools
 
 import burp.api.montoya.scanner.ScanTask
+import com.six2dez.burp.aiagent.util.scheduleGuarded
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -23,12 +24,16 @@ object ScannerTaskRegistry {
         }
 
     init {
-        cleaner.scheduleWithFixedDelay(
-            { cleanupExpired() },
+        // REL-06: routed through scheduleGuarded so a throw on one cleaner tick cannot silently
+        // cancel expiry for the rest of the Burp session. See util/GuardedScheduling.kt.
+        cleaner.scheduleGuarded(
+            "ScannerTaskRegistry",
+            "expiry cleanup",
+            ::log,
             CLEANUP_INTERVAL_MINUTES,
             CLEANUP_INTERVAL_MINUTES,
             TimeUnit.MINUTES,
-        )
+        ) { cleanupExpired() }
     }
 
     fun put(task: ScanTask): String {

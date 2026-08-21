@@ -5,16 +5,16 @@ milestone_name: Security Correctness & Agent Trust
 current_phase: 24
 current_phase_name: Scheduler & Process Robustness
 status: executing
-stopped_at: Phase 23 complete, ready to plan Phase 24
-last_updated: "2026-08-21T13:05:57.393Z"
+stopped_at: Completed 24-01-PLAN.md (wave 1 gate) — waves 2-4 unblocked
+last_updated: "2026-08-21T13:34:19.559Z"
 last_activity: 2026-08-21
-last_activity_desc: Phase 24 execution started
-state_head: aed2b930c07b247e7c8b2e2ae675aca689ee3b9a
+last_activity_desc: 24-01 complete — scheduler guard landed, all three REL-06 sites migrated
+state_head: 9a00f6950cfa886533e885ba11e648a2353cada0
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 51
-  completed_plans: 46
+  completed_plans: 47
   percent: 29
 ---
 
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 24 (Scheduler & Process Robustness) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 24
+Phase: 24 — Scheduler & Process Robustness
+Plan: 01 of 5 complete (wave 1 of 4 done)
+Status: Executing — 24-02 and 24-03 (wave 2) unblocked
 Resume file: None
-Last activity: 2026-08-21 — Phase 24 execution started
+Last activity: 2026-08-21 — 24-01 complete: scheduler guard + structural gate + shared Defaults
 
 ## Milestone Origin
 
@@ -144,6 +144,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | Phase 23 P06 | 28 min | 3 tasks | 8 files |
 | Phase 23 P07 | 27 min | 3 tasks | 5 files |
 | Phase 23 P08 | 37 min | 3 tasks | 8 files |
+| Phase 24 P01 | 33 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -222,6 +223,9 @@ Recent decisions affecting current work:
 - [Phase 23]: Task 2's scanner supersede test ships as TWO shapes, not the plan's one: three sequential early-return guards mean a supersede landing before the first short-circuits the rest, so a single shape leaves every later guard unfalsifiable — Measured — probes 2-1 and 2-2 now fail on different lines naming different mocks; under the single-shape design 2-2 would have passed green with the active-scanner guard deleted
 - [Phase 23]: WR-11 belongs to Phase 23, not Phase 26/QUAL-07 — checked against both texts rather than assumed — QUAL-07 covers the detekt baseline's direction, the disposition of ChatPanel's assert()-based enforcement, and SecretCipher docs; none is CI wiring. edtGuardWithoutAssertionsTest and the check(...) it proves were both created by plan 23-02 inside this phase
 - [Phase 23]: The settings supersede's AtomicLong is redundant with the disposed flag at unload — measured by red probe 1-3, kept for the save-supersedes-save case D-10 currently makes unreachable — isCurrent is a conjunction, so disposed = true alone falsifies it; removing saveGeneration.incrementAndGet() from shutdown() left the test green
+- [Phase 24]: 24-01: SC1's 'assert by injecting a throw' is met per-site only for ActiveAiScanner.processQueue — neither registry cleanupExpired has an external throw lever and manufacturing one needs a test seam T-23-06-07 forbids, so those two are carried by mechanism (GuardedSchedulingTest) plus routing (SchedulerGuardCoverageTest)
+- [Phase 24]: 24-01: one whole-tree inputs.dir('src/main/kotlin') on tasks.test (mainSourceTreeStructuralInputs) replaces per-file declarations for every Phase 24 structural assertion — a tree-walking allowlist whose inputs list known files is blind to a scheduler added in an undeclared file; counterfactual measured (guard IS served UP-TO-DATE without it)
+- [Phase 24]: 24-01: git stash is prohibited in a GSD worktree — refs/stash lives in the parent .git and is shared across every linked worktree, so a plan's 'git stash push <path> ... git stash pop' red-probe recipe must be run as 'git checkout <ref> -- <path>' then 'git checkout HEAD -- <path>'
 
 ### Roadmap Evolution
 
@@ -264,6 +268,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T11:28:17Z
-Stopped at: Phase 23 complete, ready to plan Phase 24
+Last session: 2026-08-21T13:34:19.433Z
+Stopped at: Completed 24-01-PLAN.md (wave 1 gate) — waves 2-4 unblocked
 Resume file: None
