@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 phase: 23-edt-confinement-ui-responsiveness
 source: [23-VALIDATION.md, 23-01-SUMMARY.md, 23-02-SUMMARY.md, 23-03-SUMMARY.md, 23-04-SUMMARY.md, 23-06-SUMMARY.md, 23-08-SUMMARY.md, 23-VERIFICATION.md]
 started: 2026-08-20
@@ -8,7 +8,7 @@ updated: 2026-08-21
 
 ## Current Test
 
-1
+[testing complete]
 
 ## Tests
 
@@ -41,7 +41,7 @@ flag `tasks.test` sets. It is recorded in `CONCERNS.md` §"UI layer has no integ
 23-03 asserts the banner and the completion-callback ordering; the modal itself has no automated seam
 at all. Ledger entry: `WINDOWS.md` #3.
 
-result: pending
+result: pass
 
 ### 2. FLAG-23-01 — does the disabled Save button read as disabled?
 
@@ -68,7 +68,7 @@ headless `JButton` never paints, so no assertion can observe the result — only
 which plan 23-03 already asserts. Whether the painted result reads as inert to someone glancing at it
 is the judgement. Ledger entry: `WINDOWS.md` #4.
 
-result: pending
+result: pass
 
 ### 3. FLAG-23-04 — sub-frame Send/Cancel flicker on the auto-approved chain path
 
@@ -96,7 +96,7 @@ why_human: A repaint between two `invokeLater` blocks is sub-frame; there is no 
 assertion for it. The transcript wrap is a rendering property of a `JEditorPane` that wraps at 75% of
 viewport width and never paints headlessly. Ledger entry: `WINDOWS.md` #1.
 
-result: pending
+result: pass
 
 ### 4. A1 — does Burp really throw on an EDT `sendRequest`?
 
@@ -123,7 +123,7 @@ never been confirmed here. Note also that `http1_request` is **not** headlessly 
 measured during plan 23-01, its body reaches `HttpRequest.httpRequest`, a static factory unavailable
 in pure-JVM unit tests — so there is no automated route to this answer even in principle.
 
-result: pending
+result: pass
 
 ### 5. SC4 — the MCP enabled→disabled transition no longer freezes the UI, and still actually stops the server
 
@@ -166,14 +166,14 @@ fire on the EDT) and
 the apply is still blocked), both confirmed discriminating by red probe during verification — but it
 cannot observe an actual repaint, and it has no socket to bind.
 
-result: pending
+result: pass
 
 ## Summary
 
 total: 5
-passed: 0
+passed: 5
 issues: 0
-pending: 5
+pending: 0
 skipped: 0
 blocked: 0
 
