@@ -70,6 +70,17 @@ object ChatPanelTestHarness {
         val panel: ChatPanel,
         val api: MontoyaApi,
         val supervisor: AgentSupervisor,
+        /**
+         * Every message the panel passed to its `showError` sink, in emission order.
+         *
+         * The production sink is a modal (`MainTab` routes it to a `JOptionPane`), which cannot be
+         * driven under `-Djava.awt.headless=true`. `ChatPanel` takes it as a constructor lambda, so
+         * capturing it here reads the real call the real code made rather than modelling one.
+         *
+         * `CopyOnWriteArrayList` because a refusal can be reported from a worker's EDT tail while the
+         * test thread reads the list.
+         */
+        val shownErrors: CopyOnWriteArrayList<String>,
     )
 
     /**
@@ -119,6 +130,7 @@ object ChatPanelTestHarness {
             null
         }
 
+        val shownErrors = CopyOnWriteArrayList<String>()
         val panel =
             ChatPanel(
                 api = api,
@@ -127,13 +139,13 @@ object ChatPanelTestHarness {
                 applySettings = { },
                 validateBackend = { null },
                 ensureBackendReady = { true },
-                showError = { },
+                showError = { message -> shownErrors.add(message) },
                 onStatusChanged = { },
                 onResponseReady = { },
                 passiveScanner = null,
             )
         panel.createNewSession()
-        return Harness(panel, api, supervisor)
+        return Harness(panel, api, supervisor, shownErrors)
     }
 
     /**
@@ -155,6 +167,67 @@ object ChatPanelTestHarness {
         }
         return null
     }
+
+    /**
+     * Every component of [type] under [root] satisfying [predicate], in depth-first order.
+     *
+     * The counting sibling of [find]. [find] answers "is there one?", which is the right question for
+     * a card that may legitimately be absent and the WRONG one for a component the panel owns exactly
+     * one of: a lookup by type alone silently binds to a sibling — `ToolApprovalCard` renders its
+     * arguments into a read-only [JTextArea], so "the [JTextArea] under the panel" stops being unique
+     * the moment a decision is on screen. Assertions built on the first of several are how a component
+     * claim goes vacuous.
+     */
+    fun <T : JComponent> findAll(
+        root: Container,
+        type: Class<T>,
+        predicate: (T) -> Boolean = { true },
+    ): List<T> =
+        root.components.flatMap { child ->
+            val self = if (type.isInstance(child)) listOfNotNull(type.cast(child).takeIf(predicate)) else emptyList()
+            self + ((child as? Container)?.let { findAll(it, type, predicate) } ?: emptyList())
+        }
+
+    /**
+     * The single component of [type] under [root] satisfying [predicate], asserted to be single.
+     *
+     * [what] names what was searched for, so a miss reads as a stale lookup rather than as a null
+     * dereference three frames later.
+     */
+    private fun <T : JComponent> findExactlyOne(
+        root: Container,
+        type: Class<T>,
+        what: String,
+        predicate: (T) -> Boolean,
+    ): T {
+        val matches = findAll(root, type, predicate)
+        check(matches.size == 1) {
+            "Expected exactly one $what under the searched container; found ${matches.size}. " +
+                "A finder that returned the first of several would make every assertion on it vacuous."
+        }
+        return matches.single()
+    }
+
+    /**
+     * The panel's real Tools button — the UI-SPEC Rule S-1 affordance that must go inert in state S3.
+     *
+     * Asserted to match exactly one component: the label is what identifies it, and a second button
+     * carrying it would mean the assertion had stopped being about the one the user clicks.
+     */
+    fun toolsButton(h: Harness): JButton = findExactlyOne(h.panel.root, JButton::class.java, "JButton labelled 'Tools'") { it.text == "Tools" }
+
+    /**
+     * The panel's real input area, identified by its constructed geometry (`JTextArea(3, 24)`).
+     *
+     * Rows-and-columns rather than `isEditable`, because this finder is used to assert the input is
+     * DISABLED — and a disabled `JTextArea` is still editable, so the `isEditable` rule that
+     * [sendUserMessage] relies on would keep matching the `ToolApprovalCard` argument box too.
+     * Asserted to match exactly one component for the reason [findExactlyOne] states.
+     */
+    fun inputTextArea(h: Harness): JTextArea =
+        findExactlyOne(h.panel.root, JTextArea::class.java, "JTextArea(rows = 3, columns = 24) input area") {
+            it.rows == 3 && it.columns == 24
+        }
 
     /**
      * The first SEC-06 [ToolApprovalCard] in the transcript under [root], or `null` if none was added.

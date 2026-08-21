@@ -1175,6 +1175,147 @@ class ChatPanelEdtConfinementTest {
         )
     }
 
+    /**
+     * CR-05 / UI-SPEC Rule S-1 — the entry guard, which is the CONTROL rather than the affordance.
+     *
+     * This is the assertion that makes 23-01's must-have truth *"S3 is global to `ChatPanel`, so a
+     * second dispatch cannot be started from the UI while the first is live"* true rather than merely
+     * claimed. Against the tree as committed at `2a0c703` `openToolDialog` has no re-entrancy check of
+     * any kind: it would create a session, build the catalog and reach `ToolInvocationDialog`, whose
+     * construction throws `HeadlessException` here — and in Burp would open a real dialog whose token
+     * overwrites the running one and destroys the first call's result with no surface indication.
+     *
+     * **The dispatch record is the load-bearing selector, never the settle record.** A settle event is
+     * written from the EDT tail's `finally`, so in exactly the world this test exists to catch — a
+     * re-entrant call that dispatched a second worker — that worker has not finished at assert time
+     * and its label is missing from the settle record too. `dispatchedLabels()` is written
+     * synchronously with the dispatch statement, so absence there is a claim about what happened.
+     *
+     * The blocked tool is released and awaited before the test returns: `OffEdtDispatch` is an object
+     * singleton and a worker still parked on a latch would follow the JVM into the next suite (WR-08).
+     */
+    @Test
+    fun aSecondToolCannotBeStartedWhileOneIsRunning() {
+        val latches = ToolLatches()
+        val h = harnessForUserOriginatedTool(latches)
+
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, SLASH_TOOL_COMMAND)
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The /tool worker never started, so there was no running call to re-enter.",
+            )
+            val dispatchedBefore = ChatPanelTestHarness.dispatchedLabels().count { it.startsWith(CHAT_TOOL_LABEL_PREFIX) }
+            assertEquals(1, dispatchedBefore, "Expected exactly the one /tool worker to be in flight.")
+
+            // The real entry point the Tools button reaches, called on the EDT exactly as the AWT pump
+            // would dispatch its action listener.
+            SwingUtilities.invokeAndWait { h.panel.openToolDialog() }
+
+            assertEquals(
+                listOf(BUSY_REFUSAL),
+                h.shownErrors.toList(),
+                "UI-SPEC Rule S-1: a re-entrant openToolDialog must refuse, and must say so. Shown: ${h.shownErrors}",
+            )
+            assertEquals(
+                dispatchedBefore,
+                ChatPanelTestHarness.dispatchedLabels().count { it.startsWith(CHAT_TOOL_LABEL_PREFIX) },
+                "CR-05: the refused call must start NO second worker. The guard has to be the function's " +
+                    "first statement — below the session lookup it has already created a session, and " +
+                    "below the dialog it has already minted a token over the running one.",
+            )
+
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+    }
+
+    /**
+     * CR-05 / UI-SPEC Rule S-1 — the affordance limb: `toolsBtn` is inert for the WHOLE tool run.
+     *
+     * Asserted mid-flight, before the latch is released, because "the button is disabled while a tool
+     * runs" is only a claim while a tool demonstrably still runs. Read after the settle it would also
+     * pass against a panel that never disabled the button at all.
+     *
+     * Deliberately independent of [aStatusRefreshMidRunDoesNotRestoreTheIdleAffordances]: that one
+     * covers `updateChatAvailability`, this one covers `setSendingState`. One clause standing in for
+     * both would hide a regression in either — confirmed by driving each limb red on its own.
+     */
+    @Test
+    fun theToolsButtonIsInertForTheWholeToolRun() {
+        val latches = ToolLatches()
+        val h = harnessForUserOriginatedTool(latches)
+
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            assertTrue(toolsButton(h).isEnabled, "UI-SPEC S0: the Tools button starts live.")
+            ChatPanelTestHarness.sendUserMessage(h, SLASH_TOOL_COMMAND)
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The /tool worker never started, so the panel was never in S3.",
+            )
+
+            assertFalse(
+                toolsButton(h).isEnabled,
+                "UI-SPEC Rule S-1: setSendingState must take the Tools button down with the rest of the " +
+                    "busy seam, so the second door is not merely uncontrolled but not even offered.",
+            )
+
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+
+        assertTrue(toolsButton(h).isEnabled, "UI-SPEC S0: the Tools button is live again once the run settles.")
+    }
+
+    /**
+     * CR-05's timer limb — a status refresh mid-run must not hand back the idle affordances.
+     *
+     * **This is the scenario that goes red against the code as committed with no second dialog
+     * involved, and it is live today rather than hypothetical.** `MainTab.mcpStatusTimer`
+     * (`MainTab.kt:81-88`) fires `updateMcpControls()` every 1000 ms, which calls
+     * `chatPanel.setMcpAvailable(running)` (`MainTab.kt:583`) and so reaches
+     * `updateChatAvailability()`. Before this plan that function wrote `inputArea.isEnabled` and
+     * `toolsBtn.isEnabled` from `mcpAvailable` alone, so one second into ANY tool run the S3 disabled
+     * input area and tool button were both silently re-enabled by a timer. Plan 23-06 moved
+     * `MainTab.renderStatus()` into an asynchronous tail, which adds a second arrival moment for the
+     * same call.
+     *
+     * `setMcpAvailable(true)` on the EDT IS the timer tick: it is the production entry point, called
+     * with the value a running server produces.
+     *
+     * Both limbs are asserted, because they are two separate writes and the review names the input
+     * area as the one a user would notice first.
+     */
+    @Test
+    fun aStatusRefreshMidRunDoesNotRestoreTheIdleAffordances() {
+        val latches = ToolLatches()
+        val h = harnessForUserOriginatedTool(latches)
+
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            ChatPanelTestHarness.sendUserMessage(h, SLASH_TOOL_COMMAND)
+            assertTrue(
+                latches.entered.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS),
+                "The /tool worker never started, so the panel was never in S3.",
+            )
+
+            // One mcpStatusTimer tick, on the EDT, through the production entry point.
+            SwingUtilities.invokeAndWait { h.panel.setMcpAvailable(true) }
+
+            assertFalse(
+                ChatPanelTestHarness.inputTextArea(h).isEnabled,
+                "UI-SPEC Rule S-3: a 1 Hz status tick must not return the input area to S0 while a tool " +
+                    "worker is still in flight. updateChatAvailability has to respect isSending.",
+            )
+            assertFalse(
+                toolsButton(h).isEnabled,
+                "UI-SPEC Rule S-1: the same tick must not re-open the second door either.",
+            )
+
+            latches.probeRan.countDown()
+            ChatPanelTestHarness.awaitToolSettled(count = 1)
+        }
+    }
+
     // ── Audit + worker capture plumbing ──────────────────────────────────────────────────
 
     private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
@@ -1789,3 +1930,51 @@ private fun click(
         }
     SwingUtilities.invokeAndWait { button.doClick() }
 }
+
+/** The exact copy CR-05's entry guard emits, pinned so the test and the string cannot drift apart. */
+private const val BUSY_REFUSAL = "A request is already running. Cancel it first."
+
+/**
+ * The `/tool` command the CR-05 scenarios drive.
+ *
+ * `proxy_http_history` because it is the one tool in the catalog that both completes headlessly and
+ * reaches a stubbable Montoya seam, which is what lets the double block the worker mid-flight.
+ */
+private const val SLASH_TOOL_COMMAND = "/tool proxy_http_history {\"count\":5}"
+
+/** The label prefix `OffEdtDispatch` receives for BOTH user-originated tool paths. */
+private const val CHAT_TOOL_LABEL_PREFIX = "chat-tool-"
+
+/**
+ * A harness whose `proxy_http_history` double blocks until [latches] is released.
+ *
+ * Shared by the CR-05 and WR-04 scenarios, all of which need the same thing: a user-originated tool
+ * call parked mid-flight so the panel is demonstrably in state S3 while the assertion runs. The tool
+ * is enabled through [settingsEnabling], i.e. through the same two toggles a real user would set.
+ *
+ * `modelResponse` is deliberately not a tool call: these scenarios drive the `/tool` slash path, and a
+ * chain step arriving as well would put a second worker in the dispatch record the assertions count.
+ */
+private fun harnessForUserOriginatedTool(latches: ToolLatches): ChatPanelTestHarness.Harness {
+    val h =
+        ChatPanelTestHarness.create(
+            modelResponse = "no tool call here",
+            settings = settingsEnabling("proxy_http_history"),
+        )
+    whenever(h.api.proxy().history()).thenAnswer {
+        latches.entered.countDown()
+        check(latches.probeRan.await(HANDSHAKE_FAILSAFE_SECONDS, TimeUnit.SECONDS)) {
+            "The test never released the blocked tool — the mid-flight window was never opened."
+        }
+        emptyList<ProxyHttpRequestResponse>()
+    }
+    return h
+}
+
+/**
+ * The panel's real Tools button, through the harness's single-match finder.
+ *
+ * Not [ChatPanelTestHarness.find]: a lookup that returns the first of several would make a
+ * button-state assertion vacuous the moment a second `JButton` carried the same label.
+ */
+private fun toolsButton(h: ChatPanelTestHarness.Harness): JButton = ChatPanelTestHarness.toolsButton(h)

@@ -340,11 +340,25 @@ class ChatPanel(
         updatePrivacyPill()
     }
 
+    /**
+     * Re-derives the panel's affordances from MCP availability, WITHOUT undoing the busy state.
+     *
+     * The `isSending` terms are the CR-05 limb that needs no second dialog to reproduce. Measured:
+     * `MainTab.mcpStatusTimer` fires `updateMcpControls()` every 1000 ms and reaches here through
+     * `setMcpAvailable`, so without those terms any tool run lasting longer than one second silently
+     * regains its input area and its tool button while the worker is still in flight — UI-SPEC state
+     * S3 collapsing back to S0 on a timer tick. Plan 23-06 moved `MainTab.renderStatus()` into an
+     * asynchronous tail, which adds a second arrival moment for the same call.
+     *
+     * `sendBtn`, `clearChatBtn` and `newSessionBtn` stay on `mcpAvailable` alone on purpose: Send is
+     * HIDDEN rather than disabled in S3 (Rule S-2), and Clear Chat / New Session are reachable in S3
+     * today, which this plan does not change.
+     */
     private fun updateChatAvailability() {
         sendBtn.isEnabled = mcpAvailable
         clearChatBtn.isEnabled = mcpAvailable
-        toolsBtn.isEnabled = mcpAvailable
-        inputArea.isEnabled = mcpAvailable
+        toolsBtn.isEnabled = mcpAvailable && !isSending
+        inputArea.isEnabled = mcpAvailable && !isSending
         newSessionBtn.isEnabled = mcpAvailable
     }
 
@@ -1007,12 +1021,27 @@ class ChatPanel(
         deleteSession(s)
     }
 
-    /** Toggle UI between sending and idle states */
+    /**
+     * Toggle UI between sending and idle states.
+     *
+     * UI-SPEC Rule S-1 — busy is global to the panel, never per session: one tool at a time, one door.
+     * The `toolsBtn` write is the second half of that rule (CR-05). Without it the tool button stays
+     * live through the whole of state S3, so a user can start a second tool call whose token overwrites
+     * the first one's and destroys its result with no surface indication. The button is the affordance;
+     * `openToolDialog`'s own entry guard is the control, because an affordance can be bypassed.
+     *
+     * The `toolsBtn` write reads the FIELD rather than the parameter, so that it is textually identical
+     * to [updateChatAvailability]'s: the rule "the tool button is live iff MCP is up and the panel is
+     * not busy" is then one fact stated one way at both of its sites, and a structural gate that pins
+     * it finds both. That depends on `isSending = sending` staying the first statement below — keep it
+     * there.
+     */
     private fun setSendingState(sending: Boolean) {
         isSending = sending
         sendBtn.isVisible = !sending
         cancelBtn.isVisible = sending
         inputArea.isEnabled = !sending
+        toolsBtn.isEnabled = mcpAvailable && !isSending
     }
 
     /**
@@ -1068,6 +1097,14 @@ class ChatPanel(
     private fun toolCancelLine(tool: String): String = "Cancelled: $tool was already sent to Burp and will finish. Its result was discarded and no follow-up was sent to the AI. The call is in the audit log."
 
     fun openToolDialog() {
+        // FIRST STATEMENT, above every side effect, and that placement is the whole of the control
+        // (CR-05, UI-SPEC Rule S-1). Below the session lookup it would already have created a session;
+        // below the dialog it would already have minted a token and overwritten the running one. The
+        // disabled `toolsBtn` is the affordance; this is what makes the rule true for every caller.
+        if (isSending) {
+            showError("A request is already running. Cancel it first.")
+            return
+        }
         if (!mcpAvailable) {
             showError("MCP server is not running.")
             return
