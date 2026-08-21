@@ -115,7 +115,7 @@ fun SettingsPanel.restoreDefaultsWithConfirmation() {
  */
 internal fun SettingsPanel.restoreDefaultsConfirmed() {
     val defaults = settingsRepo.defaultSettings()
-    applySettingsToUi(defaults)
+    applySettingsToUi(defaults, notifyHosts = false)
     updateSaveFeedback("Restoring defaults...", DesignTokens.Colors.statusWarning)
     applyAndSaveSettingsAsync(defaults) { result ->
         result
