@@ -70,3 +70,29 @@ supervisor half the send path must await and the persist half that can be submit
 `SettingsPersistQueue`. The guard would be a fifth count in
 `SettingsPersistQueueTest.everyMainTabSettingsWriteGoesThroughThePersistQueue`, moving
 `settingsRepo.save(` from 3 to 2 and `mcpSupervisor.applySettings(` from 2 to 1.
+
+## D-23-07-1 — CR-03 / D-23-04-1 remains OPEN and was NOT made a freebie by plan 23-07
+
+**Found during:** plan 23-07, while closing CR-05 (`openToolDialog` refuses re-entry while a tool
+worker is running). Transcribed here by plan 23-08, the single owner of this ledger in wave 2, so that
+two wave-1 plans do not write the same file.
+
+**Observation.** `ChatPanel.clearChatState()` still does not supersede a running tool worker. This is
+the same defect `D-23-04-1` above records, restated after wave 1 because a reader could reasonably
+have assumed CR-05 closed it. It did not: CR-05's fix guards `openToolDialog`'s **entry**, which is a
+different path from `clearChatState`'s **teardown**. The two share no code, and the entry guard has no
+effect at all on a worker that is already running when Clear Chat is pressed.
+
+**Why it was not fixed in 23-07.** Closing CR-05 does not reduce it to a one-line addition, and the
+plan's scope was the busy seam's two doors, not the fifth teardown path. The open UI question is
+unchanged and must be answered before anyone writes the line, quoted verbatim from 23-07-SUMMARY.md:
+
+> *"whether Clear Chat should return the panel to S0 while a worker is still running, or leave the busy
+> state alone as `discardSupersededToolResult` does."*
+
+**Severity.** Low-to-moderate, unchanged from `D-23-04-1`. No security control is bypassed — the call
+was already approved and is already audited — but the transcript can show a result for a conversation
+the user cleared, and the followup turn spends a chain iteration against a reset approval memory.
+
+**Suggested home.** A follow-up plan or a `/gsd-quick` task that can also decide the UI question; the
+guard would be one more scenario in `ChatPanelEdtConfinementTest` alongside S-05 through S-07.

@@ -251,9 +251,16 @@ tasks.test {
 // proves the guard throws in a JVM where the debug-time assertion facility is ON — which is not the JVM
 // SC1 is about. Shipped Burp runs WITHOUT `-ea`, and SC1's whole objection to the existing ChatPanel
 // assertion is that it is a no-op there. This task re-runs that one class with assertions DISABLED, so
-// "the guard fires where it matters" is demonstrated rather than asserted. It stays out of `check` on
-// purpose: it duplicates coverage the fast PR gate already has, and its value is the flag, not the
-// assertions. Run it with: ./gradlew edtGuardWithoutAssertionsTest
+// "the guard fires where it matters" is demonstrated rather than asserted.
+//
+// WR-11 corrected the second half of this comment. It stays out of the `check` lifecycle task on
+// purpose — `check` is the fast path and this is a deliberate, separately named gate — AND it is
+// invoked explicitly by `.github/workflows/build.yml`'s pr-gate step on all three OSes and by
+// `.github/workflows/nightly-regression.yml`. The justification it used to carry, that it "duplicates
+// coverage the fast PR gate already has", was wrong in exactly the way that mattered: the fast PR gate
+// runs with `-ea`, where an `assert`-based guard is equally green, so reverting `check(...)` to
+// `assert(...)` in McpToolExecutorImpl would have left every automated gate passing.
+// Run it locally with: ./gradlew edtGuardWithoutAssertionsTest
 tasks.register<Test>("edtGuardWithoutAssertionsTest") {
     description = "Runs the executor's EDT door guard with JVM assertions disabled (REL-05 / SC1)."
     group = "verification"

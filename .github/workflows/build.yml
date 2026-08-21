@@ -46,6 +46,15 @@ jobs:
       - name: Run fast verification suite
         run: ./gradlew test -PexcludeHeavyTests=true --no-daemon
 
+      # WR-11: the fast suite above runs with `-ea`, where an `assert`-based EDT guard is equally
+      # green. This step is the only gate that runs the executor's door guard with assertions
+      # DISABLED — the JVM shipped Burp actually runs, and the whole basis of D-03's choice of
+      # `check` over `assert`. Run on all three OSes on purpose: REL-05 / SC1 is a threading
+      # guarantee, and the cross-platform matrix is the one place an EDT difference between
+      # platforms would surface at all.
+      - name: Prove the EDT door guard still fires with JVM assertions DISABLED (REL-05 / SC1)
+        run: ./gradlew edtGuardWithoutAssertionsTest --no-daemon
+
       - name: Build shadow JAR
         run: ./gradlew shadowJar --no-daemon
 
