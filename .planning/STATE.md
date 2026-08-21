@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
-current_phase: 23
-current_phase_name: EDT Confinement & UI Responsiveness
-status: executing
-stopped_at: Completed 23-08-PLAN.md
-last_updated: "2026-08-21T10:20:20.693Z"
+current_phase: 24
+current_phase_name: Scheduler & Process Robustness
+status: planning
+stopped_at: Phase 23 complete, ready to plan Phase 24
+last_updated: "2026-08-21T11:28:17.919Z"
 last_activity: 2026-08-21
-last_activity_desc: Phase 23 execution started
-state_head: 2766e4f2ad0d9a3d2683ecfe62e5626ce49ed92b
+last_activity_desc: Phase 23 complete, transitioned to Phase 24
+state_head: d6974070dc3987bbf5bb785709609680b6dc5d20
 progress:
   total_phases: 7
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 46
   completed_plans: 46
-  percent: 14
+  percent: 29
 ---
 
 # Project State
@@ -25,15 +25,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-05)
 
 **Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable.
-**Current focus:** Phase 23 — EDT Confinement & UI Responsiveness
+**Current focus:** Phase 24 — Scheduler & Process Robustness
 
 ## Current Position
 
-Phase: 23 (EDT Confinement & UI Responsiveness) — EXECUTING
-Plan: 4 of 8
-Status: Ready to execute
+Phase: 24 — Scheduler & Process Robustness
+Plan: Not started
+Status: Ready to plan
 Resume file: None
-Last activity: 2026-08-21 — Phase 23 execution started
+Last activity: 2026-08-21 — Phase 23 complete, transitioned to Phase 24
 
 ## Milestone Origin
 
@@ -79,7 +79,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 
 **Velocity:**
 
-- Total plans completed: 70
+- Total plans completed: 78
 - Average duration: —
 - Total execution time: 0 hours
 
@@ -100,6 +100,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | 20 | 10 | - | - |
 | 21 | 19 | - | - |
 | 22 | 9 | - | - |
+| 23 | 8 | - | - |
 
 **Recent Trend:**
 
@@ -212,6 +213,12 @@ Recent decisions affecting current work:
 - [Phase 23]: 23-07: transcript-absence is asserted as a row COUNT — the row-TEXT form is false by construction because ChatMessagePanel renders every non-user role as the literal 'AI'
 - [Phase 23]: 23-07: no toolDecisionReporter.report and no durationMs in the new audit record — the user-originated paths are UNGATED by SC5 and measure no duration, so either would be a fabricated audit field
 - [Phase 23]: 23-07: red probes must run against a COMMITTED baseline — git checkout -- restores the correct implementation only if it is committed, otherwise it discards the work
+- [Phase 23]: 23-06: TWO persist helpers (persistSettings / persistSettingsAndApplyMcp) rather than one flag-taking helper — McpSupervisor.stop() clears ScannerTaskRegistry and CollaboratorRegistry, so an unconditional MCP apply on a passive toggle would drop live scanner tasks
+- [Phase 23]: 23-06: MainTab.kt:111 deliberately NOT routed through the persist queue — the send path depends on supervisor.applySettings completing before the turn is sent; recorded as D-23-06-1 / T-23-06-08 (high, accept)
+- [Phase 23]: 23-08: red probe 3 recorded as a MEASUREMENT not a confirmation — removing saveGeneration.incrementAndGet() from shutdown() leaves the test GREEN because isCurrent is a conjunction and disposed = true alone already falsifies it; the counter is kept for the save-supersedes-save case D-10 currently makes unreachable
+- [Phase 23]: 23-08: a supersede's KDoc names the window it does NOT close, because overclaiming makes the next reader stop looking
+- [Phase 23]: seal: the api-coverage verify:pre gate fired on two false-positive signals (`wraps api`, `(surface) api`, both tracing to the Burp Montoya host API) and was closed with a reasoned COVERAGE.md no-integration declaration rather than a fabricated matrix
+- [Phase 23]: seal: four SUMMARYs (23-01, 23-02, 23-04, 23-06) shipped with no `## Threat Flags` section, so their 14 registered threats had no executor self-report; all 14 were closed by direct code reading in 23-SECURITY.md — a missing Threat Flags section should count as an executor self-check failure in future phases
 - [Phase 23]: Task 2's scanner supersede test ships as TWO shapes, not the plan's one: three sequential early-return guards mean a supersede landing before the first short-circuits the rest, so a single shape leaves every later guard unfalsifiable — Measured — probes 2-1 and 2-2 now fail on different lines naming different mocks; under the single-shape design 2-2 would have passed green with the active-scanner guard deleted
 - [Phase 23]: WR-11 belongs to Phase 23, not Phase 26/QUAL-07 — checked against both texts rather than assumed — QUAL-07 covers the detekt baseline's direction, the disposition of ChatPanel's assert()-based enforcement, and SecretCipher docs; none is CI wiring. edtGuardWithoutAssertionsTest and the check(...) it proves were both created by plan 23-02 inside this phase
 - [Phase 23]: The settings supersede's AtomicLong is redundant with the disposed flag at unload — measured by red probe 1-3, kept for the save-supersedes-save case D-10 currently makes unreachable — isCurrent is a conjunction, so disposed = true alone falsifies it; removing saveGeneration.incrementAndGet() from shutdown() left the test green
@@ -257,6 +264,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T10:20:08.636Z
-Stopped at: Completed 23-08-PLAN.md
+Last session: 2026-08-21T11:28:17Z
+Stopped at: Phase 23 complete, ready to plan Phase 24
 Resume file: None

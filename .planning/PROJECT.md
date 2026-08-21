@@ -119,6 +119,10 @@ The framing matters: v0.9.0 built the machinery. This milestone found that some 
 | Skip codebase mapping in `/gsd-map-codebase` | `SPEC.md`, `DECISIONS.md`, `AGENTS.md`, `CHANGELOG.md` already capture architecture, ADRs, and history | — Pending |
 | Active milestone = **v0.7.0 stabilization release** | Three Unreleased features (Perplexity, insertion-point scanning, prompt library UX) + recent UX/blocker fixes warrant a coordinated cut | — Pending |
 | Skip domain research (`/gsd-new-project` Step 6) | Maintainer is the domain expert; SPEC and DECISIONS encode the relevant prior art | — Pending |
+| Phase 23: the EDT guard is a throwing `check(...)` at `McpToolExecutor.executeToolResult`, not at the `executeTool` wrapper | `executeToolResult` is the convergence point for the chat path, the MCP-server path and the `ext:` branch; the wrapper covers only the chat half. `check` (not `assert`) so it survives a JVM without `-ea` | ✓ Shipped — Phase 23, pinned by `edtGuardWithoutAssertionsTest` in the PR gate |
+| Phase 23: settings persistence goes through one generation-ordered `SettingsPersistQueue` rather than per-listener saves | Two `MainTab` listeners could interleave inside `AgentSettingsRepository.save()`'s ~107 sequential key writes and pair a permissive `privacyMode` with a foreign redaction-pattern list — the sharper defect on a tool whose core value is non-negotiable privacy controls | ✓ Shipped — Phase 23 (7 of 8 EDT save sites routed; `MainTab.kt:111` accepted as D-23-06-1) |
+| Phase 23: two narrow persist helpers (`persistSettings` / `persistSettingsAndApplyMcp`) instead of one flag-taking helper | `McpSupervisor.stop()` clears `ScannerTaskRegistry` and `CollaboratorRegistry`; an unconditional MCP apply on a passive toggle would drop live scanner tasks | ✓ Shipped — Phase 23, enforced structurally by a source-text test |
+| Phase 23: `KtorMcpServerManager.stop()` stays blocking; only its callers move off the EDT | Making `stop()` itself async would restructure a component this phase is chartered not to touch, and the bounded 10 s wait is correct behaviour — it is *where it runs* that was the defect | ✓ Shipped — Phase 23 (D-14 stays closed) |
 
 ## Evolution
 
@@ -138,4 +142,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-10 — Milestone v0.10.0 (Security Correctness & Agent Trust) in progress: Phase 20 (MCP Access-Control Correctness) complete, SEC-04 + SEC-05 validated. v0.7.0 (2026-05-15), v0.8.0 (2026-06-02) and v0.9.0 (2026-06-26, point releases 0.9.1 / 0.9.2) shipped and tagged*
+*Last updated: 2026-08-21 after Phase 23 — Milestone v0.10.0 (Security Correctness & Agent Trust) in progress: Phases 20-23 complete (SEC-04, SEC-05, PRIV-05, PRIV-06, SEC-06, REL-05 validated); Phase 24 (Scheduler & Process Robustness) ready to plan. v0.7.0 (2026-05-15), v0.8.0 (2026-06-02) and v0.9.0 (2026-06-26, point releases 0.9.1 / 0.9.2) shipped and tagged*
