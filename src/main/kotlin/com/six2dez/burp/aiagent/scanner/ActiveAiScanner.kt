@@ -396,6 +396,11 @@ class ActiveAiScanner(
         // Process up to maxConcurrent targets
         repeat(maxConcurrent) {
             val target = scanQueue.poll() ?: return@repeat
+            // REL-06 / SC2: resolved HERE, above the submit and above the try, so a failure inside
+            // target.originalRequest.request() can never make the catch block itself throw. The cap
+            // matches this file's existing truncation habit and bounds an attacker-influenced URL in
+            // a local Burp log line; the id is URL + injection point + vulnerability class.
+            val targetLabel = target.id.take(200)
 
             exec.submit {
                 try {
@@ -403,7 +408,7 @@ class ActiveAiScanner(
                     val result = executeScan(target)
                     handleResult(result)
                 } catch (e: Exception) {
-                    api.logging().logToError("[ActiveAiScanner] Error: ${e.message}")
+                    api.logging().logToError("[ActiveAiScanner] Target scan failed: $targetLabel: ${e.message}")
                 } finally {
                     scansCompleted.incrementAndGet()
                     processedTargets[target.id] = System.currentTimeMillis()

@@ -60,8 +60,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * it is deliberately not copied.
  *
  * **Reflection here touches this project's own class only** (`ActiveAiScanner`'s private `executor`
- * field and its private `processQueue` method). Nothing reflects into `java.base`, which on JDK 21
- * would raise `InaccessibleObjectException` under this build's `--add-opens`-free test JVM.
+ * field and its private `processQueue` method). Nothing reflects into a JDK platform module, which
+ * on JDK 21 would raise `InaccessibleObjectException` under this build's `--add-opens`-free test
+ * JVM — the same fail-open trap `24-VALIDATION.md` rules out for the `deleteOnExit` probe.
  */
 class ActiveScannerFailureIsolationTest {
     private val api: MontoyaApi = mock(defaultAnswer = Answers.RETURNS_DEEP_STUBS)
