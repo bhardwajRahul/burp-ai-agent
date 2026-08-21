@@ -206,7 +206,7 @@ class CliBackend(
                             process.outputStream.close()
                         }
 
-                        val rawOutput = StringBuilder()
+                        val rawOutput = CliOutputBuffer()
                         val lastOutputAt =
                             java.util.concurrent.atomic
                                 .AtomicLong(0L)
@@ -249,7 +249,7 @@ class CliBackend(
                                     // INTENTIONAL: interrupted while waiting for reader thread; restores interrupt flag
                                     Thread.currentThread().interrupt()
                                 }
-                                val tail = rawOutput.toString().trim().take(2000)
+                                val tail = rawOutput.snapshot().trim().take(2000)
                                 onComplete(IllegalStateException(buildTimeoutMessage(tail, cliTimeoutSeconds)))
                                 return@submit
                             }
@@ -261,7 +261,7 @@ class CliBackend(
                             Thread.currentThread().interrupt()
                         }
                         if (!terminatedAfterIdle && process.exitValue() != 0) {
-                            val tail = rawOutput.toString().trim().take(2000)
+                            val tail = rawOutput.snapshot().trim().take(2000)
                             val msg =
                                 if (tail.isBlank()) {
                                     "CLI command failed (exit=${process.exitValue()})"
@@ -272,7 +272,7 @@ class CliBackend(
                             return@submit
                         }
 
-                        val stdoutText = stripAnsiCodes(rawOutput.toString())
+                        val stdoutText = stripAnsiCodes(rawOutput.snapshot())
                         val finalMessage =
                             when (backendId) {
                                 "codex-cli" -> readCodexOutput(outputFile, stdoutText, text)
