@@ -619,6 +619,153 @@ class SettingsSaveAsyncTest {
         }
     }
 
+    /**
+     * CR-01 / T-23-08-02 — a save superseded at unload never re-enables either AI scanner.
+     *
+     * `App.shutdown()` disables and shuts down both scanners before it reaches the MCP supervisor. A
+     * save worker that re-arms one afterwards keeps sending observed traffic to an AI backend after the
+     * user believes the extension is unloaded — directly against the project's core value.
+     *
+     * **Two shapes, because one would leave the second guard unfalsifiable.** The guards are sequential
+     * early returns, so a supersede that lands before the FIRST of them short-circuits the rest, and a
+     * probe deleting the later guard would change nothing observable. Each shape therefore parks the
+     * worker immediately *after* one guard so that the next one is the only thing that can stop it:
+     *
+     *  - Shape 1 parks inside `mcpSupervisor.applySettings`, i.e. past guard 1, so the PASSIVE guard is
+     *    the one under test.
+     *  - Shape 2 parks inside `passiveAiScanner.setEnabled`, i.e. past guard 2, so the ACTIVE guard is
+     *    the one under test — and the passive scanner's own `times(1)` proves the worker really did get
+     *    that far rather than stopping earlier for an unrelated reason.
+     *
+     * Every `never()` sits after an asserted `settledSignal.await(...)`: a bare `never()` passes
+     * vacuously and FASTER with the bug present, because the worker has not reached the call yet.
+     */
+    @Test
+    fun aSaveSupersededByShutdownNeverReEnablesTheScanners() {
+        assertTimeoutPreemptively(Duration.ofSeconds(40)) {
+            // Shape 1 — supersede lands past guard 1; the passive guard is what must stop it.
+            val past1 = newFixture()
+            val inMcp = CountDownLatch(1)
+            val releaseMcp = CountDownLatch(1)
+            whenever(past1.mcpSupervisor.applySettings(any(), any(), any(), any())).thenAnswer {
+                inMcp.countDown()
+                releaseMcp.await(20, TimeUnit.SECONDS)
+                null
+            }
+
+            SwingUtilities.invokeAndWait { past1.panel.saveSettings() }
+            assertTrue(inMcp.await(20, TimeUnit.SECONDS), "The save never got past guard 1 at all.")
+            past1.panel.shutdown()
+            releaseMcp.countDown()
+            assertTrue(
+                settledSignal.await(25, TimeUnit.SECONDS),
+                "CR-01 shape 1: the superseded save never settled, so the never() below would pass " +
+                    "vacuously.",
+            )
+
+            verify(past1.passiveAiScanner, never()).setEnabled(any())
+            verify(past1.activeAiScanner, never()).setEnabled(any())
+
+            // Shape 2 — supersede lands past guard 2; the active guard is the only thing left.
+            settledSignal = CountDownLatch(1)
+            val past2 = newFixture()
+            val inPassive = CountDownLatch(1)
+            val releasePassive = CountDownLatch(1)
+            whenever(past2.passiveAiScanner.setEnabled(any())).thenAnswer {
+                inPassive.countDown()
+                releasePassive.await(20, TimeUnit.SECONDS)
+                null
+            }
+
+            SwingUtilities.invokeAndWait { past2.panel.saveSettings() }
+            assertTrue(inPassive.await(20, TimeUnit.SECONDS), "The save never got past guard 2 at all.")
+            past2.panel.shutdown()
+            releasePassive.countDown()
+            assertTrue(
+                settledSignal.await(25, TimeUnit.SECONDS),
+                "CR-01 shape 2: the superseded save never settled, so the never() below would pass " +
+                    "vacuously.",
+            )
+
+            verify(past2.passiveAiScanner, times(1)).setEnabled(any())
+            verify(past2.activeAiScanner, never()).setEnabled(any())
+        }
+    }
+
+    /**
+     * The positive control for [aSaveSupersededByShutdownNeverReEnablesTheScanners].
+     *
+     * Same fixture, same latch shape, no `shutdown()`. Without it, both `never()` clauses above would
+     * be equally green if the two `setEnabled` calls had simply been deleted from the save body.
+     */
+    @Test
+    fun aSaveThatIsNotSupersededDoesEnableTheScanners() {
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            val fixture = newFixture()
+            val inMcp = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            whenever(fixture.mcpSupervisor.applySettings(any(), any(), any(), any())).thenAnswer {
+                inMcp.countDown()
+                release.await(20, TimeUnit.SECONDS)
+                null
+            }
+
+            SwingUtilities.invokeAndWait { fixture.panel.saveSettings() }
+            assertTrue(inMcp.await(20, TimeUnit.SECONDS), "The save never entered the body at all.")
+            release.countDown()
+            assertTrue(settledSignal.await(25, TimeUnit.SECONDS), "The unsuperseded save never settled.")
+
+            verify(fixture.passiveAiScanner, times(1)).setEnabled(any())
+            verify(fixture.activeAiScanner, times(1)).setEnabled(any())
+        }
+    }
+
+    /**
+     * CR-01 / T-23-08-04 — a save submitted AFTER unload is refused outright, and strands nothing.
+     *
+     * `applyAndSaveSettingsAsync` returns at `if (disposed) return` before the busy seam is raised, so
+     * `onDone` is never invoked and there is no seam left raised for nobody to lower. Raising a seam
+     * that never lowers is what leaves the Settings tab permanently unsaveable (FLAG-23-06), which is
+     * why the recorded busy list — not merely the absence of a dispatch — is the loud clause here.
+     *
+     * **Reading the settle record for an absence claim is acceptable ONLY here**, because no worker is
+     * dispatched at all and that absence is itself asserted with a bounded wait. Do not copy this
+     * pattern into a case where a worker does start: there the settle record would read empty simply
+     * because the worker has not finished yet, and the assertion would pass vacuously.
+     */
+    @Test
+    fun aSaveSubmittedAfterShutdownIsRefusedWithoutRaisingTheBusySeam() {
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            val fixture = newFixture()
+            val busy = recordBusy(fixture.panel)
+            val onDoneFired = AtomicBoolean(false)
+
+            fixture.panel.shutdown()
+            SwingUtilities.invokeAndWait {
+                fixture.panel.applyAndSaveSettingsAsync(fixture.panel.currentSettings()) {
+                    onDoneFired.set(true)
+                }
+            }
+            SwingUtilities.invokeAndWait { }
+
+            assertEquals(
+                emptyList<Boolean>(),
+                busy.toList(),
+                "CR-01: a save submitted after unload must not raise the busy seam. A raised seam with " +
+                    "no worker to lower it leaves the Settings tab permanently unsaveable.",
+            )
+            assertFalse(
+                settledSignal.await(2, TimeUnit.SECONDS),
+                "CR-01: no worker may be dispatched at all after unload. Labels seen: ${settled.toList()}.",
+            )
+            assertFalse(
+                settled.contains("settings-save"),
+                "CR-01: a settings-save settled after unload. Labels seen: ${settled.toList()}.",
+            )
+            assertFalse(onDoneFired.get(), "CR-01: onDone must not fire for a refused save.")
+        }
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Fixture
     // ---------------------------------------------------------------------------------------------
@@ -629,6 +776,7 @@ class SettingsSaveAsyncTest {
         val supervisor: AgentSupervisor,
         val mcpSupervisor: McpSupervisor,
         val passiveAiScanner: PassiveAiScanner,
+        val activeAiScanner: ActiveAiScanner,
     ) {
         /**
          * Installs a MainTab-SHAPED `onMcpEnabledChanged` and returns its recorder.
@@ -699,6 +847,7 @@ class SettingsSaveAsyncTest {
         val supervisor: AgentSupervisor = mock(defaultAnswer = Answers.RETURNS_DEEP_STUBS)
         val mcpSupervisor: McpSupervisor = mock(defaultAnswer = Answers.RETURNS_DEEP_STUBS)
         val passiveAiScanner: PassiveAiScanner = mock(defaultAnswer = Answers.RETURNS_DEEP_STUBS)
+        val activeAiScanner: ActiveAiScanner = mock(defaultAnswer = Answers.RETURNS_DEEP_STUBS)
         val panel =
             SettingsPanel(
                 api = api,
@@ -707,10 +856,10 @@ class SettingsSaveAsyncTest {
                 audit = mock<AuditLogger>(defaultAnswer = Answers.RETURNS_DEEP_STUBS),
                 mcpSupervisor = mcpSupervisor,
                 passiveAiScanner = passiveAiScanner,
-                activeAiScanner = mock<ActiveAiScanner>(defaultAnswer = Answers.RETURNS_DEEP_STUBS),
+                activeAiScanner = activeAiScanner,
             )
         panels.add(panel)
-        return Fixture(panel, api, supervisor, mcpSupervisor, passiveAiScanner)
+        return Fixture(panel, api, supervisor, mcpSupervisor, passiveAiScanner, activeAiScanner)
     }
 
     /** Copied in shape from `SettingsDefaultsPersistenceTest.inMemoryPreferences`. */

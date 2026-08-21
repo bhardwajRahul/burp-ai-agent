@@ -522,7 +522,14 @@ internal fun SettingsPanel.parseContentTypePrefixesInput(
  * audit sink is being torn down anyway — and it is unreachable outside teardown, because D-10 disables
  * both Save settings and Restore defaults for the whole flight, so there is no second concurrent save
  * to supersede this one.
+ *
+ * **Why `ReturnCount` is suppressed inline rather than baselined.** The three returns ARE the fix: one
+ * supersede check immediately before each externally visible mutation that can outlive this panel.
+ * Collapsing them into a single guarded block would re-open the mid-body window they exist to close,
+ * because the supersede can land between any two of them. `detekt-baseline.xml` is never regenerated to
+ * answer a finding this phase introduced.
  */
+@Suppress("ReturnCount")
 internal fun SettingsPanel.applyAndSaveSettingsBody(
     updated: AgentSettings,
     isCurrent: () -> Boolean = { true },
@@ -567,6 +574,11 @@ internal fun SettingsPanel.applyAndSaveSettingsBody(
     passiveAiScanner.scopeOnly = updated.passiveAiScopeOnly
     passiveAiScanner.maxSizeKb = updated.passiveAiMaxSizeKb
     passiveAiScanner.applyOptimizationSettings(updated)
+    // CR-01, guard 2 of 3. The plain field writes above are deliberately NOT guarded: they are
+    // process-local assignments on an object App.shutdown() is about to discard, and a guard per
+    // assignment would bury the three that matter in noise. setEnabled is different — it re-arms
+    // background analysis that sends observed traffic to an AI backend.
+    if (!isCurrent()) return
     passiveAiScanner.setEnabled(updated.passiveAiEnabled)
     // CAP-04 (WR-02): re-evaluate against the freshly-applied warn/cap so raising, clearing
     // (cap=0 → unlimited), or otherwise dropping below the cap RELEASES the pause gate. Without
@@ -582,6 +594,9 @@ internal fun SettingsPanel.applyAndSaveSettingsBody(
     activeAiScanner.scopeOnly = updated.activeAiScopeOnly
     activeAiScanner.scanMode = updated.activeAiScanMode
     activeAiScanner.useCollaborator = updated.activeAiUseCollaborator
+    // CR-01, guard 3 of 3. Same selectivity as guard 2, and asserted independently of it: a supersede
+    // landing between the two setEnabled calls must still stop this one.
+    if (!isCurrent()) return
     activeAiScanner.setEnabled(updated.activeAiEnabled)
 
     api.logging().logToOutput("AI Agent settings saved.")
@@ -610,6 +625,12 @@ internal fun SettingsPanel.applyAndSaveSettingsAsync(
     updated: AgentSettings,
     onDone: (Result<Unit>) -> Unit,
 ) {
+    // CR-01: a save submitted AFTER unload is refused outright rather than superseded mid-body.
+    // The consequence, stated precisely: onDone is never invoked and the busy seam is never raised,
+    // so there is nothing left to lower. That is correct at teardown — the panel is gone and no
+    // listener remains to inform — and it is unreachable otherwise, because SettingsPanel.shutdown()
+    // is called only from MainTab.shutdown().
+    if (disposed) return
     // Minted FIRST, on the calling thread, before the seam is raised and before anything is dispatched.
     // Same placement rule and same reason as OffEdtDispatch's dispatchedObserver and
     // SettingsPersistQueue.submit: the generation must be the CLICK's, not the thread-start's.
