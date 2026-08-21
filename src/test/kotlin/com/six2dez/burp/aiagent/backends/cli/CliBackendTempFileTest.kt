@@ -71,8 +71,7 @@ class CliBackendTempFileTest {
     @AfterEach
     fun tearDown() {
         CliTempFileRegistry.shutdown()
-        workDir.listFiles()?.forEach { it.delete() }
-        workDir.delete()
+        workDir.deleteRecursively()
     }
 
     private fun newFile(name: String): File =
@@ -276,6 +275,83 @@ class CliBackendTempFileTest {
     }
 
     /**
+     * REL-07-E — a temp file whose delete FAILS must keep its entry, so the drain can retry it.
+     *
+     * `File.delete()` reports failure by returning `false`; it does not throw. On Windows it returns
+     * `false` while the CLI child process still holds the handle, and `CliBackend`'s `finally` block
+     * runs immediately after `destroyForcibly()`, so the handle is not guaranteed to be released yet.
+     * A deregister that ran anyway would leave the file with no owner at all — off the disk's cleanup
+     * path and out of this registry — and neither the exit hook nor `App.shutdown()`'s drain could
+     * ever sweep it. The abandoned file is `burp_uv_prompt_*.txt`, which holds the full prompt, on the
+     * one platform where owner-only permissions are also skipped.
+     *
+     * The fixture is a NON-EMPTY DIRECTORY, whose `delete()` returns `false` deterministically on every
+     * platform. Nothing here reflects into `java.base`; `24-VALIDATION.md` rules that technique out.
+     */
+    @Test
+    fun aFileWhoseDeleteFailsKeepsItsEntryForTheDrainToRetry() {
+        val undeletable = File(workDir, "still-held-by-the-child").also { it.mkdir() }
+        File(undeletable, "child.txt").writeText("payload")
+        CliTempFileRegistry.register(undeletable)
+
+        CliTempFileRegistry.deleteAndDeregister(undeletable)
+
+        assertTrue(
+            undeletable.exists(),
+            "Fixture precondition: delete() must genuinely have failed here, or this test asserts nothing.",
+        )
+        assertEquals(
+            1,
+            CliTempFileRegistry.sizeForTests(),
+            "A file whose delete() returned false must KEEP its entry. Dropping it abandons the file: " +
+                "the exit hook and App.shutdown()'s drain both work off this registry, so an entry " +
+                "removed here is a temp file — holding the full prompt — left in the shared OS temp " +
+                "directory with nothing left to sweep it (REL-07 / SC5, D-01).",
+        )
+    }
+
+    /**
+     * REL-07-E — the other two arms of the same seam: a delete that succeeds, and the two no-op inputs
+     * `CliBackend`'s `finally` block genuinely reaches (a file another path already deleted, and a
+     * `null` for an optional temp file that was never created).
+     */
+    @Test
+    fun aSuccessfulDeleteDeregistersAndAnAlreadyGoneOrNullFileIsANoOp() {
+        val file = newFile("cleaned-up.txt")
+        CliTempFileRegistry.register(file)
+
+        CliTempFileRegistry.deleteAndDeregister(file)
+
+        assertFalse(file.exists(), "The normal path must still delete the file — this is the PRIMARY cleanup path.")
+        assertEquals(
+            0,
+            CliTempFileRegistry.sizeForTests(),
+            "A successful delete must return the registry to empty, or the bound becomes lifetime " +
+                "invocation count instead of in-flight concurrency (D-01).",
+        )
+
+        val alreadyGone = newFile("already-gone-elsewhere.txt")
+        CliTempFileRegistry.register(alreadyGone)
+        assertTrue(alreadyGone.delete(), "Fixture precondition: another path deleted the file first.")
+
+        CliTempFileRegistry.deleteAndDeregister(alreadyGone)
+        assertEquals(
+            0,
+            CliTempFileRegistry.sizeForTests(),
+            "A file that is already off the disk must still be deregistered. Retaining it would leak an " +
+                "entry on every double-cleanup, which D-03 requires to be idempotent.",
+        )
+
+        CliTempFileRegistry.deleteAndDeregister(null)
+        assertEquals(
+            0,
+            CliTempFileRegistry.sizeForTests(),
+            "null must be a no-op: the production finally block runs on paths where the optional prompt " +
+                "file or codex output file was never created.",
+        )
+    }
+
+    /**
      * D-03 — the hook is registered lazily on first temp-file creation, never eagerly. A Burp session
      * that never uses a CLI backend must pay nothing: no hook object, no retained extension-classloader
      * class in the JVM's shutdown-hook table.
@@ -356,13 +432,25 @@ class CliBackendTempFileTest {
         )
         assertEquals(
             3,
+            code.count { it.contains("CliTempFileRegistry.deleteAndDeregister(") },
+            "CliBackend ledger: exactly three cleanup sites. Two are in the finally block, one per temp " +
+                "file. The third is in the prompt write-failure branch, which returns before the outer " +
+                "finally and is therefore the ONLY place that can clear its own entry — dropping it " +
+                "retains one entry per failed write for the life of the JVM, which is the very growth " +
+                "D-01 removes.",
+        )
+        assertEquals(
+            0,
             code.count { it.contains("CliTempFileRegistry.deregister(") },
-            "CliBackend ledger: exactly three deregistration sites. Two are in the finally block, beside " +
-                "each existing delete. The third is in the prompt write-failure branch, which returns " +
-                "before the outer finally and is therefore the ONLY place that can clear its own entry — " +
-                "dropping it retains one entry per failed write for the life of the JVM, which is the very " +
-                "growth D-01 removes. Note the plan predicted two; three is the count that actually keeps " +
-                "the registry bounded.",
+            "CliBackend ledger: the backend must NEVER deregister on its own. An unconditional " +
+                "`delete()` then `deregister()` pair abandons every file whose delete returned false — " +
+                "and `File.delete()` reports failure by RETURNING FALSE, not by throwing, which is what " +
+                "happens on Windows while the CLI child still holds the handle. The entry is dropped, so " +
+                "neither the exit hook nor App.shutdown()'s drain can ever sweep the file, and a " +
+                "burp_uv_prompt_ file holding the full prompt is left in the shared OS temp directory " +
+                "on the one platform where owner-only permissions are also skipped. Route every site " +
+                "through CliTempFileRegistry.deleteAndDeregister(...), which deregisters only once the " +
+                "file is actually gone.",
         )
     }
 

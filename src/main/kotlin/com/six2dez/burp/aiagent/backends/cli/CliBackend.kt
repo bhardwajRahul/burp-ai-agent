@@ -154,11 +154,10 @@ class CliBackend(
                             tFile.writeText(combinedText)
                         } catch (e: Exception) {
                             // INTENTIONAL: temp file write failed; cleanup and propagate error via onComplete
-                            tFile.delete()
                             // REL-07 / SC5: this branch returns before the outer finally block, so it is the ONLY
                             // place that can clear this entry. Without it the registry would retain one entry per
                             // failed prompt write for the life of the JVM — the exact unbounded growth D-01 removes.
-                            CliTempFileRegistry.deregister(tFile)
+                            CliTempFileRegistry.deleteAndDeregister(tFile)
                             onComplete(e)
                             return@submit
                         }
@@ -300,16 +299,15 @@ class CliBackend(
                             // INTENTIONAL: finally block cleanup; destroyForcibly() must not prevent file cleanup
                         }
                         try {
-                            // Delete first, deregister second: if the delete throws, the entry survives and the
-                            // registry's drain sweeps the file later. The reverse order would lose it entirely.
-                            promptFile?.delete()
-                            promptFile?.let { CliTempFileRegistry.deregister(it) }
+                            // REL-07 / SC5: the entry is dropped only once the file is gone. File.delete() reports
+                            // failure by returning false, and returns false on Windows while the CLI child still
+                            // holds the handle; a surviving entry is what lets the registry's drain retry.
+                            CliTempFileRegistry.deleteAndDeregister(promptFile)
                         } catch (_: Exception) {
                             // INTENTIONAL: finally block cleanup; file deletion must not prevent process cleanup
                         }
                         try {
-                            outputFile?.delete()
-                            outputFile?.let { CliTempFileRegistry.deregister(it) }
+                            CliTempFileRegistry.deleteAndDeregister(outputFile)
                         } catch (_: Exception) {
                             // INTENTIONAL: finally block cleanup; file deletion must not prevent process cleanup
                         }

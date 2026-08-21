@@ -80,6 +80,28 @@ internal object CliTempFileRegistry {
     }
 
     /**
+     * Deletes [file] and drops its entry, but drops the entry only once the file is actually gone.
+     *
+     * `File.delete()` reports failure by returning `false`, not by throwing: on Windows it returns
+     * `false` while the CLI child process still holds the handle open. An unconditional deregister
+     * therefore abandons such a file — it is off the disk's cleanup path and off this registry at the
+     * same time, so neither the exit hook nor [shutdown]'s drain can ever sweep it. Keeping the entry
+     * is what lets the drain retry, and it is the coverage the JDK exit-time facility used to provide
+     * for this exact case.
+     *
+     * A `null` [file] is a no-op: `CliBackend`'s `finally` block runs on paths where the optional
+     * prompt file or codex output file was never created. Nothing is caught here. A `SecurityException`
+     * from `delete()` propagates to the caller's own cleanup catch and leaves the entry in place, which
+     * is the same conservative outcome as a `false` return.
+     */
+    fun deleteAndDeregister(file: File?) {
+        if (file == null) return
+        if (file.delete() || !file.exists()) {
+            deregister(file)
+        }
+    }
+
+    /**
      * Deletes every still-registered file and empties the registry.
      *
      * Idempotent with the `finally` block by requirement (D-03): a file the `finally` already deleted
