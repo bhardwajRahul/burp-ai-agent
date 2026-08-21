@@ -280,7 +280,17 @@ internal fun SettingsPanel.validateAndCollectCustomPatterns(): List<String> {
  *
  * Every component write below stays exactly where it is, on the EDT, per UI-SPEC Rule T-3. Only the
  * three host notifications are suppressible.
+ *
+ * **`@Suppress("LongMethod")` rather than a regenerated baseline.** This function was already carried
+ * by `detekt-baseline.xml` as `LongMethod`, but the baseline keys on the full signature, so adding the
+ * [notifyHosts] parameter orphaned that entry and the finding re-fired at 145 lines against the
+ * threshold of 80. `detekt-baseline.xml` is a v0.10.0 milestone metric held at 1096 entries and must
+ * not be regenerated (23-03 and 23-05 answered their own new findings the same way). Splitting the
+ * function is not free either: it is one flat sequence of component writes whose ONLY structure is
+ * "assign every field", and the surrounding phase asserts that those writes stay contiguous on the EDT
+ * ahead of the dispatch (Rule T-3).
  */
+@Suppress("LongMethod")
 internal fun SettingsPanel.applySettingsToUi(
     updated: AgentSettings,
     notifyHosts: Boolean = true,
