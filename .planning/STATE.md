@@ -5,16 +5,16 @@ milestone_name: Security Correctness & Agent Trust
 current_phase: 23
 current_phase_name: EDT Confinement & UI Responsiveness
 status: executing
-stopped_at: Completed 23-06-PLAN.md
-last_updated: "2026-08-21T09:14:42.154Z"
+stopped_at: Completed 23-07-PLAN.md
+last_updated: "2026-08-21T09:43:54.251Z"
 last_activity: 2026-08-21
 last_activity_desc: Phase 23 execution started
-state_head: 7ffa37fb96b836a6196a0be50d2bf2738e0d1021
+state_head: bfacf95ff2e50c03bfc0f0ef0a0aa1443d779423
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 46
-  completed_plans: 44
+  completed_plans: 45
   percent: 14
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 ## Current Position
 
 Phase: 23 (EDT Confinement & UI Responsiveness) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
 Resume file: None
 Last activity: 2026-08-21 — Phase 23 execution started
@@ -141,6 +141,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | Phase 23 P04 | 61 min | 3 tasks | 4 files |
 | Phase 23 P05 | 27 min | 2 tasks | 4 files |
 | Phase 23 P06 | 28 min | 3 tasks | 8 files |
+| Phase 23 P07 | 27 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -204,6 +205,12 @@ Recent decisions affecting current work:
 - [Phase 23]: 23-05: 'assertEdt() and its six call sites' is a mis-measurement carried by four Phase 23 artifacts — the six grep hits are one declaration, one comment and FOUR invocations; the count of 6 is still SC5's evidence because it is unmoved
 - [Phase 23]: 23-05: detekt LargeClass on the grown test class answered with an inline @Suppress carrying its reason — the suite name is pinned by the PR-gate filter so splitting is not free, and detekt-baseline.xml is the v0.10.0 milestone metric
 - [Phase 23]: 23-05: SC6 evidenced structurally — the phase has ONE dispatch seam (OffEdtDispatch), which is why ChatPanel.kt's invokeLater count is still 11 after four plans of new asynchronous work
+- [Phase 23]: 23-07: setSendingState's new toolsBtn write reads the FIELD (!isSending) rather than the parameter — it makes the busy rule textually identical at both enforcement sites and satisfies the plan's own three-occurrence gate without relaxing it
+- [Phase 23]: 23-07: the Task 2 supersede is driven through Cancel, not a session delete — deleteConfirmedSession detaches the panel, so the row-count clause could never have failed
+- [Phase 23]: 23-07: OffEdtDispatch's two in-the-try sinks needed an ESCAPE assertion, not a settle assertion — the finally runs either way, so the plan's specified clauses were vacuous; measured by probes that came back red only on the added clause
+- [Phase 23]: 23-07: transcript-absence is asserted as a row COUNT — the row-TEXT form is false by construction because ChatMessagePanel renders every non-user role as the literal 'AI'
+- [Phase 23]: 23-07: no toolDecisionReporter.report and no durationMs in the new audit record — the user-originated paths are UNGATED by SC5 and measure no duration, so either would be a fabricated audit field
+- [Phase 23]: 23-07: red probes must run against a COMMITTED baseline — git checkout -- restores the correct implementation only if it is committed, otherwise it discards the work
 
 ### Roadmap Evolution
 
@@ -246,6 +253,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T09:14:42.066Z
-Stopped at: Completed 23-06-PLAN.md
+Last session: 2026-08-21T09:43:41.326Z
+Stopped at: Completed 23-07-PLAN.md
 Resume file: None

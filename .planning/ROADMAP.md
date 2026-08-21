@@ -278,7 +278,7 @@ Plans:
 **Gap wave 1** *(23-06 and 23-07 run in parallel — zero shared files)*
 
 - [x] 23-06-PLAN.md — SC4's four `missing:` items plus all seven EDT `settingsRepo.save()` sites in `MainTab.kt`, through one generation-ordered `SettingsPersistQueue`; closes CR-02 on both halves, EDT-blocking and torn snapshot (wave 1)
-- [ ] 23-07-PLAN.md — CR-05's busy guard at `openToolDialog` and its 1 Hz `updateChatAvailability` limb, the audit record for a superseded user-originated call (WR-04), and CR-04's guarded dispatcher sinks (wave 1)
+- [x] 23-07-PLAN.md — CR-05's busy guard at `openToolDialog` and its 1 Hz `updateChatAvailability` limb, the audit record for a superseded user-originated call (WR-04), and CR-04's guarded dispatcher sinks (wave 1)
 
 **Gap wave 2** *(blocked on 23-06 — shares the SettingsPanel files)*
 
@@ -365,7 +365,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
 | 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
 | 22. Agent Tool-Call Trust Boundary | 9/9 | Complete    | 2026-08-20 |
-| 23. EDT Confinement & UI Responsiveness | 6/8 | In Progress|  |
+| 23. EDT Confinement & UI Responsiveness | 7/8 | In Progress|  |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
 | 25. Secondary Hardening | 0/? | Not started | — |
 | 26. Coverage, Static-Analysis Debt & Docs | 0/? | Not started | — |
