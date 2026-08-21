@@ -252,7 +252,7 @@ Plans:
 5. No regression in the REL-01 EDT-confinement guarantees for `ChatPanel` session maps — those maps must still be touched only on the EDT while the *work* moves off it.
 6. `MainTab`'s existing `Thread { … } + SwingUtilities.invokeLater` health-check pattern is reused rather than a new concurrency idiom being introduced.
 
-**Plans**: 5/5 plans executed in 4 waves
+**Plans**: 5/5 executed in 4 waves, verified 5/6 — plus 3 gap-closure plans in 2 waves
 
 Plans:
 
@@ -272,6 +272,21 @@ Plans:
 **Wave 4** *(blocked on everything)*
 
 - [x] 23-05-PLAN.md — SC5 regression evidence (`assertEdt()` byte-identity, the justified `invokeLater` count, no worker-side guarded-map read), SC6's stated evidence, `23-HUMAN-UAT.md`, the completed `23-VALIDATION.md` and the phase gate (wave 4)
+
+**Gap closure** *(from `23-VERIFICATION.md`, status `gaps_found`, SC4 failed — run with `/gsd-execute-phase 23 --gaps-only`)*
+
+**Gap wave 1** *(23-06 and 23-07 run in parallel — zero shared files)*
+
+- [ ] 23-06-PLAN.md — SC4's four `missing:` items plus all seven EDT `settingsRepo.save()` sites in `MainTab.kt`, through one generation-ordered `SettingsPersistQueue`; closes CR-02 on both halves, EDT-blocking and torn snapshot (wave 1)
+- [ ] 23-07-PLAN.md — CR-05's busy guard at `openToolDialog` and its 1 Hz `updateChatAvailability` limb, the audit record for a superseded user-originated call (WR-04), and CR-04's guarded dispatcher sinks (wave 1)
+
+**Gap wave 2** *(blocked on 23-06 — shares the SettingsPanel files)*
+
+- [ ] 23-08-PLAN.md — CR-01: `SettingsPanel.shutdown()` supersedes the in-flight save worker so an unloaded extension cannot leave an MCP server listening on `127.0.0.1`; plus WR-11, wiring `edtGuardWithoutAssertionsTest` into the PR gate and nightly regression (wave 2)
+
+**Explicitly out of scope for gap closure:** D-14 stays closed (`KtorMcpServerManager.stop()` remains blocking;
+only its callers move), `assertEdt()` stays byte-identical (Phase 26 / QUAL-07 owns it), and CR-03 / D-23-04-1
+(`clearChatState()` does not supersede) stays deferred with its UI question unanswered.
 
 **Sequencing constraint that shapes the whole phase** (verified at source, `23-RESEARCH.md` Open Question 6):
 `ChatPanelToolGateTest.slashCommandPathIsNotDoublePrompted` (`:350`) reaches `executeToolResult` **on the EDT today**
