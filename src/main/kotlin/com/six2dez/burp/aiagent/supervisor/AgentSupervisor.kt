@@ -73,7 +73,14 @@ class AgentSupervisor(
     internal val httpTransport = MontoyaHttpTransport(api)
     private val services = java.util.concurrent.ConcurrentHashMap<String, Process>()
     private val lifecycleLock = ReentrantLock()
-    private val monitorExec = Executors.newSingleThreadScheduledExecutor()
+
+    // REL-07 / SC6: a named daemon factory so a Burp thread dump identifies this scheduler as the
+    // supervisor's health monitor instead of showing an anonymous `pool-N-thread-M`. Size and
+    // interval are unchanged; this is naming only.
+    private val monitorExec =
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "burp-ai-agent-supervisor-monitor").apply { isDaemon = true }
+        }
 
     init {
         monitorExec.scheduleAtFixedRate(
@@ -1034,17 +1041,28 @@ class AgentSupervisor(
                     .redirectErrorStream(true)
                     .start()
             services[name] = process
-            workerPool.submit {
-                try {
-                    process.inputStream.bufferedReader().use { reader ->
-                        reader.forEachLine { line ->
-                            safeLogOutput("[$name] $line")
+            // REL-07 / SC6: this pump calls reader.forEachLine, which occupies its thread for the
+            // ENTIRE lifetime of the service process. It used to run on the shared workerPool; once
+            // that pool is bounded (App.kt) a never-returning task on it parks one worker thread per
+            // managed service and queues the auto-restart submit in scheduleRestart forever.
+            // Unbounded-duration work belongs on its own dedicated daemon thread (Phase 23 D-05),
+            // the same shape CliBackend.kt already uses for its reader thread. The body is unchanged.
+            val pumpThread =
+                Thread({
+                    try {
+                        process.inputStream.bufferedReader().use { reader ->
+                            reader.forEachLine { line ->
+                                safeLogOutput("[$name] $line")
+                            }
                         }
+                    } catch (e: Exception) {
+                        safeLogOutput("[$name] output stream closed: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    safeLogOutput("[$name] output stream closed: ${e.message}")
-                }
-            }
+                }, "burp-ai-agent-service-$name")
+            // Phase 23 D-05: set explicitly. "A daemon thread never blocks unload" only holds if the
+            // flag is actually set — a non-daemon pump would keep the JVM alive after Burp quits.
+            pumpThread.isDaemon = true
+            pumpThread.start()
             safeLogOutput("Started service: $name")
             true
         } catch (e: Exception) {

@@ -15,6 +15,7 @@ import com.six2dez.burp.aiagent.backends.BackendDiagnostics
 import com.six2dez.burp.aiagent.backends.BackendRegistry
 import com.six2dez.burp.aiagent.backends.cli.CliTempFileRegistry
 import com.six2dez.burp.aiagent.config.AgentSettingsRepository
+import com.six2dez.burp.aiagent.config.Defaults
 import com.six2dez.burp.aiagent.config.toPreprocessorSettings
 import com.six2dez.burp.aiagent.context.ContextCollector
 import com.six2dez.burp.aiagent.mcp.McpSupervisor
@@ -29,14 +30,35 @@ import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
 import com.six2dez.burp.aiagent.ui.MainTab
 import com.six2dez.burp.aiagent.ui.UiActions
 import java.nio.file.Paths
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 object App {
     lateinit var api: MontoyaApi
         private set
 
-    private val workerPool = Executors.newCachedThreadPool()
+    // REL-07 / SC6: a FIXED pool, and deliberately a different answer from the explicit
+    // ThreadPoolExecutor used for the active scanner's per-request pool. After the service log pump
+    // moved onto its own daemon thread (AgentSupervisor.startService), nothing submitted here has
+    // unbounded duration: only short, bursty auto-restart work remains, and startService has exactly
+    // two reachable call sites (ollama-serve, lmstudio-server), so the ceiling has ample headroom and
+    // the fixed pool's unbounded LinkedBlockingQueue is acceptable. Saturation on this pool must
+    // degrade to QUEUEING — never to task loss, and never to an uncaught throw. Two alternatives were
+    // rejected for exactly that reason:
+    //  - a throwing rejection policy (AbortPolicy, which IS correct for the scanner's pool, where the
+    //    queue shape is load-bearing and saturation must be observable) is wrong here, because the
+    //    submit in AgentSupervisor.scheduleRestart is not inside a try: a rejection would propagate
+    //    uncaught and kill the auto-restart path outright.
+    //  - CallerRunsPolicy is wrong because it runs the rejected task on the CALLING thread. For this
+    //    pool's historical workload that meant running a never-returning stdout pump inline, possibly
+    //    on the EDT that Phase 23 (REL-05) spent eight plans clearing.
+    // The ceiling is a shared constant rather than a literal: detekt's MagicNumber rule is active and
+    // QUAL-07 forbids growing the baseline.
+    private val workerPool: ExecutorService =
+        Executors.newFixedThreadPool(Defaults.MAX_WORKER_THREADS, workerPoolThreadFactory())
     lateinit var backendRegistry: BackendRegistry
         private set
     lateinit var auditLogger: AuditLogger
@@ -318,5 +340,31 @@ object App {
         } catch (e: Exception) {
             api.logging().logToError("$component shutdown failed: ${e.message}")
         }
+    }
+}
+
+/**
+ * REL-07 / SC6 — the thread factory for the extension-wide worker pool.
+ *
+ * Every thread it produces is a daemon and carries a counter-suffixed, product-prefixed kebab-case
+ * name, so a Burp thread dump taken while a managed backend is flapping says which subsystem owns the
+ * busy threads instead of showing an anonymous `pool-N-thread-M`. That readability is the stated point
+ * of SC6; a bounded but unnamed pool would satisfy the ceiling and diagnose nothing.
+ *
+ * The counter is per factory instance, so each pool numbers its own threads from 1.
+ *
+ * Visibility: `internal` so `WorkerPoolExecutorTest` can assert on the names and the daemon flag by
+ * calling this directly, with no live pool, no live Burp and no reflection — the same seam
+ * `scanRequestThreadFactory` / `ScanRequestExecutorTest` uses. It is not part of the extension's
+ * public surface.
+ *
+ * This mirrors the scanner's factory rather than sharing a helper with it: the repo has six inline
+ * named factories and zero shared ones, and the two pools bounded in this phase must not share a
+ * sizing policy — their workload shapes and their rejection contracts differ.
+ */
+internal fun workerPoolThreadFactory(): ThreadFactory {
+    val counter = AtomicInteger(0)
+    return ThreadFactory { runnable ->
+        Thread(runnable, "burp-ai-agent-worker-${counter.incrementAndGet()}").apply { isDaemon = true }
     }
 }

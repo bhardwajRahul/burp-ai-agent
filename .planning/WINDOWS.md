@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 9
+open_count: 10
 waived_count: 0
 fixed_count: 0
-total_count: 9
-last_updated: 2026-08-21T14:37:25.254Z
+total_count: 10
+last_updated: 2026-08-21T15:14:38.714Z
 ---
 
 # Broken Windows Ledger
@@ -24,6 +24,7 @@ last_updated: 2026-08-21T14:37:25.254Z
 | 7 | 24 | deviation | .planning/phases/24-scheduler-process-robustness/24-01-PLAN.md |  | 24-01 task 3 red-before-green used git checkout <ref> -- <path> instead of the plan's git stash push/pop, which is prohibited in a worktree (shared refs/stash) | open |  | 2026-08-21T13:33:28.113Z |  |
 | 8 | 24 | deviation | .planning/phases/24-scheduler-process-robustness/24-04-PLAN.md |  | Plan 24-04 acceptance criteria reference gradle/libs.versions.toml, which does not exist in this repo (no version catalog); same wrong reference as 24-03. Dependency-graph invariant is checked via build.gradle.kts instead. | open |  | 2026-08-21T14:37:17.711Z |  |
 | 9 | 24 | deviation | src/main/kotlin/com/six2dez/burp/aiagent/backends/cli/CliBackend.kt |  | Plan 24-04 predicted 2 CliTempFileRegistry.deregister sites; 3 were required because the prompt write-failure branch returns before the outer finally. Structural gate asserts 3. Resolved in code, recorded so a later plan does not 'correct' the count back to 2. | open |  | 2026-08-21T14:37:25.254Z |  |
+| 10 | 24 | deviation | build/test-results/test |  | One unidentified intermittent test failure on the first unfiltered './gradlew test detekt ktlintCheck shadowJar' run in plan 24-05; suite name lost to output tailing, not reproduced across three subsequent full runs (two forced --rerun-tasks). Probable known RedactionTest wall-clock/SafeRegex-deadline flake under CPU load, unconfirmed. | open |  | 2026-08-21T15:14:38.714Z |  |
 
 ````json
 [
@@ -133,6 +134,18 @@ last_updated: 2026-08-21T14:37:25.254Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-21T14:37:25.254Z",
+    "resolved_at": null
+  },
+  {
+    "id": 10,
+    "kind": "deviation",
+    "phase": "24",
+    "file": "build/test-results/test",
+    "line": null,
+    "description": "One unidentified intermittent test failure on the first unfiltered './gradlew test detekt ktlintCheck shadowJar' run in plan 24-05; suite name lost to output tailing, not reproduced across three subsequent full runs (two forced --rerun-tasks). Probable known RedactionTest wall-clock/SafeRegex-deadline flake under CPU load, unconfirmed.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-21T15:14:38.714Z",
     "resolved_at": null
   }
 ]
