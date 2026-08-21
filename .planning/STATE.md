@@ -5,16 +5,16 @@ milestone_name: Security Correctness & Agent Trust
 current_phase: 24
 current_phase_name: Scheduler & Process Robustness
 status: executing
-stopped_at: Completed 24-01-PLAN.md (wave 1 gate) — waves 2-4 unblocked
+stopped_at: Completed wave 2 (24-02, 24-03) — 24-04 unblocked
 last_updated: "2026-08-21T13:34:19.559Z"
 last_activity: 2026-08-21
-last_activity_desc: 24-01 complete — scheduler guard landed, all three REL-06 sites migrated
+last_activity_desc: Wave 2 complete — scanner fault isolation, bounded request pool, CliOutputBuffer
 state_head: 9a00f6950cfa886533e885ba11e648a2353cada0
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 51
-  completed_plans: 47
+  completed_plans: 49
   percent: 29
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 ## Current Position
 
 Phase: 24 — Scheduler & Process Robustness
-Plan: 01 of 5 complete (wave 1 of 4 done)
-Status: Executing — 24-02 and 24-03 (wave 2) unblocked
+Plan: 03 of 5 complete (waves 1-2 of 4 done)
+Status: Executing — 24-04 (wave 3) unblocked
 Resume file: None
-Last activity: 2026-08-21 — 24-01 complete: scheduler guard + structural gate + shared Defaults
+Last activity: 2026-08-21 — wave 2 complete: 24-02 + 24-03 merged, 822 tests green
 
 ## Milestone Origin
 
