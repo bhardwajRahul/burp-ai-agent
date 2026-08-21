@@ -91,8 +91,8 @@ fun SettingsPanel.saveSettings() {
 }
 
 fun SettingsPanel.restoreDefaultsWithConfirmation() {
-    // Rule T-3: the confirmation and the component writes below stay on the EDT, before dispatch.
-    // A confirmation that runs after the work has started is not a confirmation.
+    // Rule T-3: the confirmation stays on the EDT and ahead of everything restoreDefaultsConfirmed()
+    // does. A confirmation that runs after the work has started is not a confirmation.
     val confirmed =
         JOptionPane.showConfirmDialog(
             dialogParent,
@@ -101,6 +101,19 @@ fun SettingsPanel.restoreDefaultsWithConfirmation() {
             JOptionPane.YES_NO_OPTION,
         )
     if (confirmed != JOptionPane.YES_OPTION) return
+    restoreDefaultsConfirmed()
+}
+
+/**
+ * Everything `restoreDefaultsWithConfirmation` does once the user has said yes.
+ *
+ * Split out so the path is headlessly drivable: `JOptionPane.getRootFrame()` throws
+ * `HeadlessException`, so every line below used to sit under a statement no test could get past. The
+ * modal was NOT deleted to make this testable — UI-SPEC forbids that, and Rule T-3 keeps the
+ * confirmation ahead of the work, because a confirmation that runs after the work has started is not a
+ * confirmation.
+ */
+internal fun SettingsPanel.restoreDefaultsConfirmed() {
     val defaults = settingsRepo.defaultSettings()
     applySettingsToUi(defaults)
     updateSaveFeedback("Restoring defaults...", DesignTokens.Colors.statusWarning)

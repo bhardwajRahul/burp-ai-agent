@@ -261,7 +261,30 @@ internal fun SettingsPanel.validateAndCollectCustomPatterns(): List<String> {
     return valid
 }
 
-internal fun SettingsPanel.applySettingsToUi(updated: AgentSettings) {
+/**
+ * Writes [updated] into the Settings tab's Swing components, and — only when [notifyHosts] — tells the
+ * host about the three enable flags.
+ *
+ * **Why a flag rather than firing the three callbacks from `applyAndSaveSettingsAsync`'s EDT tail.**
+ * The verifier offered both. Moving them to the tail would fire them for BOTH callers, and on the
+ * `saveSettings()` path `onMcpEnabledChanged` reaches `MainTab`'s `settingsRepo.save()` plus
+ * `mcpSupervisor.applySettings(...)` immediately after the worker's [applyAndSaveSettingsBody] has
+ * already done exactly those two things — a second disk write and a second bounded MCP stop/start on
+ * every save. The flag confines the change to the single caller that has the problem.
+ *
+ * On the restore-defaults path the three callbacks are pure duplication already: one line later
+ * [applyAndSaveSettingsBody] performs `settingsRepo.save`, `mcpSupervisor.applySettings`,
+ * `passiveAiScanner.setEnabled` and `activeAiScanner.setEnabled` itself, on a worker. Firing them from
+ * the EDT first is what made `Restore defaults` pay `KtorMcpServerManager`'s bounded
+ * `future.get(10, TimeUnit.SECONDS)` on the EDT (REL-05 / SC4).
+ *
+ * Every component write below stays exactly where it is, on the EDT, per UI-SPEC Rule T-3. Only the
+ * three host notifications are suppressible.
+ */
+internal fun SettingsPanel.applySettingsToUi(
+    updated: AgentSettings,
+    notifyHosts: Boolean = true,
+) {
     preferredBackend.selectedItem = updated.preferredBackendId
     backendConfigPanel.applyState(
         BackendConfigState(
@@ -415,9 +438,11 @@ internal fun SettingsPanel.applySettingsToUi(updated: AgentSettings) {
     activeAiAdaptivePayloads.isSelected = updated.activeAiAdaptivePayloads
     updateActiveRiskDescription()
     refreshActiveAiStatus()
-    onMcpEnabledChanged?.invoke(updated.mcpSettings.enabled)
-    onPassiveAiEnabledChanged?.invoke(updated.passiveAiEnabled)
-    onActiveAiEnabledChanged?.invoke(updated.activeAiEnabled)
+    if (notifyHosts) {
+        onMcpEnabledChanged?.invoke(updated.mcpSettings.enabled)
+        onPassiveAiEnabledChanged?.invoke(updated.passiveAiEnabled)
+        onActiveAiEnabledChanged?.invoke(updated.activeAiEnabled)
+    }
 }
 
 internal fun SettingsPanel.parseTimeoutSeconds(

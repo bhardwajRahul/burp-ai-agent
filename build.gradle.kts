@@ -223,6 +223,15 @@ tasks.test {
         .file("src/main/kotlin/com/six2dez/burp/aiagent/ui/MainTab.kt")
         .withPropertyName("mainTabPersistSource")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // REL-05 / SC4 / Rule T-3: SettingsSaveAsyncTest's corrected structural assertion now reads THIS
+    // file too — the narrowed claim is that applySettingsToUi's component writes stay on the EDT while
+    // its three host notifications are suppressed at the restore call site, and the `notifyHosts` guard
+    // that makes that true lives here. Same 22-09 stale-cache defect as the six declarations above:
+    // deleting the guard changes the source text but can leave the cache key intact.
+    inputs
+        .file("src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelSettingsIO.kt")
+        .withPropertyName("settingsIoStructuralSource")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     val excludeHeavyTests =
         (project.findProperty("excludeHeavyTests") as? String)
             ?.trim()

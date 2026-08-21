@@ -515,6 +515,17 @@ class MainTab(
                 if (allBackends.contains(updated.preferredBackendId)) {
                     backendPicker.selectedItem = updated.preferredBackendId
                 }
+                // Header sync. This fires from applyAndSaveSettingsAsync's EDT tail for BOTH callers,
+                // and performs Swing writes only — no disk write, no MCP stop — so it is EDT-safe by
+                // construction. It is what keeps the header honest now that the restore path no longer
+                // notifies the host, and it repairs a pre-existing asymmetry: a plain Save that changed
+                // MCP enabled synced backendPicker and left these three toggles stale.
+                syncingToggles = true
+                mcpToggle.isSelected = updated.mcpSettings.enabled
+                passiveToggle.isSelected = updated.passiveAiEnabled
+                activeToggle.isSelected = updated.activeAiEnabled
+                syncingToggles = false
+                renderStatus()
             }
         }
     }
