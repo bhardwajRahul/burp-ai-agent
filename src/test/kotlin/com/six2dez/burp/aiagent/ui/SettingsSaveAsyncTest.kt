@@ -6,6 +6,7 @@ import burp.api.montoya.persistence.Preferences
 import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.backends.BackendRegistry
 import com.six2dez.burp.aiagent.config.AgentSettings
+import com.six2dez.burp.aiagent.config.AgentSettingsRepository
 import com.six2dez.burp.aiagent.mcp.McpRequestLimiter
 import com.six2dez.burp.aiagent.mcp.McpSupervisor
 import com.six2dez.burp.aiagent.mcp.McpToolContext
@@ -33,6 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JButton
 import javax.swing.SwingUtilities
@@ -405,18 +407,139 @@ class SettingsSaveAsyncTest {
     @Test
     fun restoreDefaultsConfirmsBeforeDispatchAndReportsFromTheCallback() {
         val body = restoreDefaultsSource()
-        val confirm = body.indexOf("showConfirmDialog")
-        val applyToUi = body.indexOf("applySettingsToUi(defaults)")
+        val applyToUi = body.indexOf("applySettingsToUi(defaults, notifyHosts = false)")
         val startBanner = body.indexOf("\"Restoring defaults...\"")
         val dispatch = body.indexOf("applyAndSaveSettingsAsync(")
         val successBanner = body.indexOf("\"Defaults restored and applied.\"")
         val failureBanner = body.indexOf("\"Restore failed: ")
 
-        assertTrue(confirm in 0 until dispatch, "Rule T-3: the confirmation must precede the dispatch.")
-        assertTrue(applyToUi in 0 until dispatch, "Rule T-3: applySettingsToUi writes Swing, so it stays on the EDT.")
+        val confirmBody = functionBody("fun SettingsPanel.restoreDefaultsWithConfirmation()")
+        val confirm = confirmBody.indexOf("showConfirmDialog")
+        val handoff = confirmBody.indexOf("restoreDefaultsConfirmed()")
+
+        assertTrue(
+            confirm in 0 until handoff,
+            "Rule T-3: the confirmation must precede the dispatch. restoreDefaultsWithConfirmation must " +
+                "still open with showConfirmDialog and only then hand off to restoreDefaultsConfirmed().",
+        )
+        assertTrue(
+            applyToUi in 0 until dispatch,
+            "Rule T-3, narrowed to what is true: applySettingsToUi's COMPONENT writes are what stay on " +
+                "the EDT before the dispatch. Its three host notifications are NOT EDT-safe — they " +
+                "reach disk I/O and a bounded ten-second MCP server stop — and are suppressed at this " +
+                "call site by notifyHosts = false. A bare applySettingsToUi(defaults) here would " +
+                "restore the SC4 freeze this assertion previously certified as correct.",
+        )
         assertTrue(startBanner in 0 until dispatch, "Rule C-2: every T1 entry needs a T1 banner.")
         assertTrue(successBanner > dispatch, "Rule C-2: the success line must come from the completion callback.")
         assertTrue(failureBanner > dispatch, "Rule C-2: the failure line must come from the completion callback too.")
+    }
+
+    /**
+     * `missing` item 1 / SC4 — the restore-defaults path fires NO host notification on the EDT.
+     *
+     * The installed callback is MainTab-shaped: `MainTab.onMcpEnabledChanged` reaches
+     * `settingsRepo.save()` and `mcpSupervisor.applySettings(...)`, and with the MCP defaults disabled
+     * that reaches `KtorMcpServerManager`'s bounded `future.get(10, TimeUnit.SECONDS)`. Here it blocks
+     * until a runnable the test queues to the EDT *after* the restore has been posted. Against the code
+     * as committed at `2a0c703` the callback fires ON the EDT, that runnable can never run, and the
+     * invocation count reads 1 — which is the red probe this assertion is accepted on.
+     */
+    @Test
+    fun restoreDefaultsDoesNotFireTheHostNotificationsOnTheEdt() {
+        assertTimeoutPreemptively(Duration.ofSeconds(40)) {
+            val fixture = newFixture()
+            val seam = fixture.installBlockingMcpCallback()
+
+            SwingUtilities.invokeLater { fixture.panel.restoreDefaultsConfirmed() }
+            SwingUtilities.invokeLater { seam.releaseNow() }
+            assertTrue(settledSignal.await(30, TimeUnit.SECONDS), "The restore never settled.")
+            SwingUtilities.invokeAndWait { }
+
+            assertEquals(
+                0,
+                seam.invocations.get(),
+                "SC4: restoreDefaultsConfirmed must not fire onMcpEnabledChanged on the EDT. Each " +
+                    "invocation reaches MainTab's settingsRepo.save() plus mcpSupervisor.applySettings(), " +
+                    "and with MCP going enabled -> disabled that is McpSupervisor.stop()'s bounded " +
+                    "ten-second wait paid by the Burp UI. Threads seen: ${seam.threads.toList()}.",
+            )
+        }
+    }
+
+    /**
+     * The negative control for the test above: without it, deleting the three notifications outright
+     * would also make that test pass — and would silently break every OTHER caller of
+     * `applySettingsToUi`, which legitimately needs the host told.
+     *
+     * Driven off the EDT on purpose, so the blocking callback is harmless and the EDT stays free to run
+     * the release runnable.
+     */
+    @Test
+    fun applySettingsToUiStillNotifiesHostsByDefault() {
+        assertTimeoutPreemptively(Duration.ofSeconds(40)) {
+            val fixture = newFixture()
+            val seam = fixture.installBlockingMcpCallback()
+            val defaults = AgentSettingsRepository(fixture.api).defaultSettings()
+
+            val driver = Thread({ fixture.panel.applySettingsToUi(defaults) }, "apply-to-ui-driver")
+            driver.isDaemon = true
+            driver.start()
+
+            assertTrue(seam.entered.await(30, TimeUnit.SECONDS), "The default path never notified the host at all.")
+            SwingUtilities.invokeLater { seam.releaseNow() }
+            driver.join(TimeUnit.SECONDS.toMillis(30))
+
+            assertEquals(
+                1,
+                seam.invocations.get(),
+                "applySettingsToUi must still notify the host when notifyHosts keeps its default. The " +
+                    "restore path suppresses the notifications at ONE call site; it does not delete them.",
+            )
+            assertTrue(
+                seam.edtWasFree.get(),
+                "The release runnable never ran, so this control proved nothing about the default path.",
+            )
+        }
+    }
+
+    /**
+     * UI-SPEC Rule T-3 / `missing` item 1 — suppressing the notifications did not also suppress the
+     * component writes.
+     *
+     * Behavioural, not a source-text index comparison: a value only `applySettingsToUi` writes is read
+     * back through `currentSettings()` while the save worker is still parked, so the write is proved to
+     * have happened on the EDT BEFORE the dispatch was released.
+     */
+    @Test
+    fun restoreDefaultsStillWritesTheComponentsBeforeDispatch() {
+        assertTimeoutPreemptively(Duration.ofSeconds(30)) {
+            val fixture = newFixture()
+            val workerEntered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            whenever(fixture.supervisor.applySettings(any())).thenAnswer {
+                workerEntered.countDown()
+                release.await(20, TimeUnit.SECONDS)
+                null
+            }
+
+            SwingUtilities.invokeAndWait { fixture.panel.privacyMode.selectedItem = PrivacyMode.OFF }
+            SwingUtilities.invokeAndWait { fixture.panel.restoreDefaultsConfirmed() }
+            assertTrue(workerEntered.await(20, TimeUnit.SECONDS), "The restore never reached the worker.")
+
+            val onScreen = AtomicReference<AgentSettings>()
+            SwingUtilities.invokeAndWait { onScreen.set(fixture.panel.currentSettings()) }
+            release.countDown()
+            assertTrue(settledSignal.await(25, TimeUnit.SECONDS), "The restore never settled.")
+
+            assertEquals(
+                AgentSettingsRepository(fixture.api).defaultSettings().privacyMode,
+                onScreen.get().privacyMode,
+                "Rule T-3: applySettingsToUi's component writes must still run, on the EDT, before the " +
+                    "dispatch. OFF here — the value the test set beforehand — means the component write " +
+                    "was lost along with the host notifications.",
+            )
+        }
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -429,7 +552,45 @@ class SettingsSaveAsyncTest {
         val supervisor: AgentSupervisor,
         val mcpSupervisor: McpSupervisor,
         val passiveAiScanner: PassiveAiScanner,
-    )
+    ) {
+        /**
+         * Installs a MainTab-SHAPED `onMcpEnabledChanged` and returns its recorder.
+         *
+         * Before this existed, `newFixture()` left all three `onXxxChanged` callbacks null, which is
+         * precisely why no test in this suite could fail for the SC4 restore-defaults gap
+         * (`23-VERIFICATION.md` gaps.missing item 3). The real `MainTab` callback does a disk write and
+         * a bounded ten-second MCP stop; this one records its calling thread and its invocation count
+         * and BLOCKS, so firing it on the EDT is observable rather than merely slow.
+         */
+        fun installBlockingMcpCallback(): BlockingHostCallback {
+            val recorder = BlockingHostCallback()
+            panel.onMcpEnabledChanged = { enabled -> recorder.fire(enabled) }
+            return recorder
+        }
+    }
+
+    /** See [Fixture.installBlockingMcpCallback]. */
+    private class BlockingHostCallback {
+        val invocations = AtomicInteger(0)
+        val threads = CopyOnWriteArrayList<String>()
+        val entered = CountDownLatch(1)
+        val edtWasFree = AtomicBoolean(false)
+        private val gate = CountDownLatch(1)
+
+        fun fire(
+            @Suppress("UNUSED_PARAMETER") enabled: Boolean,
+        ) {
+            invocations.incrementAndGet()
+            threads.add(Thread.currentThread().name)
+            entered.countDown()
+            edtWasFree.set(gate.await(20, TimeUnit.SECONDS))
+        }
+
+        /** Released from a runnable queued to the EDT, so a blocked EDT is a categorical failure. */
+        fun releaseNow() {
+            gate.countDown()
+        }
+    }
 
     /** Records every value the busy seam publishes, in order, replacing any listener already installed. */
     private fun recordBusy(panel: SettingsPanel): CopyOnWriteArrayList<Boolean> {
@@ -507,7 +668,21 @@ class SettingsSaveAsyncTest {
      * is what a build-layout change would otherwise produce here. `build.gradle.kts` declares this path
      * as a `tasks.test` input, so an edit to it invalidates the cache and this assertion re-runs.
      */
-    private fun restoreDefaultsSource(): String {
+    private fun restoreDefaultsSource(): String = functionBody("internal fun SettingsPanel.restoreDefaultsConfirmed()")
+
+    /**
+     * The brace-balanced body of [signature] in `SettingsPanelActions.kt`, read from disk, with every
+     * comment line stripped.
+     *
+     * Comment lines are removed for the same reason the `MainTab` ledger gate removes them: the
+     * production KDoc and inline comments legitimately name the very tokens these ordering assertions
+     * index on, and a raw-text index would then measure the comment rather than the code. Measured, not
+     * theorised — the first draft of this assertion failed because a comment above the confirmation
+     * dialog mentioned `restoreDefaultsConfirmed()`. The filter matches the phase-wide canonical one: a
+     * line whose first non-space characters are a line-comment marker, a continuation asterisk, or a
+     * block-comment opener.
+     */
+    private fun functionBody(signature: String): String {
         val file = File(ACTIONS_SOURCE)
         assertTrue(
             file.isFile,
@@ -515,10 +690,16 @@ class SettingsSaveAsyncTest {
                 "`${System.getProperty("user.dir")}`, resolved as `${file.absolutePath}`. If the build " +
                 "layout changed, fix the path here and in the matching `tasks.test` input declaration.",
         )
-        val source = file.readText()
-        val start = source.indexOf("fun SettingsPanel.restoreDefaultsWithConfirmation()")
+        val source =
+            file
+                .readLines()
+                .filterNot { line ->
+                    val trimmed = line.trimStart()
+                    trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")
+                }.joinToString("\n")
+        val start = source.indexOf(signature)
         require(start >= 0) {
-            "No restoreDefaultsWithConfirmation in $ACTIONS_SOURCE — this structural assertion is stale."
+            "No `$signature` in $ACTIONS_SOURCE — this structural assertion is stale."
         }
         val open = source.indexOf('{', start)
         var depth = 0
@@ -531,7 +712,7 @@ class SettingsSaveAsyncTest {
             }
             index++
         }
-        error("Unbalanced braces after restoreDefaultsWithConfirmation in $ACTIONS_SOURCE.")
+        error("Unbalanced braces after `$signature` in $ACTIONS_SOURCE.")
     }
 
     private companion object {
