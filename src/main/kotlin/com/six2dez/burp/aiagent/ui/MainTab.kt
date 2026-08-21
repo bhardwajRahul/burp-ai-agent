@@ -5,6 +5,7 @@ import com.six2dez.burp.aiagent.audit.AiRequestLogger
 import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.backends.BackendRegistry
 import com.six2dez.burp.aiagent.backends.HealthCheckResult
+import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.config.AgentSettingsRepository
 import com.six2dez.burp.aiagent.config.toPreprocessorSettings
 import com.six2dez.burp.aiagent.context.ContextCapture
@@ -78,6 +79,13 @@ class MainTab(
     private val statusLabel = JLabel("Idle")
     private val sessionLabel = JLabel("Session: -")
     private val settingsRepo = AgentSettingsRepository(api)
+
+    /**
+     * REL-05 / SC4 / CR-02 — the one seam every header and Settings-tab settings write leaves the EDT
+     * through. Disposed first in [shutdown] so no write can start after `App.shutdown()` continues on
+     * to `mcpSupervisor.shutdown()`.
+     */
+    private val settingsPersistQueue = SettingsPersistQueue { api.logging().logToError(it) }
     private val mcpStatusTimer =
         Timer(1000) {
             updateMcpBadge()
@@ -448,16 +456,10 @@ class MainTab(
             syncingToggles = true
             mcpToggle.isSelected = enabled
             syncingToggles = false
+            // The Swing read stays on the EDT; only the disk write and the bounded MCP stop move.
             val settings = settingsPanel.currentSettings()
             val updated = settings.copy(mcpSettings = settings.mcpSettings.copy(enabled = enabled))
-            settingsRepo.save(updated)
-            mcpSupervisor.applySettings(
-                updated.mcpSettings,
-                updated.privacyMode,
-                updated.determinismMode,
-                updated.toPreprocessorSettings(),
-            )
-            renderStatus()
+            persistSettingsAndApplyMcp("mcp-enabled-changed", updated)
         }
         settingsPanel.onPassiveAiEnabledChanged = passiveSync@{ enabled ->
             if (syncingToggles) return@passiveSync
@@ -526,6 +528,44 @@ class MainTab(
                 }
             }
         }
+    }
+
+    /**
+     * Persists [snapshot] AND re-applies the MCP settings, both on `burp-ai-settings-sync`.
+     *
+     * REL-05 / SC4: with MCP going enabled→disabled this reaches `McpSupervisor.stop()` and then
+     * `KtorMcpServerManager`'s bounded `future.get(10, TimeUnit.SECONDS)`. D-14 keeps that wait
+     * blocking; this moves the caller off the EDT so the ten seconds are paid by a daemon worker
+     * instead of by the Burp UI. [renderStatus] runs from the queue's EDT tail, so the badge reports
+     * the state AFTER the apply rather than before it.
+     *
+     * **Why this phase ends with TWO persist helpers rather than one flag-taking helper.** Five of the
+     * eight `settingsRepo.save` sites in this file do not apply MCP settings at all: the two that do
+     * are the MCP-enabled host callback and the header `mcpToggle`; the other five are the backend
+     * picker, the passive and active host callbacks and the passive and active header toggles (the
+     * eighth, in the `ChatPanel` `applySettings` lambda in `init`, is recorded residual `D-23-06-1`).
+     * `McpSupervisor.stop()` also clears `ScannerTaskRegistry` and `CollaboratorRegistry`, so applying
+     * MCP settings on every passive/active toggle would drop live scanner tasks — a behaviour change,
+     * not a harmless no-op (`T-23-06-07`). Two narrow helpers keep that impossible by construction.
+     */
+    private fun persistSettingsAndApplyMcp(
+        label: String,
+        snapshot: AgentSettings,
+    ) {
+        settingsPersistQueue.submit(
+            label = label,
+            snapshot = snapshot,
+            apply = {
+                settingsRepo.save(it)
+                mcpSupervisor.applySettings(
+                    it.mcpSettings,
+                    it.privacyMode,
+                    it.determinismMode,
+                    it.toPreprocessorSettings(),
+                )
+            },
+            onSettled = { renderStatus() },
+        )
     }
 
     private fun renderStatus() {
@@ -847,6 +887,11 @@ class MainTab(
     }
 
     fun shutdown() {
+        // FIRST, before settingsPanel.shutdown(): App.shutdown() calls mainTab?.shutdown() before
+        // mcpSupervisor.shutdown(), so disposing here is what stops a settings write submitted just
+        // before unload from starting after the supervisor is gone. It never takes the queue's lock,
+        // so it cannot itself block the EDT on an in-flight bounded MCP stop.
+        settingsPersistQueue.dispose()
         settingsPanel.shutdown()
         mcpStatusTimer.stop()
         healthTimer?.stop()
