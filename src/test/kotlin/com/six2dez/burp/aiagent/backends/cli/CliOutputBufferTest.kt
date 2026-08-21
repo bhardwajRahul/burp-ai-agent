@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertTimeoutPreemptively
+import java.io.File
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -253,9 +254,106 @@ class CliOutputBufferTest {
         assertEquals("short\n", buffer.snapshot(), "An untruncated snapshot is exactly what was appended.")
     }
 
+    /**
+     * REL-07-D (SC3) — the structural gate that pins the swap in `CliBackend.kt`.
+     *
+     * This is the only genuine red-before-green assertion in plan 24-03: the six behavioural tests
+     * above drive a class that did not exist, so they were red merely by non-compilation, whereas
+     * this one reads the real pre-fix source and fails against it.
+     *
+     * **Comment lines are stripped, block comments included.** That strip is what makes it safe for
+     * `CliOutputBuffer.kt` and `CliBackend.kt` to name the removed accumulator type, the 2000-character
+     * error head and the `join(2000)` race window in their own prose without invalidating this gate.
+     * `build.gradle.kts` declares the whole `src/main/kotlin` tree as a `tasks.test` input under the
+     * property name `mainSourceTreeStructuralInputs`, so an edit to `CliBackend.kt` re-runs this
+     * assertion instead of serving it from cache — the measured 22-09 defect.
+     */
+    @Test
+    fun theCliBackendCaptureRegionCannotRegressToAnUnsynchronisedAccumulator() {
+        val code = codeLinesOf(CLI_BACKEND_SOURCE)
+        // Assembled from parts so the token this test forbids is never itself a literal a careless
+        // future grep over the test tree could mistake for a real use.
+        val forbiddenAccumulator = "String" + "Builder"
+
+        assertEquals(
+            0,
+            code.count { it.contains(forbiddenAccumulator) },
+            "CliBackend ledger: the capture region must not declare an unsynchronised `$forbiddenAccumulator` " +
+                "again. Reintroducing it restores the data race between the `burp-ai-agent-cli-reader` daemon " +
+                "thread and the timeout path, which reads after a `readerThread.join(2000)` that can expire " +
+                "while the reader is still appending — no happens-before edge, so the read can observe a " +
+                "partially published state (REL-07 / SC3, threat T-24-13).",
+        )
+        assertEquals(
+            1,
+            code.count { it.contains("CliOutputBuffer()") },
+            "CliBackend ledger: exactly one CliOutputBuffer is constructed, for the single stdout capture " +
+                "region. Zero means the capture reverted; more than one means a second capture path appeared " +
+                "that this suite does not cover.",
+        )
+        assertEquals(
+            3,
+            code.count { it.contains("rawOutput.snapshot()") },
+            "CliBackend ledger: `rawOutput.snapshot()` must appear at all three read sites — the timeout " +
+                "path, the non-zero-exit path and the success path. Two means one converted read site was " +
+                "dropped and that path is now reading a different value from the one the reader thread " +
+                "writes, off the shared monitor.",
+        )
+        assertEquals(
+            1,
+            code.count { it.contains("rawOutput.appendLine(") },
+            "CliBackend ledger: the reader thread has exactly one append site, and it must go through the " +
+                "buffer. A second one means output is accumulating somewhere the monitor does not cover.",
+        )
+        assertEquals(
+            2,
+            code.count { it.contains("rawOutput.snapshot().trim().take(2000)") },
+            "CliBackend ledger: the 2000-character head belongs to the two ERROR paths only (timeout and " +
+                "non-zero exit). Three means the head reached the success path — and the success path's " +
+                "value IS the model's answer, so every CLI backend's output would silently truncate at " +
+                "2000 characters (REL-07 / SC4, threat T-24-05).",
+        )
+        assertEquals(
+            3,
+            code.count { it.contains("take(2000)") },
+            "CliBackend ledger: `take(2000)` appears on exactly three code lines — the two capture-region " +
+                "error heads asserted above plus `buildExitError`'s head over the persistent-session " +
+                "`lastOutputTail()`, which is already bounded and already guarded and is out of REL-07's " +
+                "scope. A fourth means a new 2000-character truncation was introduced.",
+        )
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Fixture
     // ---------------------------------------------------------------------------------------------
+
+    /**
+     * The non-comment lines of [path], read from disk.
+     *
+     * Named, resolved and asserted rather than left to surface as a bare `FileNotFoundException`,
+     * which is what a build-layout change would otherwise produce here. A line counts as a comment
+     * when its first non-space characters are a line-comment marker, a continuation asterisk, or a
+     * block-comment opener; stripping BLOCK comments is what makes it safe for the counted tokens to
+     * be named in the prose that documents them. (The three markers are written out longhand rather
+     * than quoted, because Kotlin block comments nest — a literal opener inside this KDoc would open a
+     * nested comment and swallow the rest of the file.)
+     */
+    private fun codeLinesOf(path: String): List<String> {
+        val file = File(path)
+        assertTrue(
+            file.isFile,
+            "Expected to find `$path` relative to the test working directory " +
+                "`${System.getProperty("user.dir")}`, resolved as `${file.absolutePath}`. If the build " +
+                "layout changed, fix the path here and the matching `tasks.test` input declaration " +
+                "`mainSourceTreeStructuralInputs` in build.gradle.kts.",
+        )
+        return file
+            .readLines()
+            .filterNot { line ->
+                val trimmed = line.trimStart()
+                trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")
+            }
+    }
 
     /**
      * A named, unstarted [Thread] whose uncaught throwables land in [sink].
@@ -283,5 +381,6 @@ class CliOutputBufferTest {
         const val SMALL_CAP = 64
         const val OVERFLOW_LINE_COUNT = 20
         const val BOUNDARY_CAP = 128
+        const val CLI_BACKEND_SOURCE = "src/main/kotlin/com/six2dez/burp/aiagent/backends/cli/CliBackend.kt"
     }
 }
