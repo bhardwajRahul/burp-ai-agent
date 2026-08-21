@@ -5,16 +5,16 @@ milestone_name: Security Correctness & Agent Trust
 current_phase: 24
 current_phase_name: Scheduler & Process Robustness
 status: executing
-stopped_at: Completed wave 3 (24-04) — 24-05 unblocked
+stopped_at: All 5 plans executed and merged — phase gates pending
 last_updated: "2026-08-21T13:34:19.559Z"
 last_activity: 2026-08-21
-last_activity_desc: Wave 3 complete — CliTempFileRegistry landed, SC5 closed
+last_activity_desc: Phase 24 execution complete — 5/5 plans, 834 tests green
 state_head: 9a00f6950cfa886533e885ba11e648a2353cada0
 progress:
   total_phases: 7
   completed_phases: 2
   total_plans: 51
-  completed_plans: 50
+  completed_plans: 51
   percent: 29
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 ## Current Position
 
 Phase: 24 — Scheduler & Process Robustness
-Plan: 04 of 5 complete (waves 1-3 of 4 done)
-Status: Executing — 24-05 (wave 4) unblocked
+Plan: 05 of 5 complete (all 4 waves done)
+Status: Executed — running phase gates
 Resume file: None
-Last activity: 2026-08-21 — wave 3 complete: CliTempFileRegistry merged
+Last activity: 2026-08-21 — all 5 plans merged; 121 suites / 834 tests green
 
 ## Milestone Origin
 
