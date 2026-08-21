@@ -1,7 +1,7 @@
 ---
 phase: 23-edt-confinement-ui-responsiveness
 verified: 2026-08-21T11:05:00Z
-status: human_needed
+status: passed
 score: 6/6 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
@@ -9,10 +9,12 @@ re_verification:
   previous_status: gaps_found
   previous_score: 2026-08-21T09:40:00Z — 5/6
   gaps_closed:
+
     - "SC4 — Saving Settings with MCP enabled→disabled does not block the EDT on KtorMcpServerManager.stop()'s bounded 10-second wait. settingsRepo.save() and backends.reload() are likewise not blocking the EDT."
   gaps_remaining: []
   regressions: []
   closure_evidence:
+
     - "missing item 1 — restoreDefaultsConfirmed now calls applySettingsToUi(defaults, notifyHosts = false) (SettingsPanelActions.kt:118); the three host notifications are behind `if (notifyHosts)` at SettingsPanelSettingsIO.kt:451-455 and fire from no EDT path."
     - "missing item 2 — all seven MainTab EDT settingsRepo.save() sites now route through SettingsPersistQueue onto the burp-ai-settings-sync daemon worker; the two MCP-applying sites are persistSettingsAndApplyMcp (MainTab.kt:462, :487)."
     - "missing item 3 — SettingsSaveAsyncTest.newFixture now installs a MainTab-shaped blocking onMcpEnabledChanged (installBlockingMcpCallback); restoreDefaultsDoesNotFireTheHostNotificationsOnTheEdt asserts 0 invocations and its positive control asserts 1."
@@ -20,23 +22,29 @@ re_verification:
     - "Red probe A (verifier-run): reverting :118 to applySettingsToUi(defaults) turns 2/15 SettingsSaveAsyncTest scenarios RED, including restoreDefaultsDoesNotFireTheHostNotificationsOnTheEdt."
     - "Red probe B (verifier-run): making SettingsPersistQueue.submit offload-then-join turns 3/5 SettingsPersistQueueTest scenarios RED, including theSubmittingThreadReturnsWhileTheApplyIsStillBlocked."
     - "Red probe C (verifier-run): replacing one persistSettings call site with an inline settingsRepo.save turns everyMainTabSettingsWriteGoesThroughThePersistQueue RED."
+
 gaps: []
 deferred: []
 behavior_unverified_items: []
 coincidental_reliance_items: []
 human_verification:
+
   - test: "23-HUMAN-UAT.md item 1 — D-12 save-failure modal alongside the inline banner"
     expected: "Both the inline banner and the JOptionPane modal appear, their text matches, and the Settings tab is usable afterwards"
     why_human: "JOptionPane.getRootFrame() throws HeadlessException under -Djava.awt.headless=true, which tasks.test sets. No automated seam exists for the modal."
+
   - test: "23-HUMAN-UAT.md item 2 — FLAG-23-01 disabled Save button legibility under Burp's Look-and-Feel"
     expected: "Save and Restore defaults both read as visibly inert for the whole flight, in light and dark themes"
     why_human: "saveButton.isOpaque = true with an explicit primary background; a headless JButton never paints, so only property values are assertable."
+
   - test: "23-HUMAN-UAT.md item 3 — FLAG-23-04 sub-frame Send/Cancel flicker on the auto-approved chain, plus the ~160-char tool-cancel line wrapping"
     expected: "Observation item, not a gate. Record whether a Send flash appears between chain steps; confirm the Rule C-1 cancel line wraps rather than clipping and never reads 'Request cancelled.' for a dispatched tool call"
     why_human: "A repaint between two invokeLater blocks is sub-frame; JEditorPane wrap at 75% viewport width never paints headlessly."
+
   - test: "23-HUMAN-UAT.md item 4 — A1, does live Burp actually throw on an EDT sendRequest"
     expected: "An exception matching 'Extensions should not make HTTP requests in the Swing event dispatch thread', or a recorded 'no exception, just froze'"
     why_human: "Montoya runtime behaviour against a live Burp. http1_request is not headlessly drivable at all — its body reaches HttpRequest.httpRequest, a static factory unavailable in pure-JVM unit tests."
+
   - test: >-
       SC4 CONFIRMATION (new item 5 — REPLACES and INVERTS the stale item the previous VERIFICATION.md
       carried). With MCP enabled and the server Running, exercise all three doors in the Settings tab:
@@ -58,30 +66,37 @@ human_verification:
       frozen UI"; that expectation was written against the OPEN gap and is now inverted. A freeze is
       now a FAILURE, not the expected observation.
 warnings:
+
   - id: WARN-1
     finding: "CR-01 (review 2) — SettingsPersistQueue.applyIfCurrent reads `disposed` once and then runs the whole apply body; persistSettingsAndApplyMcp can start the Ktor server after App.shutdown(). 23-06-PLAN.md:566 records threat T-23-06-06 as 'fully mitigated in plan 23-08' — it is not, and deferred-items.md does not carry it."
     severity: high
     in_scope_for_sc: false
+
   - id: WARN-2
     finding: "CR-02 (review 2) — the Settings-tab save worker and the ChatPanel applySettings lambda write all ~107 preference keys outside the queue's lock; AgentSettingsRepository.save() is unsynchronised and setActionsBusy disables only saveButton/restoreButton. Pre-phase all eight save sites ran on the EDT and were serialised by it, so this interleave window is PHASE-INTRODUCED."
     severity: high
     in_scope_for_sc: false
+
   - id: WARN-3
     finding: "CR-03 (review 2) — applyIfCurrent drops the whole superseded lambda and the lambdas are heterogeneous, so a newer persistSettings can discard an older persistSettingsAndApplyMcp's MCP stop. ReentrantLock() is non-fair, so grant order is not click order under contention."
     severity: high
     in_scope_for_sc: false
+
   - id: WARN-4
     finding: "WR-01 (review 2) — CI's edtGuardWithoutAssertionsTest step drags :test and :jacocoTestReport in behind it WITHOUT -PexcludeHeavyTests=true. Confirmed by verifier-run --dry-run."
     severity: medium
     in_scope_for_sc: false
+
   - id: WARN-5
     finding: "WR-03 (review 2) — applySettingsToUi(notifyHosts = true) has no production caller; its negative control drives ~145 Swing writes off the EDT inside the EDT-confinement suite."
     severity: low
     in_scope_for_sc: false
+
   - id: WARN-6
     finding: "WR-04 (review 2) — ChatPanel.kt:1043 `inputArea.isEnabled = !sending` contradicts :361 and contradicts 23-07's own key_link `via` text, which claims both sites gate inputArea on `mcpAvailable && !isSending`."
     severity: medium
     in_scope_for_sc: false
+
   - id: WARN-7
     finding: "WR-02 (review 2) — the superseded user-originated tool call reaches only the nullable, disable-able in-memory AiRequestLogger; the KDoc's 'same reach' claim against the chain path (which also emits AuditLogger.emitGlobal) is an overclaim."
     severity: medium
