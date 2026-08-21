@@ -173,7 +173,7 @@ class MainTab(
         backendPicker.addActionListener {
             val selected = backendPicker.selectedItem as? String ?: "codex-cli"
             settingsPanel.setPreferredBackend(selected)
-            settingsRepo.save(settingsPanel.currentSettings())
+            persistSettings("backend-picker", settingsPanel.currentSettings())
         }
 
         mcpToggle.isSelected = initialSettings.mcpSettings.enabled
@@ -466,16 +466,14 @@ class MainTab(
             syncingToggles = true
             passiveToggle.isSelected = enabled
             syncingToggles = false
-            settingsRepo.save(settingsPanel.currentSettings())
-            renderStatus()
+            persistSettings("passive-enabled-changed", settingsPanel.currentSettings())
         }
         settingsPanel.onActiveAiEnabledChanged = activeSync@{ enabled ->
             if (syncingToggles) return@activeSync
             syncingToggles = true
             activeToggle.isSelected = enabled
             syncingToggles = false
-            settingsRepo.save(settingsPanel.currentSettings())
-            renderStatus()
+            persistSettings("active-enabled-changed", settingsPanel.currentSettings())
         }
 
         mcpToggle.addActionListener {
@@ -486,14 +484,7 @@ class MainTab(
             syncingToggles = false
             val settings = settingsPanel.currentSettings()
             val updated = settings.copy(mcpSettings = settings.mcpSettings.copy(enabled = enabled))
-            settingsRepo.save(updated)
-            mcpSupervisor.applySettings(
-                updated.mcpSettings,
-                updated.privacyMode,
-                updated.determinismMode,
-                updated.toPreprocessorSettings(),
-            )
-            renderStatus()
+            persistSettingsAndApplyMcp("mcp-toggle", updated)
         }
         passiveToggle.addActionListener {
             if (syncingToggles) return@addActionListener
@@ -501,8 +492,7 @@ class MainTab(
             syncingToggles = true
             settingsPanel.setPassiveAiEnabled(enabled)
             syncingToggles = false
-            settingsRepo.save(settingsPanel.currentSettings())
-            renderStatus()
+            persistSettings("passive-toggle", settingsPanel.currentSettings())
         }
         activeToggle.addActionListener {
             if (syncingToggles) return@addActionListener
@@ -510,8 +500,7 @@ class MainTab(
             syncingToggles = true
             settingsPanel.setActiveAiEnabled(enabled)
             syncingToggles = false
-            settingsRepo.save(settingsPanel.currentSettings())
-            renderStatus()
+            persistSettings("active-toggle", settingsPanel.currentSettings())
         }
         settingsPanel.onSettingsChanged = { updated ->
             // SettingsPanel owns its own repository instance; drop our cache so the
@@ -528,6 +517,39 @@ class MainTab(
                 }
             }
         }
+    }
+
+    /**
+     * Persists [snapshot] on `burp-ai-settings-sync` and nothing else — no MCP apply, no scanner reload.
+     *
+     * Declared here rather than alongside the queue itself because detekt runs with
+     * `buildUponDefaultConfig = true` and `detekt.yml` overrides only `complexity`, `style` and
+     * `naming`, so the default `UnusedPrivateMember` rule is live: a private helper introduced one task
+     * ahead of its callers would fail that task's own static-analysis gate with no sanctioned exit.
+     *
+     * **Mention ledger (structural gate).** `everyMainTabSettingsWriteGoesThroughThePersistQueue` reads
+     * this file from disk, strips comment lines — block comments included, which is why these four
+     * tokens can be named here at all — and asserts these counts as EQUALITIES. An eighth write site,
+     * or a seventh regressing to an inline save, moves a count and turns that test red. Update this
+     * ledger deliberately; do not relax the assertions to `>=`.
+     *
+     * | Token | Count | Composition |
+     * |---|---|---|
+     * | `persistSettings(` | 6 | 1 declaration + 5 call sites (backend picker, passive/active host callbacks, passive/active header toggles) |
+     * | `persistSettingsAndApplyMcp(` | 3 | 1 declaration + 2 call sites (the MCP host callback and the header mcpToggle) |
+     * | `settingsRepo.save(` | 3 | 1 in each helper's apply lambda + 1 in the ChatPanel `applySettings` lambda, the residual recorded as D-23-06-1 |
+     * | `mcpSupervisor.applySettings(` | 2 | 1 in the MCP-applying helper + 1 in that same ChatPanel lambda |
+     */
+    private fun persistSettings(
+        label: String,
+        snapshot: AgentSettings,
+    ) {
+        settingsPersistQueue.submit(
+            label = label,
+            snapshot = snapshot,
+            apply = { settingsRepo.save(it) },
+            onSettled = { renderStatus() },
+        )
     }
 
     /**

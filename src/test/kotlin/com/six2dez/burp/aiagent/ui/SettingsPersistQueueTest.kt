@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertTimeoutPreemptively
 import org.mockito.Answers
 import org.mockito.kotlin.mock
+import java.io.File
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -291,6 +292,54 @@ class SettingsPersistQueueTest {
         }
     }
 
+    /**
+     * CR-02 / REL-05 — every enumerated `MainTab` settings write goes through the persist queue.
+     *
+     * A structural gate, because the alternative is unreachable: driving a real `MainTab` headlessly
+     * would need the whole Burp `MontoyaApi` surface plus a live `ChatPanel`. It reads `MainTab.kt`
+     * from disk and asserts the four counts pinned in the KDoc ledger above `persistSettings`, as
+     * EQUALITIES — "greater than zero" would pass with an eighth inline write site added.
+     *
+     * **Comment lines are stripped, block comments included.** The ledger deliberately reproduces the
+     * very tokens counted here, so a `//`-only filter would read one high on every token against a
+     * CORRECT implementation. `build.gradle.kts` declares `MainTab.kt` as a `tasks.test` input, so an
+     * edit to it re-runs this assertion instead of serving it from cache — the measured 22-09 defect.
+     */
+    @Test
+    fun everyMainTabSettingsWriteGoesThroughThePersistQueue() {
+        val code = codeLinesOf(MAIN_TAB_SOURCE)
+
+        assertEquals(
+            6,
+            code.count { it.contains("persistSettings(") },
+            "MainTab ledger: `persistSettings(` must be 1 declaration + 5 call sites (backend picker, " +
+                "passive/active host callbacks, passive/active header toggles). A different count means " +
+                "a site was added, removed, or regressed to an inline settingsRepo.save on the EDT.",
+        )
+        assertEquals(
+            3,
+            code.count { it.contains("persistSettingsAndApplyMcp(") },
+            "MainTab ledger: `persistSettingsAndApplyMcp(` must be 1 declaration + 2 call sites (the MCP " +
+                "host callback and the header mcpToggle) — the only two sites allowed to reach " +
+                "McpSupervisor.stop().",
+        )
+        assertEquals(
+            3,
+            code.count { it.contains("settingsRepo.save(") },
+            "MainTab ledger: `settingsRepo.save(` must be 1 in each persist helper's apply lambda plus " +
+                "the ChatPanel applySettings lambda recorded as residual D-23-06-1. A fourth means a new " +
+                "write bypasses the queue's lock and can tear a snapshot (T-23-06-01/T-23-06-02).",
+        )
+        assertEquals(
+            2,
+            code.count { it.contains("mcpSupervisor.applySettings(") },
+            "MainTab ledger: `mcpSupervisor.applySettings(` must be 1 in persistSettingsAndApplyMcp plus " +
+                "the ChatPanel lambda. A third means a passive/active toggle now reaches " +
+                "McpSupervisor.stop(), which clears ScannerTaskRegistry and CollaboratorRegistry and " +
+                "would drop live scanner tasks (T-23-06-07).",
+        )
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Fixture
     // ---------------------------------------------------------------------------------------------
@@ -303,5 +352,37 @@ class SettingsPersistQueueTest {
     private fun snapshot(id: String): AgentSettings {
         val api: MontoyaApi = mock(defaultAnswer = Answers.RETURNS_DEEP_STUBS)
         return AgentSettingsRepository(api).defaultSettings().copy(preferredBackendId = id)
+    }
+
+    /**
+     * The non-comment lines of [path], read from disk.
+     *
+     * Named, resolved and asserted rather than left to surface as a bare `FileNotFoundException`, which
+     * is what a build-layout change would otherwise produce here — the shape
+     * `SettingsSaveAsyncTest.restoreDefaultsSource` uses. A line counts as a comment when its first
+     * non-space characters are a line-comment marker, a continuation asterisk, or a block-comment
+     * opener; stripping BLOCK comments is what makes it safe for the counted tokens to be named in the
+     * ledger KDoc that documents them. (The three markers are written out longhand here rather than
+     * quoted, because Kotlin block comments nest — a literal opener inside this KDoc would open a
+     * nested comment and swallow the rest of the file.)
+     */
+    private fun codeLinesOf(path: String): List<String> {
+        val file = File(path)
+        assertTrue(
+            file.isFile,
+            "Expected to find `$path` relative to the test working directory " +
+                "`${System.getProperty("user.dir")}`, resolved as `${file.absolutePath}`. If the build " +
+                "layout changed, fix the path here and in the matching `tasks.test` input declaration.",
+        )
+        return file
+            .readLines()
+            .filterNot { line ->
+                val trimmed = line.trimStart()
+                trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")
+            }
+    }
+
+    private companion object {
+        const val MAIN_TAB_SOURCE = "src/main/kotlin/com/six2dez/burp/aiagent/ui/MainTab.kt"
     }
 }

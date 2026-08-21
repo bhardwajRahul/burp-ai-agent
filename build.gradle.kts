@@ -211,6 +211,18 @@ tasks.test {
         .file("src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelActions.kt")
         .withPropertyName("settingsActionsStructuralSource")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // REL-05 / SC4 / CR-02: SettingsPersistQueueTest reads this file from disk in
+    // `everyMainTabSettingsWriteGoesThroughThePersistQueue` to assert the four mention counts pinned in
+    // the KDoc ledger above `MainTab.persistSettings` — that every enumerated settings write goes
+    // through the persist queue rather than calling settingsRepo.save() inline on the EDT. Same defect
+    // as the five declarations above: reverting one call site back to an inline save changes the source
+    // text but leaves the surrounding compiled output close enough that the cache key can survive, so
+    // the guard would be served from cache and never run in exactly the case it exists to catch (the
+    // 22-09 stale-cache defect).
+    inputs
+        .file("src/main/kotlin/com/six2dez/burp/aiagent/ui/MainTab.kt")
+        .withPropertyName("mainTabPersistSource")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     val excludeHeavyTests =
         (project.findProperty("excludeHeavyTests") as? String)
             ?.trim()

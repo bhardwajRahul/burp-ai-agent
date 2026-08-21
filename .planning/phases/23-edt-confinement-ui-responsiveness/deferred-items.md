@@ -26,3 +26,47 @@ followup turn spends a chain iteration against a reset approval memory.
 
 **Suggested home.** A follow-up plan or a `/gsd-quick` task; the guard would be one more scenario in
 `ChatPanelEdtConfinementTest` alongside S-05 through S-07.
+
+## D-23-06-1 — `MainTab.kt:111` is an EIGHTH EDT `settingsRepo.save()` site, outside the persist queue
+
+**Found during:** plan 23-06, Task 2, while routing the seven EDT save sites `23-VERIFICATION.md`
+enumerated (`:168`, `:453`, `:467`, `:475`, `:487`, `:502`, `:511`) through `SettingsPersistQueue`.
+
+**Measurement.** `MainTab.kt:111` (pre-plan line numbering) sits in the `applySettings` lambda passed
+to `ChatPanel`'s constructor. It is invoked from `ChatPanel.sendMessage:590` **on the EDT for every
+chat message send**, and its body does a disk write (`settingsRepo.save(settings)`) plus
+`supervisor.applySettings(settings)` plus `mcpSupervisor.applySettings(...)` at `MainTab.kt:115`. The
+verifier's enumeration of seven sites missed it; the count is eight.
+
+**Why it was not fixed here.** The send path depends on `supervisor.applySettings(settings)` having
+completed before the turn is sent, so the lambda cannot be moved wholesale onto the queue without
+splitting it into a part the send waits on and a part it does not. That split is analysis this
+gap-closure run's stated scope does not cover, and the user's scope decision explicitly defers it.
+
+**Hazard — both consequences, because an incomplete residual is how a known issue becomes an
+invisible one.**
+
+- **(a) A torn-write window this plan does not close.** `:111` calls `settingsRepo.save` on the EDT
+  *outside* the queue's `ReentrantLock`, so a chat send racing a header toggle can still interleave
+  with a queue worker. `AgentSettingsRepository.save()` writes ~107 preference keys one at a time with
+  `KEY_PRIVACY_MODE` (`AgentSettings.kt:603`) and `KEY_CUSTOM_REDACTION_PATTERNS` (`:703`) a hundred
+  keys apart, so the interleave can persist a permissive `privacyMode` beside a foreign
+  `customRedactionPatterns` list. This is why plan 23-06's CR-02 `must_haves` truth is scoped to
+  queue-submitted writes rather than stated as a property of the persisted file. Tracked as threat
+  `T-23-06-08`, rated **high / accept**.
+- **(b) A narrow but real SC4 residual.** Unchecking MCP is now asynchronous, so its worker can be
+  inside a bounded `stop()` of up to ten seconds when the user immediately sends a chat message.
+  `ChatPanel.sendMessage:590` then drives `MainTab.kt:115`'s `mcpSupervisor.applySettings(...)` — with
+  MCP disabled, into `McpSupervisor.stop()` — **on the EDT**, into the same bounded wait. Bound stated
+  honestly: `:111` passes CURRENT settings, so it cannot itself originate an enabled→disabled
+  transition; it can only re-enter a `stop()` for a transition another site already made. That is what
+  makes it narrow rather than a re-opening of SC4.
+
+**Severity.** High for limb (a) — identical consequence to `T-23-06-02`, which is what makes that
+threat `high`. Reachability is bounded to a chat send racing a header toggle.
+
+**Suggested home.** A follow-up plan that can split the `ChatPanel` `applySettings` lambda into the
+supervisor half the send path must await and the persist half that can be submitted to
+`SettingsPersistQueue`. The guard would be a fifth count in
+`SettingsPersistQueueTest.everyMainTabSettingsWriteGoesThroughThePersistQueue`, moving
+`settingsRepo.save(` from 3 to 2 and `mcpSupervisor.applySettings(` from 2 to 1.
