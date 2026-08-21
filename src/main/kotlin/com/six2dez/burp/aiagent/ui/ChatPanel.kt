@@ -1158,7 +1158,7 @@ class ChatPanel(
             // the user just made trains them to click through (T-22-32).
             work = { McpToolExecutor.executeTool(invocation.toolId, args, context, ToolCallOrigin.UserDialog) },
             onEdt = { result ->
-                finishUserOriginatedToolCall(panel, invocation.toolId, token, result) { text ->
+                finishUserOriginatedToolCall(panel, sessionId, invocation.toolId, token, result) { text ->
                     sessionsById[sessionId]?.messages?.add(
                         ChatMessage("assistant", "Tool result (${invocation.toolId}):\n$text"),
                     )
@@ -1179,9 +1179,22 @@ class ChatPanel(
      * would move the number that IS the evidence.
      *
      * These two paths are UNGATED by SC5 and so carry no approval record, which is why — unlike the
-     * approved-chain tail — there is no decision pair to emit here. What they do share is the supersede
-     * rule: a worker whose token no longer matches lands in UI-SPEC state S4 and renders nothing, because
-     * whatever superseded it already returned the panel to S0 and may have started something since.
+     * approved-chain tail — there is no decision pair to emit here. The asymmetry is deliberate and it
+     * is narrow: no `toolDecisionReporter.report(...)` call belongs in this function, because the user
+     * picked the tool themselves and there is no decision to report. What they do share is the
+     * supersede rule: a worker whose token no longer matches lands in UI-SPEC state S4 and renders
+     * nothing, because whatever superseded it already returned the panel to S0 and may have started
+     * something since.
+     *
+     * **The superseded branch still emits an activity record, and that closes WR-04.** It is the same
+     * treatment [discardSupersededToolResult] gives a superseded chain step, with the same reach and
+     * the same restraint — a record, no transcript row, no touch of the busy state. The review raises
+     * WR-04 only because CR-05 makes this branch reachable and legible, so closing it is an inseparable
+     * consequence of CR-05's fix rather than separate scope: the call reached Burp and cannot be
+     * recalled, and suppressing the record would put a hole in the audit trail at exactly the point a
+     * user interrupted something (D-07's load-bearing corollary). No `durationMs` rides along — the
+     * user-originated paths measure none, and inventing one would be a fabricated field in an audit
+     * record.
      *
      * A failure is surfaced through the same `Tool result:` row that a success uses, with the `Error:`
      * prefix the chain path already produces. Not through [showError]: the user asked for this answer in
@@ -1189,12 +1202,28 @@ class ChatPanel(
      */
     private fun finishUserOriginatedToolCall(
         panel: SessionPanel,
+        sessionId: String,
         toolId: String,
         token: Any,
         result: Result<String>,
         onSuccess: (String) -> Unit,
     ) {
-        if (!runningTool.clearIfMatches(token)) return
+        if (!runningTool.clearIfMatches(token)) {
+            supervisor.aiRequestLogger?.log(
+                type = ActivityType.MCP_TOOL_CALL,
+                source = "chat",
+                backendId = backendIdFor(sessionId),
+                sessionId = sessionId,
+                detail = "Tool $toolId finished after its run was superseded; result discarded",
+                metadata =
+                    mapOf(
+                        "tool" to toolId,
+                        "runStatus" to SUPERSEDED_RUN_STATUS,
+                        "supersedeReason" to "result discarded before it was applied",
+                    ),
+            )
+            return
+        }
         setSendingState(false)
         val failure = result.exceptionOrNull()
         val text =
@@ -2557,7 +2586,7 @@ class ChatPanel(
                 // deliberately UNGATED and consults no approval gate (T-22-32).
                 work = { McpToolExecutor.executeTool(toolName, argsJson, context, ToolCallOrigin.UserSlashCommand) },
                 onEdt = { result ->
-                    finishUserOriginatedToolCall(panel, toolName, token, result) {
+                    finishUserOriginatedToolCall(panel, sessionId, toolName, token, result) {
                         state.toolsMode = true
                         state.toolCatalogSent = state.toolCatalogSent || argsJson != null
                     }
