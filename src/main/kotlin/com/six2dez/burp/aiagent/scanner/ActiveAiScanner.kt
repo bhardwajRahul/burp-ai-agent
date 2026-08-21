@@ -19,7 +19,12 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -71,7 +76,31 @@ class ActiveAiScanner(
     private val payloadGenerator = PayloadGenerator()
     private val adaptivePayloadEngine = AdaptivePayloadEngine(supervisor)
     private val responseAnalyzer = ResponseAnalyzer()
-    private val requestExecutor = Executors.newCachedThreadPool()
+
+    // REL-07 / SC6: the per-request pool, bounded, named and daemon. Shape is deliberate and each
+    // argument answers a measured failure:
+    //  - core 0 + SynchronousQueue preserves the cached pool's direct hand-off latency. This pool
+    //    feeds a future.get(timeout) that is already time-bounded, so a work queue in front of it
+    //    would only add delay before a call that cannot wait anyway.
+    //  - a FIXED pool is forbidden here. Montoya does not document api.http().sendRequest as
+    //    interruptible, so future.cancel(true) can orphan a request thread per timeout; with a
+    //    fixed pool every later submit would queue behind the orphans and every future.get would
+    //    time out, degrading the scanner to "every request returns null" with nothing in the error
+    //    log — silently worse than the unbounded pool this replaces.
+    //  - the ceiling is a constant, not a function of maxConcurrent: this is a val initialised at
+    //    construction, while maxConcurrent is a mutable var written later from settings.
+    //  - AbortPolicy makes saturation observable. Its throw site is handled in
+    //    sendRequestWithTimeout (returns null) and on the scheduler thread by scheduleGuarded.
+    private val requestExecutor: ExecutorService =
+        ThreadPoolExecutor(
+            0,
+            Defaults.MAX_SCAN_REQUEST_THREADS,
+            Defaults.SCAN_REQUEST_THREAD_KEEPALIVE_SECONDS,
+            TimeUnit.SECONDS,
+            SynchronousQueue(),
+            scanRequestThreadFactory(),
+            ThreadPoolExecutor.AbortPolicy(),
+        )
 
     // Finding #7 (BApp #231): SSRF out-of-band confirmation is asynchronous. A single shared
     // Collaborator client + one scheduled poller replace the old per-target client that blocked a
@@ -335,8 +364,18 @@ class ActiveAiScanner(
         stopProcessing()
         scanning.set(true)
 
-        executor = Executors.newFixedThreadPool(maxConcurrent)
-        scheduledExecutor = Executors.newSingleThreadScheduledExecutor()
+        // REL-07 / SC6: naming only — sizes, intervals and every other argument are unchanged. A
+        // Burp thread dump taken mid-scan has to say which subsystem owns each thread, and an
+        // anonymous `pool-N-thread-M` says nothing.
+        val workerThreadCounter = AtomicInteger(0)
+        executor =
+            Executors.newFixedThreadPool(maxConcurrent) { runnable ->
+                Thread(runnable, "burp-ai-agent-scan-worker-${workerThreadCounter.incrementAndGet()}").apply { isDaemon = true }
+            }
+        scheduledExecutor =
+            Executors.newSingleThreadScheduledExecutor { runnable ->
+                Thread(runnable, "burp-ai-agent-scan-scheduler").apply { isDaemon = true }
+            }
 
         // REL-06: routed through scheduleGuarded so a throw on one tick cannot silently cancel the
         // queue drain for the rest of the Burp session. See util/GuardedScheduling.kt for the full
@@ -352,7 +391,10 @@ class ActiveAiScanner(
 
         // Single poller for out-of-band (Collaborator) confirmations — polls every 60 s and matches
         // interactions against pending payloads, so no scanner thread blocks waiting (BApp #231).
-        oastPoller = Executors.newSingleThreadScheduledExecutor()
+        oastPoller =
+            Executors.newSingleThreadScheduledExecutor { runnable ->
+                Thread(runnable, "burp-ai-agent-oast-poller").apply { isDaemon = true }
+            }
         oastPoller?.scheduleWithFixedDelay({
             try {
                 pollOastInteractions()
@@ -396,6 +438,11 @@ class ActiveAiScanner(
         // Process up to maxConcurrent targets
         repeat(maxConcurrent) {
             val target = scanQueue.poll() ?: return@repeat
+            // REL-06 / SC2: resolved HERE, above the submit and above the try, so a failure inside
+            // target.originalRequest.request() can never make the catch block itself throw. The cap
+            // matches this file's existing truncation habit and bounds an attacker-influenced URL in
+            // a local Burp log line; the id is URL + injection point + vulnerability class.
+            val targetLabel = target.id.take(200)
 
             exec.submit {
                 try {
@@ -403,7 +450,7 @@ class ActiveAiScanner(
                     val result = executeScan(target)
                     handleResult(result)
                 } catch (e: Exception) {
-                    api.logging().logToError("[ActiveAiScanner] Error: ${e.message}")
+                    api.logging().logToError("[ActiveAiScanner] Target scan failed: $targetLabel: ${e.message}")
                 } finally {
                     scansCompleted.incrementAndGet()
                     processedTargets[target.id] = System.currentTimeMillis()
@@ -1094,20 +1141,29 @@ class ActiveAiScanner(
 
     private fun sendRequestWithTimeout(request: HttpRequest): HttpRequestResponse? {
         val timeout = timeoutSeconds.coerceAtLeast(5).toLong()
-        val future =
-            requestExecutor.submit(
-                Callable {
-                    api.http().sendRequest(request, tlsRequestOptions)
-                },
-            )
+        // REL-07 / SC6: the submit lives INSIDE the try, and the handle is a nullable local so the
+        // existing arms can still cancel it. requestExecutor is bounded with an abort policy, so a
+        // saturated pool throws right here; submitted above the try that throw would escape this
+        // function, climb through executeScan into the per-target catch, and abort a whole target
+        // with a message of `null` — the exception type usually carries none.
+        var future: Future<HttpRequestResponse>? = null
         return try {
+            future =
+                requestExecutor.submit(
+                    Callable {
+                        api.http().sendRequest(request, tlsRequestOptions)
+                    },
+                )
             future.get(timeout, TimeUnit.SECONDS)
         } catch (e: TimeoutException) {
-            future.cancel(true)
+            future?.cancel(true)
             api.logging().logToError("[ActiveAiScanner] Request timeout after ${timeout}s for ${request.url().take(80)}")
             null
+        } catch (_: RejectedExecutionException) {
+            api.logging().logToError("[ActiveAiScanner] Request rejected — scan request pool saturated for ${request.url().take(80)}")
+            null
         } catch (e: Exception) {
-            future.cancel(true)
+            future?.cancel(true)
             api.logging().logToError("[ActiveAiScanner] Request error: ${e.message}")
             null
         }
@@ -1673,5 +1729,26 @@ class ActiveAiScanner(
             // INTENTIONAL: thread interrupt on executor shutdown; shutdownNow() for immediate termination
             requestExecutor.shutdownNow()
         }
+    }
+}
+
+/**
+ * REL-07 / SC6 — the thread factory for the active scanner's per-request pool.
+ *
+ * Every thread it produces is a daemon and carries a counter-suffixed, product-prefixed kebab-case
+ * name, so a Burp thread dump taken during a scan against an unresponsive host says which subsystem
+ * owns the stuck threads instead of showing an anonymous `pool-N-thread-M`. That readability is the
+ * stated point of SC6; an unnamed bounded pool would satisfy the ceiling and none of the diagnosis.
+ *
+ * The counter is per factory instance, so each pool numbers its own threads from 1.
+ *
+ * Visibility: `internal` so `ScanRequestExecutorTest` can assert on the names and the daemon flag by
+ * calling this directly, with no live pool and no reflection (same pattern as `buildTimeoutMessage`
+ * / `CliTimeoutMessageTest`). Not part of the scanner's public surface.
+ */
+internal fun scanRequestThreadFactory(): ThreadFactory {
+    val counter = AtomicInteger(0)
+    return ThreadFactory { runnable ->
+        Thread(runnable, "burp-ai-agent-scan-request-${counter.incrementAndGet()}").apply { isDaemon = true }
     }
 }
