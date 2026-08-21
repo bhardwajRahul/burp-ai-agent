@@ -232,6 +232,20 @@ tasks.test {
         .file("src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelSettingsIO.kt")
         .withPropertyName("settingsIoStructuralSource")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // REL-06 / SC1 / REL-07: SchedulerGuardCoverageTest walks the WHOLE main source tree from disk and
+    // asserts that only three files call a recurring schedule directly. A per-file declaration like the
+    // seven above would be blind to a scheduler introduced in an eighth, undeclared file — which is the
+    // exact defect the allowlist exists to catch, so the declaration has to be as wide as the assertion.
+    // This is the first `inputs.dir` in this build and it deliberately supersedes per-file entries for
+    // every Phase 24 structural assertion: REL-06-D here, REL-07-D and REL-07-F on CliBackend.kt, and
+    // REL-07-G on App.kt / ActiveAiScanner.kt / AgentSupervisor.kt. Accepted cost: `tasks.test` re-runs
+    // on any main-source edit. The defect it prevents is the measured 22-09 one recorded at :170-176 —
+    // mutating source text without changing bytecode yields an identical cache key, so the guard is
+    // served from cache in exactly the commit that breaks it.
+    inputs
+        .dir("src/main/kotlin")
+        .withPropertyName("mainSourceTreeStructuralInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     val excludeHeavyTests =
         (project.findProperty("excludeHeavyTests") as? String)
             ?.trim()
