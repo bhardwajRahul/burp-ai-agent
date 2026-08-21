@@ -1,47 +1,29 @@
 ---
 phase: 23-edt-confinement-ui-responsiveness
-verified: 2026-08-21T09:40:00Z
-status: gaps_found
-score: 5/6 must-haves verified
+verified: 2026-08-21T11:05:00Z
+status: human_needed
+score: 6/6 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
-gaps:
-  - truth: "SC4 — Saving Settings with MCP enabled→disabled does not block the EDT on KtorMcpServerManager.stop()'s bounded 10-second wait. settingsRepo.save() and backends.reload() are likewise not blocking the EDT."
-    status: partial
-    reason: >-
-      The Save-settings button path is genuinely fixed and I proved it discriminating with a red probe.
-      But SC4's named scenario — MCP enabled→disabled paying stop()'s bounded future.get(10, SECONDS)
-      on the EDT — is still fully reachable from the Settings tab through two other affordances that the
-      phase did not close, and one of them is the phase's own second declared caller of the async save
-      path. `restoreDefaultsWithConfirmation` (SettingsPanelActions.kt:105) calls `applySettingsToUi(defaults)`
-      ON THE EDT before dispatch; `applySettingsToUi` (SettingsPanelSettingsIO.kt:264) unconditionally
-      invokes `onMcpEnabledChanged` at :418, which MainTab.kt:446 wires to `settingsRepo.save(updated)`
-      (:453) plus `mcpSupervisor.applySettings(...)` (:454). `defaultMcpSettings().enabled = false`
-      (AgentSettings.kt:1157), so `McpSupervisor.applySettings` takes its `if (!settings.enabled) { stop() }`
-      branch (McpSupervisor.kt:99) → `serverManager.stop{}` → `future.get(10, TimeUnit.SECONDS)`
-      (KtorMcpServerManager.kt:270) — on the EDT, before any worker is started. The same chain fires from
-      the MCP-enabled ToggleSwitch inside the Settings tab (SettingsPanelInit.kt:257) and from the header
-      mcpToggle (MainTab.kt:479-488). Worse, SettingsSaveAsyncTest.kt:417 actively PINS the defect-causing
-      ordering as correct — `assertTrue(applyToUi in 0 until dispatch, "Rule T-3: applySettingsToUi writes
-      Swing, so it stays on the EDT.")` — treating a call that reaches disk I/O and a bounded 10-second
-      server stop as if it were only "component writes". SettingsSaveAsyncTest is structurally blind to
-      this because its fixture builds a bare SettingsPanel with no MainTab wiring, so the three
-      onXxxChanged callbacks are null throughout the suite.
-    artifacts:
-      - path: "src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelActions.kt"
-        issue: "restoreDefaultsWithConfirmation:105 runs applySettingsToUi(defaults) on the EDT; that call is not confined to component writes."
-      - path: "src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelSettingsIO.kt"
-        issue: "applySettingsToUi:418-420 unconditionally fires three host callbacks that perform disk I/O and a bounded 10s MCP stop on the calling (EDT) thread."
-      - path: "src/main/kotlin/com/six2dez/burp/aiagent/ui/MainTab.kt"
-        issue: "Untouched by the phase. :453-454 and :487-488 call settingsRepo.save() + mcpSupervisor.applySettings() directly on the EDT. Seven EDT settingsRepo.save() sites remain (:168, :453, :467, :475, :487, :502, :511)."
-      - path: "src/test/kotlin/com/six2dez/burp/aiagent/ui/SettingsSaveAsyncTest.kt"
-        issue: "restoreDefaultsConfirmsBeforeDispatchAndReportsFromTheCallback:417 asserts the defect-causing ordering is correct; newFixture() never installs the MainTab callbacks, so no test in the suite can observe the EDT block."
-    missing:
-      - "Move the onMcpEnabledChanged / onPassiveAiEnabledChanged / onActiveAiEnabledChanged notifications out of the EDT-confined applySettingsToUi body (e.g. fire them from applyAndSaveSettingsAsync's onEdt tail, or have applySettingsToUi take a suppressNotifications flag for the restore-defaults call)."
-      - "Route MainTab's own mcpSupervisor.applySettings(...) calls (:454, :488) off the EDT, or gate them behind the same busy seam so the header/checkbox toggles cannot pay the 10s stop on the EDT either."
-      - "Extend SettingsSaveAsyncTest's fixture to install a MainTab-shaped onMcpEnabledChanged that blocks, so the restore-defaults path has a seam that would go red. Today the suite cannot fail for this."
-      - "Correct SettingsSaveAsyncTest.kt:417's assertion message and intent so it no longer certifies applySettingsToUi as EDT-safe 'component writes'."
+re_verification:
+  previous_status: gaps_found
+  previous_score: 2026-08-21T09:40:00Z — 5/6
+  gaps_closed:
+    - "SC4 — Saving Settings with MCP enabled→disabled does not block the EDT on KtorMcpServerManager.stop()'s bounded 10-second wait. settingsRepo.save() and backends.reload() are likewise not blocking the EDT."
+  gaps_remaining: []
+  regressions: []
+  closure_evidence:
+    - "missing item 1 — restoreDefaultsConfirmed now calls applySettingsToUi(defaults, notifyHosts = false) (SettingsPanelActions.kt:118); the three host notifications are behind `if (notifyHosts)` at SettingsPanelSettingsIO.kt:451-455 and fire from no EDT path."
+    - "missing item 2 — all seven MainTab EDT settingsRepo.save() sites now route through SettingsPersistQueue onto the burp-ai-settings-sync daemon worker; the two MCP-applying sites are persistSettingsAndApplyMcp (MainTab.kt:462, :487)."
+    - "missing item 3 — SettingsSaveAsyncTest.newFixture now installs a MainTab-shaped blocking onMcpEnabledChanged (installBlockingMcpCallback); restoreDefaultsDoesNotFireTheHostNotificationsOnTheEdt asserts 0 invocations and its positive control asserts 1."
+    - "missing item 4 — SettingsSaveAsyncTest.kt:429's assertion message no longer certifies the defect; it is narrowed to COMPONENT writes and names the freeze it previously blessed."
+    - "Red probe A (verifier-run): reverting :118 to applySettingsToUi(defaults) turns 2/15 SettingsSaveAsyncTest scenarios RED, including restoreDefaultsDoesNotFireTheHostNotificationsOnTheEdt."
+    - "Red probe B (verifier-run): making SettingsPersistQueue.submit offload-then-join turns 3/5 SettingsPersistQueueTest scenarios RED, including theSubmittingThreadReturnsWhileTheApplyIsStillBlocked."
+    - "Red probe C (verifier-run): replacing one persistSettings call site with an inline settingsRepo.save turns everyMainTabSettingsWriteGoesThroughThePersistQueue RED."
+gaps: []
 deferred: []
+behavior_unverified_items: []
+coincidental_reliance_items: []
 human_verification:
   - test: "23-HUMAN-UAT.md item 1 — D-12 save-failure modal alongside the inline banner"
     expected: "Both the inline banner and the JOptionPane modal appear, their text matches, and the Settings tab is usable afterwards"
@@ -55,17 +37,63 @@ human_verification:
   - test: "23-HUMAN-UAT.md item 4 — A1, does live Burp actually throw on an EDT sendRequest"
     expected: "An exception matching 'Extensions should not make HTTP requests in the Swing event dispatch thread', or a recorded 'no exception, just froze'"
     why_human: "Montoya runtime behaviour against a live Burp. http1_request is not headlessly drivable at all — its body reaches HttpRequest.httpRequest, a static factory unavailable in pure-JVM unit tests."
-  - test: "SC4 gap — restore defaults with the MCP server running"
-    expected: "Confirm the freeze: with MCP enabled and the server Running, click Restore defaults in the Settings tab and time the UI freeze before the confirmation completes. Expect up to 10 seconds of frozen UI. Repeat by unchecking 'Enable MCP server' in the MCP tab without pressing Save."
-    why_human: "Requires a live Burp with a running Ktor MCP server to pay the real future.get(10, SECONDS); no headless seam exists because SettingsSaveAsyncTest's fixture omits the MainTab wiring."
+  - test: >-
+      SC4 CONFIRMATION (new item 5 — REPLACES and INVERTS the stale item the previous VERIFICATION.md
+      carried). With MCP enabled and the server Running, exercise all three doors in the Settings tab:
+      (a) untick 'Enable MCP server' in the MCP tab WITHOUT pressing Save; (b) flip the header mcpToggle
+      off; (c) press 'Restore defaults' and confirm. In each case keep the mouse moving over the Burp UI
+      and watch the tab repaint. Then confirm the server actually stopped (the status label reads
+      Stopped, and `lsof -nP -iTCP:<port> -sTCP:LISTEN` is empty).
+    expected: >-
+      NO FREEZE. The UI must keep repainting and stay interactive for the whole transition — the
+      bounded future.get(10, TimeUnit.SECONDS) now runs on burp-ai-settings-sync or
+      burp-ai-settings-save, not the EDT. AND the server must genuinely stop. A freeze means SC4
+      regressed; a responsive UI with a listener still up means the MCP apply was dropped (see
+      WARN-3 / CR-03).
+    why_human: >-
+      Requires a live Burp with a running Ktor MCP server to pay the real bounded wait. The headless
+      suite proves the callback does not fire on the EDT and that the queue's submit returns while the
+      apply is blocked, but it cannot observe an actual repaint or a real socket. NOTE FOR WHOEVER
+      RUNS THIS — the previous report's version of this item told you to "expect up to 10 seconds of
+      frozen UI"; that expectation was written against the OPEN gap and is now inverted. A freeze is
+      now a FAILURE, not the expected observation.
+warnings:
+  - id: WARN-1
+    finding: "CR-01 (review 2) — SettingsPersistQueue.applyIfCurrent reads `disposed` once and then runs the whole apply body; persistSettingsAndApplyMcp can start the Ktor server after App.shutdown(). 23-06-PLAN.md:566 records threat T-23-06-06 as 'fully mitigated in plan 23-08' — it is not, and deferred-items.md does not carry it."
+    severity: high
+    in_scope_for_sc: false
+  - id: WARN-2
+    finding: "CR-02 (review 2) — the Settings-tab save worker and the ChatPanel applySettings lambda write all ~107 preference keys outside the queue's lock; AgentSettingsRepository.save() is unsynchronised and setActionsBusy disables only saveButton/restoreButton. Pre-phase all eight save sites ran on the EDT and were serialised by it, so this interleave window is PHASE-INTRODUCED."
+    severity: high
+    in_scope_for_sc: false
+  - id: WARN-3
+    finding: "CR-03 (review 2) — applyIfCurrent drops the whole superseded lambda and the lambdas are heterogeneous, so a newer persistSettings can discard an older persistSettingsAndApplyMcp's MCP stop. ReentrantLock() is non-fair, so grant order is not click order under contention."
+    severity: high
+    in_scope_for_sc: false
+  - id: WARN-4
+    finding: "WR-01 (review 2) — CI's edtGuardWithoutAssertionsTest step drags :test and :jacocoTestReport in behind it WITHOUT -PexcludeHeavyTests=true. Confirmed by verifier-run --dry-run."
+    severity: medium
+    in_scope_for_sc: false
+  - id: WARN-5
+    finding: "WR-03 (review 2) — applySettingsToUi(notifyHosts = true) has no production caller; its negative control drives ~145 Swing writes off the EDT inside the EDT-confinement suite."
+    severity: low
+    in_scope_for_sc: false
+  - id: WARN-6
+    finding: "WR-04 (review 2) — ChatPanel.kt:1043 `inputArea.isEnabled = !sending` contradicts :361 and contradicts 23-07's own key_link `via` text, which claims both sites gate inputArea on `mcpAvailable && !isSending`."
+    severity: medium
+    in_scope_for_sc: false
+  - id: WARN-7
+    finding: "WR-02 (review 2) — the superseded user-originated tool call reaches only the nullable, disable-able in-memory AiRequestLogger; the KDoc's 'same reach' claim against the chain path (which also emits AuditLogger.emitGlobal) is an overclaim."
+    severity: medium
+    in_scope_for_sc: false
 ---
 
 # Phase 23: EDT Confinement & UI Responsiveness Verification Report
 
 **Phase Goal:** The Burp UI stays responsive during an agent tool chain and during a Settings save.
-**Verified:** 2026-08-21T09:40:00Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-08-21T11:05:00Z
+**Status:** human_needed
+**Re-verification:** Yes — after gap closure (plans 23-06, 23-07, 23-08). Previous: `gaps_found` 5/6.
 
 ## Goal Achievement
 
@@ -73,118 +101,150 @@ human_verification:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| SC1 | `McpToolExecutor.executeTool` never invoked on the EDT from the chat tool-chain path, asserted by a test that does not rely on `-ea` | ✓ VERIFIED | Chain call site is `work = { McpToolExecutor.executeTool(...) }` inside `OffEdtDispatch.run` (`ChatPanel.kt:3078-3085`). The door guard is `check(!SwingUtilities.isEventDispatchThread())` — Kotlin `check`, active with assertions off — as the **first** statement of `executeToolResult` (`McpToolExecutorImpl.kt:159-165`). I ran `./gradlew edtGuardWithoutAssertionsTest` (jvmArgs `-da`) myself: 3 tests, 0 failures. `anApprovedChainToolExecutesOnANamedDaemonThread` captures the real `Thread` from a deep-stub Montoya answer and asserts not-EDT + daemon + name prefix `burp-ai-tool`. |
-| SC2 | `api.http().sendRequest(...)` inside MCP tools and `runBlocking { manager.callTool(...) }` both execute off the EDT | ✓ VERIFIED | The guard precedes `canonicalToolId` and the `if (resolvedName.startsWith("ext:")) return routeExternalToolCall(...)` early return (`McpToolExecutorImpl.kt:168-170`), so `runBlocking { manager.callTool(...) }` at `:1149` is inside the guarded region. `executeTool` (`:1075`) is a thin wrapper over `executeToolResult`, and the MCP-server path (`McpToolHandlers.kt:129`) calls `executeToolResult` directly — one door, all callers. `McpToolExecutorEdtGuardTest.theGuardPrecedesTheExternalToolEarlyReturn` distinguishes the two candidate placements; `theSameCallOffTheEdtReachesPastTheGuard` is a real negative control that rejects an unconditional throw. `aToolThatRefusesTheEdtCompletesNormally` uses run status `"ok"` (not mere completion) as the discriminator, correctly noting `McpTool.runTool` converts an EDT refusal into an error *result*. |
-| SC3 | An 8-iteration chain with a slow tool leaves the UI repainting; results arrive in order and land on the EDT | ✓ VERIFIED | `theEdtRunsQueuedWorkWhileAToolCallIsMidFlight` is a mutual-latch handshake, not a stopwatch: the tool double blocks on a runnable the test queues to the EDT *after* the tool was entered, so a blocked EDT is a categorical deadlock. **I confirmed it discriminates** (red probe below). `aFullAutoChainProducesEightResultsInSubmissionOrder` pins `MAX_AUTO_TOOL_ITERATIONS == 8` in its own assertion, awaits 8 settled workers, then asserts `decisionsFor(chainTraceId).map { it["step"] } == ["1".."8"]` — selected by trace id, never by list position — and asserts the panel ends in S0. Results land on the EDT through `OffEdtDispatch`'s single `invokeLater` → `finishApprovedToolCall` → `captured.panel.addMessage(...)` (`ChatPanel.kt:3209`). |
-| SC4 | Saving Settings with MCP enabled→disabled does not block the EDT on `KtorMcpServerManager.stop()`'s bounded 10s wait; `settingsRepo.save()` and `backends.reload()` likewise off the EDT | ✗ FAILED | **Save-button path is fixed:** `saveSettings()` reads `currentSettings()` on the EDT then dispatches `applyAndSaveSettingsBody` (which contains `settingsRepo.save`, `backends.reload`, `supervisor.applySettings`, `mcpSupervisor.applySettings`) onto `burp-ai-settings-save`. Proved discriminating by red probe. **But the named scenario is still live:** `restoreDefaultsWithConfirmation:105` → `applySettingsToUi(defaults):418` → `onMcpEnabledChanged(false)` → `MainTab.kt:453-454` → `mcpSupervisor.applySettings(disabled)` → `McpSupervisor.stop():99` → `KtorMcpServerManager.kt:270 future.get(10, TimeUnit.SECONDS)` — **all on the EDT, before dispatch**. Same chain from the Settings-tab MCP toggle (`SettingsPanelInit.kt:257`) and the header toggle (`MainTab.kt:479`). See Gaps Summary. |
-| SC5 | No regression in REL-01 EDT confinement for `ChatPanel` session maps | ✓ VERIFIED | Diffed against pre-phase HEAD `2a0c703`: `assertEdt()` body is byte-identical (`assert(SwingUtilities.isEventDispatchThread())` + the same REL-01 message), occurrence count unmoved at **6** — 1 declaration (`:810`), 4 invocations (`:1027`, `:1455`, `:2545`, `:2755`), 1 comment (`:2544`) — matching the corrected fact, not the "six call sites" the earlier artifacts state. `SwingUtilities.invokeLater` count unmoved at **11** (baseline 11): the phase added zero marshalling points to `ChatPanel.kt` because all of them route through `OffEdtDispatch`'s single tail. All 3 `work = { … }` lambdas read only EDT-captured locals (`captured.context`, `invocation`/`args`/`context`, `toolName`/`argsJson`/`context`); none references any of the 5 `@GuardedBy("EDT")` maps. Behavioural half `theToolTailWritesIntoItsCapturedPanelWhileTheGuardedMapsMoveUnderneathIt` failed under my red probe, so it discriminates. |
-| SC6 | `MainTab`'s existing `Thread { … } + SwingUtilities.invokeLater` idiom reused, no new concurrency idiom | ✓ VERIFIED | `OffEdtDispatch.run` ends `Thread(body, threadName).apply { isDaemon = true }.start()` and marshals through exactly one `SwingUtilities.invokeLater` — structurally identical to `MainTab.kt:192-215`'s health-check block, plus the explicit `isDaemon` that idiom omits. Grep for `SwingWorker`, `ExecutorService`, `Executors.`, `CompletableFuture`, `runBlocking`, `GlobalScope`, `CoroutineScope`, `launch {` across the whole `ui/` package returns **zero** matches. |
+| SC1 | `McpToolExecutor.executeTool` is never invoked on the EDT from the chat tool-chain path, asserted by a test that does not rely on `-ea` | ✓ VERIFIED | `check(!SwingUtilities.isEventDispatchThread())` is the FIRST statement of `executeToolResult` (`McpToolExecutorImpl.kt:159`) — Kotlin `check`, live with assertions off. All three chat call sites are `work = { McpToolExecutor.executeTool(...) }` inside `OffEdtDispatch.run` (`ChatPanel.kt:1152-1159`, `:2581-2587`, `:3144-3151`). **I ran the `-da` gate myself, forced fresh:** `./gradlew edtGuardWithoutAssertionsTest --rerun-tasks` → `tests="3" failures="0" errors="0"`, timestamp `2026-08-21T10:52:29`. Task carries `jvmArgs("-da", …)` and `filter { includeTestsMatching("*McpToolExecutorEdtGuardTest") }` (`build.gradle.kts:264-277`), so it cannot silently no-op. |
+| SC2 | `api.http().sendRequest(...)` inside MCP tools and `runBlocking { manager.callTool(...) }` both execute off the EDT | ✓ VERIFIED | The guard at `:159` precedes `val resolvedName = canonicalToolId(name)` (`:166`) and the `if (resolvedName.startsWith("ext:")) return routeExternalToolCall(...)` early return (`:171-172`), so the `runBlocking { manager.callTool(...) }` at `:1149` is inside the guarded region. `executeTool` (`:1075`) is a thin wrapper over `executeToolResult`; the MCP-server path calls `executeToolResult` directly — one door, all callers. `McpToolExecutorEdtGuardTest.theGuardPrecedesTheExternalToolEarlyReturn` distinguishes the two candidate placements and runs under `-da`. |
+| SC3 | An 8-iteration chain with a slow tool leaves the UI repainting; results arrive in order and land on the EDT | ✓ VERIFIED | `aFullAutoChainProducesEightResultsInSubmissionOrder` pins `MAX_AUTO_TOOL_ITERATIONS == 8`, awaits 8 settled workers and asserts step order selected by trace id. `theEdtRunsQueuedWorkWhileAToolCallIsMidFlight` is a mutual-latch handshake: the tool blocks on a runnable the test queues to the EDT *after* the tool was entered, so a blocked EDT is a categorical deadlock. **Re-probed against the CURRENT `OffEdtDispatch` (it changed in the gap-closure diff, so the prior probe no longer covered it):** offload-and-block turns 10 of 23 scenarios RED, `theEdtRunsQueuedWorkWhileAToolCallIsMidFlight` among them. Results land on the EDT through the helper's single `invokeLater` tail. |
+| SC4 | Saving Settings with MCP enabled→disabled does not block the EDT on `KtorMcpServerManager.stop()`'s bounded 10s wait; `settingsRepo.save()` and `backends.reload()` likewise off the EDT | ✓ VERIFIED — **was the gap, now closed at all four doors** | I re-enumerated every production caller rather than trusting the SUMMARYs: `grep -rn "settingsRepo\.save(\|mcpSupervisor\.applySettings(\|backends\.reload(" src/main/kotlin/` yields exactly five non-comment sites. `App.kt:135` (startup thread). `SettingsPanelSettingsIO.kt:538/546/551` — inside `applyAndSaveSettingsBody`, dispatched onto `burp-ai-settings-save`, and it is now the *only* thing `restoreDefaultsConfirmed` uses for the MCP transition. `MainTab.kt:561` and `:592-593` — inside the two `SettingsPersistQueue` apply lambdas, dispatched onto `burp-ai-settings-sync`. `MainTab.kt:119/123` is the accepted residual `D-23-06-1`. The three doors the previous report named are individually closed: restore-defaults passes `notifyHosts = false` (`SettingsPanelActions.kt:118`); the Settings-tab checkbox (`SettingsPanelInit.kt:258`) and the header toggle both land on `persistSettingsAndApplyMcp` (`MainTab.kt:462`, `:487`). **Two independent red probes confirm the new evidence discriminates** — see Anti-Vacuity below. |
+| SC5 | No regression in REL-01 EDT confinement for `ChatPanel` session maps | ✓ VERIFIED | `assertEdt()` body byte-identical to pre-phase `2a0c703` (`assert(SwingUtilities.isEventDispatchThread())` + the same REL-01 message). Occurrence count **6**, unmoved — 1 declaration (`:824`), 4 invocations (`:1056`, `:1521`, `:2611`, `:2821`), 1 comment (`:2610`). Counted on raw source, no comment filter; `theEdtConfinementAssertionIsByteIdenticalAndStillHasSixMentions` uses `occurrencesOf("assertEdt()", chatPanelSource())` with no filter either, so the house filter's destructive 5 never enters the evidence. `SwingUtilities.invokeLater` in `ChatPanel.kt` unmoved at **11**. All three `work = { … }` lambdas read only EDT-captured locals; every `sessionsById[...]` touch is in the `onEdt` tail. Behavioural half `theToolTailWritesIntoItsCapturedPanelWhileTheGuardedMapsMoveUnderneathIt` went RED under my probe, so it discriminates. |
+| SC6 | `MainTab`'s existing `Thread { … } + SwingUtilities.invokeLater` idiom reused, no new concurrency idiom | ✓ VERIFIED | `OffEdtDispatch.run` still ends `Thread(body, threadName).apply { isDaemon = true }.start()` with exactly one `SwingUtilities.invokeLater`. `SettingsPersistQueue` adds **no** second marshalling helper — it delegates to `OffEdtDispatch.run` (`:78-85`). Grep for `SwingWorker`, `ExecutorService`, `Executors.`, `CompletableFuture`, `runBlocking`, `GlobalScope`, `CoroutineScope`, `launch {` across the whole `ui/` package returns **zero** matches. Stated honestly: the queue does add an `AtomicLong` pair and a `ReentrantLock`, which are `java.util.concurrent` primitives CONVENTIONS.md:95 permits, not a new concurrency layer. |
 
-**Score:** 5/6 truths verified (0 present, behavior-unverified)
+**Score:** 6/6 truths verified (0 present, behavior-unverified)
 
 ### Phase-Blocking Gates
 
 | Gate | Command | Result | Status |
 |------|---------|--------|--------|
-| New suites execute under the PR-gate filter | `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test -PexcludeHeavyTests=true` | exit 0. `ChatPanelEdtConfinementTest` tests=17 failures=0; `McpToolExecutorEdtGuardTest` tests=3 failures=0; `SettingsSaveAsyncTest` tests=7 failures=0. **Control:** `ChatPanelConcurrencyTest` has no result file in the same run, so the filter demonstrably WAS applied. 106 suites total. | ✓ PASS |
-| detekt baseline unmoved | `git diff --stat detekt-baseline.xml` · `grep -c '<ID>'` | Empty diff; 1096 entries. The one new finding (`LargeClass` on the 17-scenario `ChatPanelEdtConfinementTest`) was answered with an inline `@Suppress` carrying its reason, not a regenerated baseline. | ✓ PASS |
-| Static analysis clean | `JAVA_HOME=$(…21) ./gradlew ktlintCheck detekt` | exit 0 | ✓ PASS |
+| New suites execute under the PR-gate filter with non-zero counts | `JAVA_HOME=$(…21) ./gradlew test -PexcludeHeavyTests=true --no-daemon` | 108 suites, 785 tests. `ChatPanelEdtConfinementTest` **23**/0F/0E · `McpToolExecutorEdtGuardTest` **3**/0F/0E · `SettingsSaveAsyncTest` **15**/0F/0E. Bonus suites from gap closure: `SettingsPersistQueueTest` **5**/0F/0E · `OffEdtDispatchFailurePathTest` **4**/0F/0E. **Exclusion control:** `ChatPanelConcurrencyTest` has NO result file in the same run, so the filter demonstrably was applied and the counts above mean something. | ✓ PASS |
+| — same run, one failure | `RedactionTest > windowedScanRedactsJsonPairWhoseValueStraddlesTheCut()` | **Documented flake, not a phase regression, and I checked rather than assumed.** Message is the exact recorded signature: *"shift=20: the sweep must prove the pair was REDACTED, not that the window was DROPPED"*. `git diff cb60e32 HEAD --name-only \| grep -i redact` is empty. The full-phase diff touches `redact/Redaction.kt` in **comments only** (two KDoc blocks; `applyAndSaveSettings` → `applyAndSaveSettingsBody` rename in prose). Re-ran isolated: `./gradlew test --tests '*RedactionTest'` → **BUILD SUCCESSFUL**. | ℹ️ Non-regression |
+| detekt baseline unmoved | `git diff --stat detekt-baseline.xml` · `grep -c '<ID>'` | Empty diff; **1096** entries, pinned at the v0.10.0 milestone metric. New findings from gap closure were answered with inline `@Suppress` carrying reasons (`applySettingsToUi` LongMethod, `applyAndSaveSettingsBody` ReturnCount), not a regenerated baseline. | ✓ PASS |
+| Static analysis clean | `JAVA_HOME=$(…21) ./gradlew ktlintCheck detekt` | exit 0, all tasks UP-TO-DATE — which doubles as proof my red probes were reverted byte-exactly. | ✓ PASS |
+| Working tree clean after verification | `git status --porcelain` · `git diff --stat src/` | Only `M README.md` (pre-existing, predates this phase) plus untracked `.gsd/`, `.planning/milestone.lock`, `.planning/research/.cache/`. `git diff --stat src/` is **empty**. | ✓ PASS |
 
-### Anti-Vacuity Red Probe
+### Anti-Vacuity Red Probes (verifier-run, this pass)
 
-This phase has a measured history of tests going green against a fully present defect, so I did not take "the test exists and passes" as evidence. I applied a targeted **offload-and-block** probe to the one file every path funnels through — the exact anti-pattern `OffEdtDispatch`'s own KDoc names (`MontoyaHttpTransport.execute` offloads then blocks) — by changing the dispatch statement to `.also { it.start(); it.join() }`, then ran the two acceptance suites.
+This phase has a measured history of **ten** tests going green against a fully present defect, four of them found during gap closure and two of those specified by the PLAN itself. Review 2 reports finding no vacuous assertion in the new suites. I did not accept that; I probed the SC4 evidence at three independent points and re-probed SC3/SC5 because `OffEdtDispatch` changed underneath the previous probe.
 
-**Result: 9 of 24 tests failed.** Including precisely the criterion-bearing ones:
+| Probe | Mutation | Suite run | Result | Reads on |
+|-------|----------|-----------|--------|----------|
+| **A** | `SettingsPanelActions.kt:118` → `applySettingsToUi(defaults)` (restore the exact defect the previous report gapped on) | `*SettingsSaveAsyncTest` | **2 of 15 FAILED** — `restoreDefaultsDoesNotFireTheHostNotificationsOnTheEdt` AND `restoreDefaultsConfirmsBeforeDispatchAndReportsFromTheCallback` | SC4, restore-defaults door. Both the behavioural seam and the corrected structural assertion catch it. |
+| **B** | `SettingsPersistQueue.submit` → offload-then-`join()` (the anti-pattern `OffEdtDispatch`'s own KDoc names) | `*SettingsPersistQueueTest` | **3 of 5 FAILED** — `theSubmittingThreadReturnsWhileTheApplyIsStillBlocked`, `anOlderGenerationIsDroppedRatherThanAppliedOverANewerOne`, `disposeStopsNewWorkAndDoesNotBlockTheCaller` | SC4, header-toggle / MCP-checkbox door. The queue's own EDT-freedom claim is falsifiable. |
+| **C** | one `persistSettings("active-toggle", …)` call site → inline `settingsRepo.save(...)` | `*SettingsPersistQueueTest` | **1 of 5 FAILED** — `everyMainTabSettingsWriteGoesThroughThePersistQueue` | SC4, the structural ledger. Equality counts, and the `codeLinesOf` helper asserts `file.isFile` so a moved source path fails loudly instead of passing silently. |
+| **D** | `OffEdtDispatch` → `.also { it.start(); it.join() }` | `*ChatPanelEdtConfinementTest` | **10 of 23 FAILED** — including `theEdtRunsQueuedWorkWhileAToolCallIsMidFlight` (SC3) and `theToolTailWritesIntoItsCapturedPanelWhileTheGuardedMapsMoveUnderneathIt` (SC5) | SC3 + SC5, re-established against the post-CR-04 `OffEdtDispatch`. |
 
-| Test | Criterion | Failed at | Meaning |
-|------|-----------|-----------|---------|
-| `theEdtRunsQueuedWorkWhileAToolCallIsMidFlight` | SC3 | `ChatPanelEdtConfinementTest.kt:230` | The `status == "ok"` clause caught a blocked EDT. Not vacuous. |
-| `theEdtIsFreeWhileASettingsSaveIsInFlight` | SC4 (save path) | `SettingsSaveAsyncTest.kt:138` | The `edtWasFree` handshake clause caught it. Not vacuous. |
-| `theSnapshotIsTakenOnTheEdtAndTheBannerIsWrittenFromTheCallback` | SC4 | `SettingsSaveAsyncTest.kt:184` | — |
-| `theToolTailWritesIntoItsCapturedPanelWhileTheGuardedMapsMoveUnderneathIt` | SC5 | `:1164` | — |
-| `cancellingARunningToolDiscardsItsResultAndStillAuditsTheCall` | REL-05 audit | `:350` | — |
-| `deletingASessionSupersedesItsRunningToolAndStillAuditsTheCall` | 23-04 | `:509` | — |
-| `aProjectChangeSupersedesTheRunningToolAndNoWriteReachesTheDisposedPanel` | 23-04 | `:588` | — |
-| `aSupersededConfirmEachCallReachesBurpExactlyOnce` | 23-04 | `:769` | — |
-| `aThrowingToolBodyIsReportedRatherThanSwallowed` (via count) | 23-04 | — | — |
+All four probes reverted; `git diff --stat src/` empty and `ktlintCheck detekt` UP-TO-DATE afterwards.
 
-The probe was reverted; `git status` shows `OffEdtDispatch.kt` clean. **The SC1/SC2/SC3/SC5 test evidence discriminates.** The SC4 *save-button* evidence discriminates; the SC4 *restore-defaults* evidence does not exist at all (see Gaps).
+**One honest limit on probe D.** `aFullAutoChainProducesEightResultsInSubmissionOrder` did **not** fail under the offload-and-block mutation — correctly so: serial execution still yields eight in-order results, and that test's criterion is ordering and count, not responsiveness. SC3's responsiveness half rests entirely on `theEdtRunsQueuedWorkWhileAToolCallIsMidFlight`, which is a single-tool scenario. No automated test asserts "EDT free across all eight iterations". The property holds by construction — every iteration dispatches through the same helper — and the visual half is 23-HUMAN-UAT item 3.
+
+**Vacuity check on the SC4 fixture, done independently.** `restoreDefaultsDoesNotFireTheHostNotificationsOnTheEdt` asserts `seam.invocations.get() == 0`, and a zero-assertion is exactly the shape that passes when a fixture never wired the callback at all. Its positive control `applySettingsToUiStillNotifiesHostsByDefault` asserts `== 1` through the same `installBlockingMcpCallback` seam and also asserts `seam.edtWasFree`, so the seam is proved live. Probe A confirms the pair as a whole discriminates.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `src/main/kotlin/…/ui/OffEdtDispatch.kt` | Named daemon thread, Throwable-safe body, one `invokeLater`, dispatch + settle observers | ✓ VERIFIED | 113 lines. Both `@Volatile` observers present; `dispatchedObserver` fired as `run()`'s first statement on the calling thread (correct — a settle-record read cannot prove a worker never started). Imported and used at 4 sites. |
-| `src/test/kotlin/…/ui/ChatPanelEdtConfinementTest.kt` | SC1/SC2/SC3/SC5/SC6 acceptance suite, name survives the `-PexcludeHeavyTests` filter | ✓ VERIFIED | 1791 lines, 17 scenarios, executed and green under the PR-gate filter. |
-| `src/test/kotlin/…/ui/ChatPanelTestHarness.kt` | `awaitToolSettled` / `settledLabels` / `dispatchedLabels` / install+release observers | ✓ VERIFIED | 309 lines; all five members present and used. |
-| `src/test/kotlin/…/mcp/tools/McpToolExecutorEdtGuardTest.kt` | S-10: throws with `-ea` off, incl. the `ext:` variant | ✓ VERIFIED | 157 lines, 3 tests, green under both `tasks.test` (`-ea`) and `edtGuardWithoutAssertionsTest` (`-da`). Carries a real negative control. |
-| `src/test/kotlin/…/ui/SettingsSaveAsyncTest.kt` | S-11 + FLAG-23-06 | ⚠️ PARTIAL | 540 lines, 7 tests, green. The save-path scenarios are strong. But `newFixture()` builds a bare `SettingsPanel` with no MainTab wiring, so all three `onXxxChanged` callbacks are null and the restore-defaults EDT block is structurally unobservable to this suite — and `:417` pins the ordering that causes it. |
-| `.planning/…/23-HUMAN-UAT.md` | 4 live-Burp items with instructions and pass conditions | ✓ VERIFIED | 4 items, all `pending`, each with test / expected / why_human. Contains `FLAG-23-01`. |
-| `.planning/…/deferred-items.md` | Recorded residuals | ✓ VERIFIED | D-23-04-1 (Clear Chat supersede) recorded with severity and suggested home. |
+| `src/main/kotlin/…/ui/SettingsPersistQueue.kt` | Generation-ordered, lock-serialised off-EDT settings seam; `internal class SettingsPersistQueue`; ≥40 lines | ✓ VERIFIED | 120 lines. Generation minted on the calling thread as `submit`'s first statement; `applied` advanced before the body so a throwing apply is not replayable; `dispose()` explicitly lock-free with a stated reason. Imported and used at 8 sites in `MainTab.kt`. |
+| `src/test/kotlin/…/ui/SettingsPersistQueueTest.kt` | Behavioural acceptance suite for the queue; ≥60 lines | ✓ VERIFIED | 388 lines, 5 scenarios, executed green under the PR-gate filter. Overlap detector is an entry-time `AtomicBoolean`, not a snapshot-field comparison — correct, since `AgentSettings` is a data class passed by reference. Probes B and C confirm it discriminates. |
+| `src/main/kotlin/…/ui/SettingsPanelSettingsIO.kt` | `applySettingsToUi(notifyHosts)`; `applyAndSaveSettingsBody(isCurrent)` with three supersede re-checks | ✓ VERIFIED (see WARN-5) | `notifyHosts` gate at `:451-455`; three `if (!isCurrent()) return` guards at `:547`, `:577`, `:596`, each immediately before an externally visible mutation. `ReturnCount` answered inline with its reason. **But** the `notifyHosts = true` branch has no production caller. |
+| `src/main/kotlin/…/ui/OffEdtDispatch.kt` | CR-04: every sink on the path to the single `invokeLater` wrapped | ✓ VERIFIED | 129 lines. Two `runCatching { logError` sites; `settledObserver` invocation also wrapped and in the `finally`; `dispatchedObserver` deliberately bare with its asymmetry argued in the KDoc. Still one `invokeLater`, still `Thread(...).apply { isDaemon = true }.start()`. |
+| `src/test/kotlin/…/ui/OffEdtDispatchFailurePathTest.kt` | CR-04 acceptance, each limb separately | ✓ VERIFIED | 334 lines, 4 tests, green under the PR-gate filter. |
+| `src/test/kotlin/…/ui/SettingsSaveAsyncTest.kt` | S-11 + FLAG-23-06 + the four `missing` items | ✓ VERIFIED (was ⚠️ PARTIAL) | 947 lines (was 540), 15 tests (was 7). `newFixture` now installs the MainTab-shaped blocking callback the previous report demanded. `:429`'s message no longer certifies the defect. |
+| `src/test/kotlin/…/ui/ChatPanelEdtConfinementTest.kt` | SC1/SC2/SC3/SC5/SC6 acceptance | ✓ VERIFIED | 23 scenarios (was 17), green under the PR-gate filter, probe-D-discriminating. |
+| `src/test/kotlin/…/mcp/tools/McpToolExecutorEdtGuardTest.kt` | S-10: throws with `-ea` off, incl. the `ext:` variant | ✓ VERIFIED | 3 tests, green under both `tasks.test` (`-ea`) and a fresh `edtGuardWithoutAssertionsTest` (`-da`) I ran myself. |
+| `.planning/…/23-HUMAN-UAT.md` | Live-Burp items | ⚠️ INCOMPLETE → see Human Verification | 4 items, all `pending`, `total: 4`. Should gain the corrected SC4 confirmation as a 5th. |
+| `.planning/…/deferred-items.md` | Recorded residuals | ⚠️ INCOMPLETE → see WARN-1 / WARN-2 | Carries `D-23-04-1`, `D-23-06-1`, `D-23-07-1` with severity and suggested homes. Does **not** carry the in-flight half of `T-23-06-06`, nor the second unlocked writer. |
 
 ### Key Link Verification
 
 | From | To | Via | Status |
 |------|----|-----|--------|
-| `ChatPanel.executeApprovedToolCall` | `OffEdtDispatch` | `OffEdtDispatch.run(threadName = "burp-ai-tool-exec", label = traceId, work = { McpToolExecutor.executeTool(...) })` at `:3078-3086`, returning `ToolCallOutcome.EXECUTING` | ✓ WIRED |
-| `ChatPanel.openToolDialog` | `OffEdtDispatch` | `:1115-1132`, `ToolCallOrigin.UserDialog` | ✓ WIRED |
-| `ChatPanel.handleToolCommand` `/tool` branch | `OffEdtDispatch` | `:2515-2528`, `ToolCallOrigin.UserSlashCommand`, with the Rule S-4 `panel.addMessage("You", trimmed)` echo at `:2509` preceding it | ✓ WIRED |
-| `McpToolExecutorImpl.executeToolResult` | `javax.swing.SwingUtilities` | `check(!SwingUtilities.isEventDispatchThread())` as the first statement, `:159` | ✓ WIRED |
-| `SettingsPanelSettingsIO.applyAndSaveSettingsAsync` | `OffEdtDispatch` | `:564`, `threadName = "burp-ai-settings-save"`, two-layer `finally` lowering an `AtomicBoolean` compare-and-set seam | ✓ WIRED |
-| `BottomTabsPanel` | `SettingsPanel` | `settingsPanel.setBusyListener { busy -> setActionsBusy(busy) }` at `:94`, immediately after `setDialogParent(root)` | ✓ WIRED (narrow — see WARN-3) |
-| `ChatPanel.deleteSession` | `RunningToolTracker` | `if (runningTool.take() != null) setSendingState(false)` at `:932`, beside the existing `resolvePending` | ✓ WIRED |
-| `ChatPanel.clearChatState` | `RunningToolTracker` | — | ✗ NOT WIRED (recorded residual D-23-04-1 / CR-03) |
-| `ChatPanelTestHarness` | `OffEdtDispatch` | `registerSettledObserver` / `registerDispatchedObserver` | ✓ WIRED |
-| `edtGuardWithoutAssertionsTest` | any CI workflow | — | ✗ NOT WIRED (WR-11 — see WARN-1) |
+| `MainTab` (7 listener bodies) | `SettingsPersistQueue` | `persistSettings(...)` / `persistSettingsAndApplyMcp(...)` → `settingsPersistQueue.submit` (`:88`, `:176`, `:462`, `:469`, `:476`, `:487`, `:495`, `:503`) | ✓ WIRED |
+| `SettingsPersistQueue.submit` | `OffEdtDispatch.run` | `threadName = "burp-ai-settings-sync"` (`:78-85`) — no second marshalling helper | ✓ WIRED |
+| `SettingsPanelActions.restoreDefaultsConfirmed` | `applySettingsToUi` | `applySettingsToUi(defaults, notifyHosts = false)` at `:118` | ✓ WIRED |
+| `SettingsPanelActions.restoreDefaultsConfirmed` | `applyAndSaveSettingsAsync` | `:120` — the MCP transition still happens, just on `burp-ai-settings-save` | ✓ WIRED |
+| `SettingsPanel.shutdown` | `SettingsPanel.saveGeneration` | `disposed = true; saveGeneration.incrementAndGet()` (`SettingsPanelActions.kt:179-180`) | ✓ WIRED |
+| `applyAndSaveSettingsBody` | `McpSupervisor` / scanners | `isCurrent()` re-checked at `:547`, `:577`, `:596` | ✓ WIRED |
+| `MainTab.shutdown` | `SettingsPersistQueue.dispose` | `:926`, ordered FIRST, lock-free | ⚠️ PARTIAL — stops new applies only; an in-flight apply is unguarded (WARN-1) |
+| `.github/workflows/build.yml` | `edtGuardWithoutAssertionsTest` | named pr-gate step, all three matrix OSes (`:55-56`) | ⚠️ PARTIAL — wired, but drags `:test` unfiltered (WARN-4) |
+| `ChatPanel.setSendingState` / `updateChatAvailability` | `isSending` | claimed as "both gate `toolsBtn` AND `inputArea` on `mcpAvailable && !isSending`" | ⚠️ PARTIAL — true at `:360-361`, false at `:1043` (WARN-6) |
+| `OffEdtDispatch` | `SwingUtilities.invokeLater` | every sink `runCatching`-wrapped | ✓ WIRED |
+| `ChatPanel.clearChatState` | `RunningToolTracker` | — | ✗ NOT WIRED (recorded residual `D-23-04-1` / `D-23-07-1`) |
+
+### Data-Flow Trace (Level 4)
+
+| Artifact | Data | Source | Produces real data | Status |
+|----------|------|--------|--------------------|--------|
+| `SettingsPersistQueue` | `snapshot: AgentSettings` | `settingsPanel.currentSettings()` read on the EDT before dispatch | Yes — reaches `AgentSettingsRepository.save()` (real Burp preferences), not a stub | ✓ FLOWING |
+| `applyAndSaveSettingsBody` | `updated: AgentSettings` | `currentSettings()` on the EDT, then `settingsRepo.save` / `backends.reload` / `mcpSupervisor.applySettings` | Yes | ✓ FLOWING |
+| `restoreDefaultsConfirmed` | `defaults` | `settingsRepo.defaultSettings()` | Yes; `defaultMcpSettings().enabled = false`, so the async body genuinely takes `McpSupervisor`'s `if (!settings.enabled) { stop() }` branch | ✓ FLOWING |
+| `OffEdtDispatch` tail | `Result<T>` | crosses the thread boundary intact (real `Throwable`, not stringified) | Yes — `reportFailedToolCall` keys `errorClass` off the throwable's own class | ✓ FLOWING |
+
+### Behavioural Spot-Checks
+
+| Behaviour | Command | Result | Status |
+|-----------|---------|--------|--------|
+| SC1's `-da` guarantee holds today, freshly executed | `./gradlew edtGuardWithoutAssertionsTest -x test -x jacocoTestReport --rerun-tasks` | `tests="3" failures="0" errors="0"`, timestamp `2026-08-21T10:52:29` (UTC) — a genuinely new run, not a cached UP-TO-DATE | ✓ PASS |
+| WR-01: does the `-da` gate drag `:test` in? | `./gradlew edtGuardWithoutAssertionsTest --dry-run` | `:edtGuardWithoutAssertionsTest SKIPPED` / `:test SKIPPED` / `:jacocoTestReport SKIPPED` | ✗ FAIL → WARN-4 (confirms review 2 independently) |
+| RedactionTest is a flake, not a phase break | `./gradlew test --tests '*RedactionTest'` | BUILD SUCCESSFUL in isolation | ✓ PASS |
+| Full PR gate | `./gradlew test -PexcludeHeavyTests=true` | 785 tests, 1 failure = the flake above; all five phase suites green | ✓ PASS |
+| `AgentSettingsRepository.save()` is synchronised? | `grep -n "fun save(\|@Synchronized\|synchronized" AgentSettings.kt` | only `fun save(settings: AgentSettings)` at `:542`; no synchronisation | ✗ FAIL → WARN-2 |
+| `setActionsBusy` gates more than two buttons? | `grep -A20 "fun setActionsBusy" BottomTabsPanel.kt` | `saveButton` + `restoreButton` only (`:111-116`) | ✗ FAIL → WARN-2 |
+
+### Probe Execution
+
+No `scripts/*/tests/probe-*.sh` exist in this repository and no Phase 23 PLAN or SUMMARY declares one. **Step 7c: SKIPPED (no project probes declared or discoverable).** The verifier-run red probes in the Anti-Vacuity section above are the substitute and were executed in this process.
 
 ### Requirements Coverage
 
-| Requirement | Source Plans | Description | Status | Evidence |
+| Requirement | Source plans | Description | Status | Evidence |
 |-------------|--------------|-------------|--------|----------|
-| REL-05 | 23-01, 23-02, 23-03, 23-04, 23-05 (all five) | "No MCP tool execution, backend HTTP call, or `runBlocking` on an external MCP server happens on the Swing EDT; the auto tool-chain (up to 8 iterations) leaves the UI responsive throughout. Saving Settings does not block the EDT on `serverManager.stop()`'s 10-second bounded wait." | ⚠️ PARTIALLY SATISFIED | Clauses 1 and 2 satisfied (SC1/SC2/SC3). Clause 3 is not: restore-defaults and both MCP toggles still pay `future.get(10, TimeUnit.SECONDS)` on the EDT. `REQUIREMENTS.md:28` is already marked `[x]`; that checkbox is premature and should be reverted until the SC4 gap closes. |
+| REL-05 | 23-01 … 23-08 (all eight, each `requirements: [REL-05]`) | "No MCP tool execution, backend HTTP call, or `runBlocking` on an external MCP server happens on the Swing EDT; the auto tool-chain (up to 8 iterations) leaves the UI responsive throughout. Saving Settings does not block the EDT on `serverManager.stop()`'s 10-second bounded wait." | ✓ SATISFIED | Clause 1 → SC1/SC2. Clause 2 → SC3. Clause 3 → SC4, now closed at all four doors with one recorded residual (`D-23-06-1`). `REQUIREMENTS.md:28`'s `[x]` was premature at the previous verification; it is now correct and needs no revert. |
 
-**Orphan check:** `REQUIREMENTS.md:50` maps REL-05 → Phase 23 and no other requirement ID maps to Phase 23. All five plans declare `requirements: [REL-05]`. **No orphaned requirements.**
+**Orphan check:** `REQUIREMENTS.md:50` maps REL-05 → Phase 23 and no other requirement ID maps to Phase 23. All eight plans declare `requirements: [REL-05]`. **No orphaned requirements.**
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| — | — | `TBD` / `FIXME` / `XXX` in phase-touched files | — | None found. Debt-marker gate passes. |
-| `OffEdtDispatch.kt` | 93-95 | Unguarded `logError` between the failed work and `SwingUtilities.invokeLater` | ⚠️ Warning | CR-04, confirmed at source. If the error sink throws, the entire EDT tail is skipped: no busy clear, no settle observer, panel stranded in S3. `applyAndSaveSettingsAsync` defends against this with its own outer layer; the three `ChatPanel` call sites do not. |
-| `ChatPanel.kt` | 812-816 | `setSendingState` does not touch `toolsBtn`; `toolsBtn.isEnabled = mcpAvailable` (`:346`) is its only gate | ⚠️ Warning | CR-05, confirmed at source. Falsifies 23-01's own must-have truth "S3 is global to ChatPanel, so a second dispatch cannot be started from the UI while the first is live". A second dialog tool overwrites `runningTool`, and the first worker's result is silently discarded. |
-| `ChatPanel.kt` | 1232-1263 | `clearChatState()` resolves pending but never takes the running-tool token | ⚠️ Warning | CR-03 / D-23-04-1. Recorded residual, not a hidden gap. Its own comment reads "Teardown path 3 of 5". |
-| `App.kt` / `SettingsPanelActions.kt` | 220 / 146-151 | `SettingsPanel.shutdown()` stops two Swing timers only; no supersede for an in-flight `burp-ai-settings-save` worker | ⚠️ Warning | CR-01, confirmed at source. A worker that reaches `mcpSupervisor.applySettings(enabled=true)` after `App.shutdown()`'s `mcpSupervisor.shutdown()` restarts the MCP server post-unload. A defect the offload created. |
-
-None of these four is a blocker for SC1–SC6, but the first three all live in code this phase wrote.
+| — | — | `TBD` / `FIXME` / `XXX` across every file the phase touched (`git diff 2a0c703 HEAD --name-only -- src/ build.gradle.kts .github/`) | — | **None found.** Debt-marker gate passes. |
+| `SettingsPersistQueue.kt` | 118-123 | `applyIfCurrent` reads `disposed` once, then runs the whole apply body with no re-check | ⚠️ Warning | WARN-1 / review-2 CR-01. Confirmed at source and traced through `App.kt:220-233` and `MainTab.kt:922-926`. |
+| `SettingsPersistQueue.kt` | 51 | `ReentrantLock()` — non-fair | ⚠️ Warning | WARN-3 / review-2 CR-03. Grant order is not arrival order, and the queue's KDoc claim about "submission order is click order" is true of the numbering, not the arbitration. |
+| `SettingsPersistQueue.kt` | 28-30 | The "Scope of that claim, stated honestly" block names one residual and omits the larger one | ⚠️ Warning | WARN-2. A materially incomplete honesty section is worse than none, because the next reader stops looking. |
+| `SettingsPanelSettingsIO.kt` | 296, 451-455 | `notifyHosts = true` branch unreachable in production | ⚠️ Warning | WARN-5 / review-2 WR-03. Verified: `grep -rn "applySettingsToUi(" src/main/` returns exactly one call site, passing `false`. |
+| `ChatPanel.kt` | 1043 | `inputArea.isEnabled = !sending` vs `:361`'s `mcpAvailable && !isSending` | ⚠️ Warning | WARN-6 / review-2 WR-04. Falsifies 23-07's own key-link `via` text. |
+| `ChatPanel.kt` | 1232-1263 | `clearChatState()` resolves pending but never takes the running-tool token | ⚠️ Warning | Pre-recorded residual `D-23-04-1` / `D-23-07-1`, documented twice with severity, suggested home and the open UI question. Known and recorded, not a hidden gap. |
 
 ### Human Verification Required
 
-See the `human_verification` frontmatter block. Four items are already recorded in `23-HUMAN-UAT.md` (all `pending`); I have added a fifth to confirm the SC4 freeze against a live Burp with a running Ktor MCP server.
+Five items, all `pending`. See the `human_verification` frontmatter block for the full text.
 
-## Gaps Summary
+Items 1–4 are already in `23-HUMAN-UAT.md`. **Item 5 is new and it REPLACES a stale item** that the previous `23-VERIFICATION.md` carried:
 
-**One blocking gap: SC4 is met for the Save button and not for the Settings tab.**
+> *"Confirm the freeze: … Expect up to 10 seconds of frozen UI."*
 
-The phase did the hard, correct thing at the two doors it named. `executeToolResult` refuses the EDT with a `check` that fires without `-ea` — I confirmed this myself by running the `-da` task rather than trusting the SUMMARY — and it sits *above* the `ext:` early return, so `runBlocking { manager.callTool(...) }` is covered by the same one-line placement. All three `ChatPanel` `executeTool` sites go through one dispatch helper that reuses `MainTab`'s existing `Thread` + `invokeLater` idiom and introduces no new concurrency layer. REL-01's confinement contract is provably unmoved: `assertEdt()` is byte-identical to pre-phase HEAD, its 6 occurrences are unmoved, and the `invokeLater` count in `ChatPanel.kt` is still 11 because everything routes through the helper's single tail. The tests are unusually careful and — verified by red probe, not by reading their KDoc — they discriminate.
+That expectation was written while SC4 was OPEN. After plans 23-06 and 23-08 the correct observation **inverts** to *no freeze*. Left as written it is a human test that certifies the defect — the precise pattern that produced this phase's original gap. This report overwrites it. **`23-HUMAN-UAT.md` should gain the corrected item as a 5th** (`total: 4` → `5`, `pending: 4` → `5`), and its `source:` list should grow to include the 23-06/23-07/23-08 SUMMARYs.
 
-The gap is that SC4's scenario was closed at one door and left open at three. `applyAndSaveSettingsBody` genuinely runs on `burp-ai-settings-save`, but `restoreDefaultsWithConfirmation` — the phase's own second declared caller, put on the same async path by D-13 — calls `applySettingsToUi(defaults)` on the EDT *before* dispatching. That function is not a component-writer. Its last three statements fire host callbacks, and `MainTab` wires `onMcpEnabledChanged` to `settingsRepo.save()` plus `mcpSupervisor.applySettings()`. Because `defaultMcpSettings().enabled` is `false`, restoring defaults with the server running takes `McpSupervisor`'s `if (!settings.enabled) { stop() }` branch straight into `KtorMcpServerManager`'s `future.get(10, TimeUnit.SECONDS)` — on the EDT, in a phase whose entire reason for existing is that this call must not run there. The same chain fires when a user simply unchecks "Enable MCP server" in the MCP settings tab, and again from the header toggle.
+Item 5 also carries a second pass condition the old item did not have: after the transition, the server must actually be **Stopped**. That is the check that would catch WARN-3 in the field.
 
-Two things make this a gap rather than a nitpick. First, it is the literal text of the success criterion — "MCP enabled→disabled", "`KtorMcpServerManager.stop()`'s bounded 10-second wait" — reachable from a button in the Settings tab. Second, the phase's own test does not merely miss it; `SettingsSaveAsyncTest.kt:417` **certifies it**, asserting `applyToUi in 0 until dispatch` with the justification "applySettingsToUi writes Swing, so it stays on the EDT". That is the vacuity pattern this phase's history warns about, in its one purely structural assertion: the suite's fixture builds a bare `SettingsPanel` whose three `onXxxChanged` callbacks are null, so no test in it could ever observe what those callbacks do in production.
+## Verdict
 
-`MainTab.kt` is byte-identical to pre-phase HEAD, so the EDT calls there are inherited rather than introduced. That mitigates blame, not the criterion.
+**All six ROADMAP success criteria are met. The SC4 gap is genuinely closed, and I proved the new evidence discriminating rather than accepting that it exists and is green.**
 
-**On the review's other Critical findings, judged independently:**
+Both phase-blocking gates pass: the three named suites execute with non-zero counts under `-PexcludeHeavyTests=true` (23 / 3 / 15, with `ChatPanelConcurrencyTest`'s absence as the control that makes those numbers mean something), and `detekt-baseline.xml` is unmoved at 1096 with the new findings answered by inline `@Suppress` rather than a regeneration. The one test failure in the gate run is the documented `RedactionTest` wall-clock flake; I did not take that on faith either — the message matched the recorded signature verbatim, the gap-closure diff touches no redaction code, the full-phase diff touches `Redaction.kt` in comments only, and the suite passes in isolation.
 
-- **CR-01 (no supersede on unload)** — real, confirmed at source, and a defect the offload created. Out of scope for SC1–SC6; it is a correctness-during-teardown issue, not a responsiveness one. Should not block the phase but should not be lost either.
-- **CR-02 (MainTab still saves on the EDT)** — real. The torn-snapshot half is out of scope. The *EDT-blocking* half is in scope for SC4 and is folded into the gap above; the review framed CR-02 as a concurrency problem and did not name the `restore-defaults → applySettingsToUi → 10s stop` chain, which is the sharper consequence.
-- **CR-03 (Clear Chat)** — real and confirmed, but it is the pre-recorded residual D-23-04-1, documented with severity and a suggested home. Known and recorded, not hidden. Out of scope for SC1–SC6.
-- **CR-04 (`OffEdtDispatch:92-95`)** — real. Narrow (requires the error sink itself to throw) and out of scope for the six criteria, but it sits in the one file whose stated purpose is a marshalling point that cannot be bypassed, and the Settings path already defends against exactly this shape while the three chat paths do not.
-- **CR-05 (`openToolDialog` busy guard)** — real. Out of scope for SC1–SC6, but it directly falsifies a 23-01 PLAN must-have truth, and it is the reachable supersede door WR-09 correctly notes the suite never exercises.
-- **WR-11 (`edtGuardWithoutAssertionsTest` in no CI workflow)** — confirmed: `build.yml:47`, `release.yml:33` and `nightly-regression.yml:26` run neither it nor anything with `-da`. SC1 holds **today** — I executed the task and it is green — but nothing in CI would catch a future revert of `check(...)` to `assert(...)`, because the fast gate runs with `-ea` where an `assert` is also green. SC1 is verified; its durability is not gated.
+The status is `human_needed` rather than `passed` because five live-Burp items remain, not because anything failed.
 
-**What does not need re-litigating:** the detekt baseline is untouched at 1096, `ktlintCheck` and `detekt` pass, and all three new suites really do execute under `-PexcludeHeavyTests=true` with the `ChatPanelConcurrencyTest` absence as the control that makes those counts mean something. Both phase-blocking gates pass.
+**What the gap closure actually did, checked at source.** `restoreDefaultsConfirmed` now suppresses the three host notifications at its one call site instead of firing them on the EDT, and the MCP transition it still needs comes from `applyAndSaveSettingsAsync` on `burp-ai-settings-save`. The Settings-tab MCP checkbox and the header toggle both land on `persistSettingsAndApplyMcp`, which submits to `SettingsPersistQueue` and returns. Five production call sites of `settingsRepo.save` / `mcpSupervisor.applySettings` / `backends.reload` remain and I enumerated every one: one on the startup thread, two inside the queue's apply lambdas, three inside the async save body, and `MainTab.kt:119/123` — the eighth site, recorded before this verification as `D-23-06-1` with threat `T-23-06-08` rated high/accept, and narrow because it passes CURRENT settings and so can only re-enter a `stop()` a different site already originated.
+
+**On review 2's three new blockers, judged independently at source and scored against SC1–SC6.**
+
+- **CR-01 is real and I confirmed the whole chain.** `applyIfCurrent` reads `disposed` once at `SettingsPersistQueue.kt:119` and then runs `apply(snapshot)` to completion; `persistSettingsAndApplyMcp`'s body is `settingsRepo.save(it)` followed by `mcpSupervisor.applySettings(...)` with nothing between them. `MainTab.shutdown()` calls `dispose()` first — correct ordering, and it says honestly that the bound it buys is "no new apply starts" — but `App.kt:233` reaches `mcpSupervisor.shutdown()` while a worker already inside a ~107-key save runs on. 23-08's fix is on `applyAndSaveSettingsBody`, a different body on a different thread. **The ledger entry is the part that worries me more than the defect.** `23-06-PLAN.md:566` records `T-23-06-06` as *"fully mitigated in plan 23-08 (CR-01)"*, while `23-06-SUMMARY.md:281` says the opposite and correctly calls it a bound that 23-08 *should* extend. 23-08 did not, and `deferred-items.md` carries no entry. A high-rated threat is marked closed in the plan of record and tracked nowhere else. **Out of scope for SC1–SC6** — it is teardown correctness, not responsiveness — but it must not be lost, and the fix is the same predicate `applyAndSaveSettingsBody` already takes.
+- **CR-02 is real, and the part review 2 does not say is that this phase CREATED it.** I checked pre-phase `2a0c703`: all eight `settingsRepo.save` sites ran on the EDT, so the EDT itself serialised every settings write and no interleave was possible. This phase moved seven onto `burp-ai-settings-sync` under one lock and the Settings-tab save onto `burp-ai-settings-save` under none, and left `MainTab.kt:119` on the EDT under none. `AgentSettingsRepository.save()` at `AgentSettings.kt:542` carries no `@Synchronized`, and `BottomTabsPanel.setActionsBusy` (`:111-116`) disables only `saveButton` and `restoreButton`, so every header toggle and every Settings-tab checkbox stays live for the flight. Two writers can therefore interleave inside ~107 sequential preference writes with `KEY_PRIVACY_MODE` and `KEY_CUSTOM_REDACTION_PATTERNS` a hundred keys apart. On a project whose stated core value is that the privacy controls are non-negotiable, a persisted permissive `privacyMode` beside a foreign pattern list is the worst outcome in the file. **Out of scope for SC4's literal text** — an interleave does not block the EDT — but it is a phase-introduced hazard, and the queue's own "stated honestly" block naming only `MainTab.kt:111` while omitting the larger writer is what turns a recorded residual into an invisible one. The cheap interim is `@Synchronized` on `save()`; both `MainTab` and `SettingsPanel` hold separate repository instances over the same `api.persistence().preferences()`.
+- **CR-03 is real.** `applyIfCurrent` drops the entire superseded lambda, and 23-06 deliberately made the lambdas heterogeneous, so a newer `persistSettings` winning over an older `persistSettingsAndApplyMcp` persists the snapshot and never runs the MCP stop. `ReentrantLock()` at `:51` is the non-fair constructor, and with generation 0 parked inside a ten-second `stop()` that is a wide window for two more clicks to queue and the wrong one to win. `twoApplyBodiesNeverOverlapAndRunInSubmissionOrder` never has two waiters at once, so it cannot see this. **Out of scope for SC4's literal text** — the criterion is that the EDT does not block, and it does not — but I want to be exact about why this is not a gap rather than merely asserting it: on the ordinary single-click path the stop runs, off the EDT, every time; the drop needs a second submission to arrive during the first's flight. That makes it a defect in the mechanism, not a failure of the criterion. Its user-visible consequence — MCP off everywhere in the UI and a listener still on `127.0.0.1` — is severe enough that I folded a socket check into human item 5 so a field run can catch it.
+
+**On the first review's targets.** CR-04 is closed: every sink on the path to the single `invokeLater` is wrapped, the `dispatchedObserver` asymmetry is argued rather than accidental, and `OffEdtDispatchFailurePathTest` covers each limb (4 tests, green). CR-05 is closed at the door that matters — the entry guard is first, `toolsBtn` goes inert, and `updateChatAvailability` now respects `isSending` so the 1 Hz tick cannot restore S0 — with the `/tool` door and `inputArea` left inconsistent (WARN-6). CR-03/`D-23-04-1` (`clearChatState()`) remains the deliberately deferred residual it was, recorded twice with the open UI question stated verbatim.
+
+**What I checked that the artifacts get wrong.** The corrected `assertEdt()` fact holds: 6 occurrences = 1 declaration + 4 invocations + 1 comment, and both my count and the suite's own `occurrencesOf` read raw source with no comment filter, so the destructive house-filter value of 5 never enters the evidence. `SettingsPersistQueueTest.codeLinesOf` **does** strip comments, and that is correct there and only there — its ledger KDoc deliberately reproduces the very tokens it counts, so an unfiltered count would read high against a correct implementation. Two different files, two different right answers, and both are argued in place.
 
 ---
 
-_Verified: 2026-08-21T09:40:00Z_
-_Verifier: Claude (gsd-verifier)_
+_Verified: 2026-08-21T11:05:00Z_
+_Verifier: Claude (gsd-verifier) — re-verification after gap closure_

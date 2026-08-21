@@ -1,9 +1,9 @@
 ---
 status: pending
 phase: 23-edt-confinement-ui-responsiveness
-source: [23-VALIDATION.md, 23-01-SUMMARY.md, 23-02-SUMMARY.md, 23-03-SUMMARY.md, 23-04-SUMMARY.md]
+source: [23-VALIDATION.md, 23-01-SUMMARY.md, 23-02-SUMMARY.md, 23-03-SUMMARY.md, 23-04-SUMMARY.md, 23-06-SUMMARY.md, 23-08-SUMMARY.md, 23-VERIFICATION.md]
 started: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-21
 ---
 
 ## Current Test
@@ -125,12 +125,55 @@ in pure-JVM unit tests — so there is no automated route to this answer even in
 
 result: pending
 
+### 5. SC4 — the MCP enabled→disabled transition no longer freezes the UI, and still actually stops the server
+
+> **Read this first.** An earlier draft of this item (carried in the superseded `23-VERIFICATION.md`)
+> told you to *"expect up to 10 seconds of frozen UI"*. That was written while SC4 was an OPEN gap.
+> Plans 23-06 and 23-08 closed it, so **the expected observation is now inverted: a freeze is a
+> FAILURE.** Do not run the old version.
+
+Build the JAR (`JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew shadowJar`), load
+`Custom-AI-Agent-*.jar` in Burp, enable the MCP server and confirm it reaches **Running**. Then
+exercise all three doors, one at a time, re-enabling the server between each:
+
+1. In the Settings tab's MCP section, untick **Enable MCP server** — *without* pressing Save.
+2. Flip the header **MCP** toggle off.
+3. Press **Restore defaults** and confirm the dialog (`defaultMcpSettings().enabled` is `false`, so
+   this is also an enabled→disabled transition).
+
+For each, keep the mouse moving over the Burp UI during the transition and watch the tab repaint.
+Afterwards check the server really stopped: the status label reads **Stopped**, and
+`lsof -nP -iTCP:<port> -sTCP:LISTEN` returns nothing for the configured MCP port.
+
+expected: Two things, and both must hold.
+
+1. **No freeze.** The UI keeps repainting and stays interactive throughout. The bounded
+   `future.get(10, TimeUnit.SECONDS)` inside `KtorMcpServerManager.stop()` now runs on
+   `burp-ai-settings-sync` (doors 1 and 2) or `burp-ai-settings-save` (door 3), never on the EDT. A
+   stall of any length is an SC4 regression.
+2. **The server actually stops.** A responsive UI with a listener still bound is the *other* failure
+   mode — review 2's CR-03: `SettingsPersistQueue.applyIfCurrent` drops the whole superseded lambda,
+   and `persistSettings` (`{ save }`) superseding `persistSettingsAndApplyMcp` (`{ save; applySettings }`)
+   would persist "disabled" everywhere in the UI while leaving the socket up. To probe for it
+   deliberately, flip the MCP toggle off and then immediately flip a passive/active toggle, and
+   re-check `lsof`.
+
+why_human: Requires a live Burp with a running Ktor MCP server to pay the real bounded wait against a
+real socket. The headless suite proves the two halves it can reach —
+`SettingsSaveAsyncTest.restoreDefaultsDoesNotFireTheHostNotificationsOnTheEdt` (the callback does not
+fire on the EDT) and
+`SettingsPersistQueueTest.theSubmittingThreadReturnsWhileTheApplyIsStillBlocked` (submit returns while
+the apply is still blocked), both confirmed discriminating by red probe during verification — but it
+cannot observe an actual repaint, and it has no socket to bind.
+
+result: pending
+
 ## Summary
 
-total: 4
+total: 5
 passed: 0
 issues: 0
-pending: 4
+pending: 5
 skipped: 0
 blocked: 0
 
