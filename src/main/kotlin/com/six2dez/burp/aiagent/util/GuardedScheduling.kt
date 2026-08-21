@@ -45,7 +45,9 @@ import java.util.concurrent.TimeUnit
  * a guard that also logged the success path would flood Burp's error log.
  *
  * This function never rethrows. That is the entire contract — the caller is a recurring scheduled
- * task whose next execution depends on nothing escaping.
+ * task whose next execution depends on nothing escaping. The contract covers [logError] as well as
+ * [body]: a caller-supplied sink that throws is absorbed too, because a guard that lets its own
+ * reporting escape cancels the schedule exactly as surely as an unguarded body does.
  *
  * **An in-file suppression of `TooGenericExceptionCaught` rather than a regenerated baseline.** Catching
  * [Throwable] is the requirement, not an oversight: the JDK suppresses all subsequent executions on
@@ -67,7 +69,15 @@ internal fun runGuarded(
     try {
         body()
     } catch (e: Throwable) {
-        logError("[$component] $task failed: ${e.message}")
+        try {
+            logError("[$component] $task failed: ${e.message}")
+        } catch (_: Throwable) {
+            // INTENTIONAL: absorbed, not reported. [logError] is caller-supplied and is not required to
+            // be self-guarding, so it can throw — a torn-down `MontoyaApi` is the obvious case. Letting
+            // that throw escape would reach the JDK scheduler and cancel the recurring task permanently,
+            // re-opening the very defect this guard closes. There is by construction nowhere left to
+            // report it: the reporting channel is the thing that just failed.
+        }
     }
 }
 

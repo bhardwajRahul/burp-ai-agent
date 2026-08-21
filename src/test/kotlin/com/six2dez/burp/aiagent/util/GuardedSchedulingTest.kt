@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertTimeoutPreemptively
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
@@ -179,8 +180,11 @@ class GuardedSchedulingTest {
      * A-EDGE-2 (empty case, second form) — a throwable whose `message` is `null`.
      *
      * `NullPointerException` and most `Error` subclasses arrive with a null message. The guard must
-     * still emit exactly one line and must not itself throw while building it, because a guard that
-     * throws inside its own catch re-opens the defect it exists to close.
+     * still emit exactly one line and must not itself throw while building it.
+     *
+     * The neighbouring half of that property — a `logError` that throws rather than a message that is
+     * null — is asserted by [runGuardedDoesNotRethrowWhenTheLogSinkItselfThrows] and
+     * [aThrowingLogSinkDoesNotCancelTheRecurringSchedule].
      */
     @Test
     fun aThrowableWithANullMessageStillRecordsExactlyOneLine() {
@@ -197,6 +201,65 @@ class GuardedSchedulingTest {
             logged.first().startsWith("[TestComponent] null-message tick failed:"),
             "The prefix must survive a null message; got: ${logged.first()}",
         )
+    }
+
+    /**
+     * REL-06-D — the guard's own reporting cannot escape it.
+     *
+     * `logError` is caller-supplied and is not required to be self-guarding: `ActiveAiScanner` passes a
+     * raw `{ api.logging().logToError(it) }`, and a `MontoyaApi` torn down mid-unload is exactly the
+     * condition under which the guarded body is also most likely to throw. A `logError` that throws
+     * from inside the catch reaches the JDK scheduler and cancels the recurring task permanently — the
+     * REL-06 defect this helper exists to close, re-opened at the one chokepoint every migrated call
+     * site now depends on.
+     */
+    @Test
+    fun runGuardedDoesNotRethrowWhenTheLogSinkItselfThrows() {
+        assertDoesNotThrow(
+            "runGuarded must never rethrow. A throw from logError escapes the guard, reaches the JDK " +
+                "scheduler and cancels the recurring task for the rest of the session with nothing in any " +
+                "log — the exact REL-06 defect the guard exists to close.",
+        ) {
+            runGuarded("TestComponent", "reporting tick", { throw IllegalStateException("log sink is gone") }) {
+                error("body blew up")
+            }
+        }
+    }
+
+    /**
+     * REL-06-D, end to end — the scheduled form of the property above, proved against a REAL
+     * [java.util.concurrent.ScheduledExecutorService] and a REAL next tick, because the failure being
+     * closed is the JDK's own suppression behaviour and a mock scheduler could not reproduce it.
+     */
+    @Test
+    fun aThrowingLogSinkDoesNotCancelTheRecurringSchedule() {
+        val executor = newScheduler()
+        val invocations = AtomicInteger(0)
+        val laterTicks = CountDownLatch(2)
+
+        assertTimeoutPreemptively(Duration.ofSeconds(TIMEOUT_SECONDS)) {
+            executor.scheduleGuarded(
+                "TestComponent",
+                "recurring tick",
+                { throw IllegalStateException("log sink is gone") },
+                0,
+                TICK_DELAY_MILLIS,
+                TimeUnit.MILLISECONDS,
+            ) {
+                if (invocations.incrementAndGet() == 1) {
+                    error("first tick blew up")
+                }
+                laterTicks.countDown()
+            }
+
+            assertTrue(
+                laterTicks.await(AWAIT_SECONDS, TimeUnit.SECONDS),
+                "Ticks 2 and 3 never ran after the guard's own logError threw. The schedule was " +
+                    "cancelled by a throw the guard let escape from inside its own catch, which is the " +
+                    "REL-06 defect (SC1) in its most damaging form: the fault containment mechanism " +
+                    "itself is the thing that kills the schedule.",
+            )
+        }
     }
 
     private fun newScheduler(): ScheduledExecutorService {
