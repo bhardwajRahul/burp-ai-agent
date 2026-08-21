@@ -197,19 +197,28 @@ REQUIREMENTS.md, the codebase maps, and the code read during this discussion.
   `deleteOnExit()` call sites D-01 replaces.
 - `App.kt` `shutdown()` — new call into the cli-package registry object (D-03).
 
-### ⚠ Blocking test constraint for the planner
-`src/test/kotlin/com/six2dez/burp/aiagent/backends/cli/CliBackendTempFileTest.kt` contains two tests
-that reach into the JDK-internal `DeleteOnExitHook` by reflection and assert registration **happens**:
+### ⚠ Test-coverage constraint for the planner — CORRECTED 2026-08-21 by `24-RESEARCH.md`
 
-- `uvPromptDeleteOnExitIsRegistered` (`:95`)
-- `codexOutputDeleteOnExitIsRegistered` (`:106`)
+**The original note in this section was wrong and has been replaced.** It claimed
+`CliBackendTempFileTest`'s two `…DeleteOnExitIsRegistered` tests (`:95`, `:106`) pin the behaviour
+D-01 removes and would turn the fix red. Research checked them at source and measured the opposite:
 
-They pin exactly the behaviour D-01 removes. They must be **inverted in the same commit** as the
-production change — leaving them turns the fix red, and deleting them without replacement drops the
-only existing coverage of this path. The two surviving tests in that file
-(`uvPromptTempFileIsCleanedUpAfterFailure` `:41`, `codexOutputTempFileIsCleanedUpAfterFailure` `:65`)
-assert the `finally`-path behaviour D-01 preserves and should stay green unchanged — which makes them
-a useful control.
+- Both tests create their **own** temp files, with different prefixes (`burp_uv_prompt_test_dox_`,
+  `burp-ai-agent-codex-test-dox-`), and call `deleteOnExit()` **themselves**. Neither imports or
+  references `CliBackend` at all.
+- `isRegisteredForDeleteOnExit` (`:120-131`) reflects into `java.io.DeleteOnExitHook` and falls back
+  to `catch (_: Exception) { true }`. On the project's JDK 21.0.12 that reflection raises
+  `InaccessibleObjectException`, which the fallback converts into a **pass**.
+
+So they assert the JDK's own `deleteOnExit` behaviour, not this codebase's, and they will stay green
+after D-01 regardless. **They are vacuous, not blocking.** The real consequence is worse than the
+one first recorded: SC5 currently has **zero** real coverage. They must be **replaced** with
+assertions against the new `internal object` seam (D-02) — not "inverted to keep the build green".
+The JDK-internal reflection should be dropped entirely; the new seam is directly observable.
+
+The file's other two tests — `uvPromptTempFileIsCleanedUpAfterFailure` (`:41`) and
+`codexOutputTempFileIsCleanedUpAfterFailure` (`:65`) — do exercise the `finally`-path behaviour D-01
+preserves, and remain a useful control.
 
 </code_context>
 
