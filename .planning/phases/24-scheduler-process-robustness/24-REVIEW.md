@@ -28,6 +28,11 @@ findings:
   info: 9
   total: 21
 status: issues_found
+critical_resolved:
+  - id: CR-01
+    commit: 2446da1
+  - id: CR-02
+    commit: 19691c7
 ---
 
 # Phase 24: Code Review Report
@@ -76,6 +81,12 @@ I did **not** re-run the gate; findings below are all derived from reading the t
 ## Critical Issues
 
 ### CR-01: `runGuarded` rethrows when the log sink throws — the "never rethrows" contract is false
+
+**Status: RESOLVED** in `2446da1` — the reporting call now sits in its own `catch (_: Throwable)`
+inside the guard's catch, so a `logError` that throws is absorbed instead of escaping to the JDK
+scheduler; `GuardedSchedulingTest` gains the unit and the end-to-end assertions that were previously
+only prose, both red against the unfixed guard by real assertion. The `InterruptedException` re-assert
+the fix snippet also showed is **not** included — that is WR-05 and remains open.
 
 **File:** `src/main/kotlin/com/six2dez/burp/aiagent/util/GuardedScheduling.kt:67-71`
 (contract stated at `:47-48`; caller at `src/main/kotlin/com/six2dez/burp/aiagent/scanner/ActiveAiScanner.kt:386`)
@@ -137,6 +148,14 @@ the assertion that makes this red before the fix.
 ---
 
 ### CR-02: A temp file whose `delete()` *returns false* is deregistered anyway — the safety net is lost, and this is a regression against `deleteOnExit()`
+
+**Status: RESOLVED** in `19691c7` — all three sites now go through a new
+`CliTempFileRegistry.deleteAndDeregister(file)`, which drops the entry only when `delete()` returned
+`true` or the file is already gone, so a failed delete leaves the entry for the drain and the exit
+hook to retry. Centralising it in the registry (rather than inlining the branch three times) is what
+makes the behaviour assertable in pure JVM without reflecting into `java.base` — D-02's own rationale
+for the object existing. The structural gate now forbids a bare `CliTempFileRegistry.deregister(` in
+`CliBackend.kt` outright instead of counting occurrences.
 
 **File:** `src/main/kotlin/com/six2dez/burp/aiagent/backends/cli/CliBackend.kt:302-315`
 (and the same shape at `:157-161`)
