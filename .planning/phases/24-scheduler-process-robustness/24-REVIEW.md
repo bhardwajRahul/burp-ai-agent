@@ -558,6 +558,33 @@ try {
 
 ---
 
+### WR-11: `CliTempFileRegistry`'s KDoc names a compensating control that does not exist on Windows
+
+**Severity:** Warning
+**File:** `src/main/kotlin/com/six2dez/burp/aiagent/backends/cli/CliTempFileRegistry.kt:34-35`
+
+*Surfaced by the CR-02 fix pass, not by the original review. Recorded so it is not lost; left open
+deliberately (a documentation claim, not a behaviour defect).*
+
+The §"Window NOT closed" KDoc states that after a hard kill the orphaned prompt file "keeps its
+owner-only POSIX permissions, which is the compensating control."
+
+That control **does not exist on Windows.** `CliBackend.kt:149-153` wraps `setPosixFilePermissions`
+in `catch (_: UnsupportedOperationException)` and skips it on non-POSIX filesystems — and Windows is
+precisely the platform CR-02's severity note is about, because it is where `File.delete()` returns
+`false` while the CLI child still holds the handle. So the documented mitigation is absent on the one
+platform where the residual is most reachable.
+
+**Failure scenario:** on Windows, a hard kill (or, pre-CR-02-fix, any failed delete) leaves
+`burp_uv_prompt_*.txt` — containing the full prompt — in the system temp directory with default ACLs,
+while the shipped KDoc tells the next reader that owner-only permissions protect it.
+
+**Fix:** either qualify the claim ("on POSIX filesystems; Windows relies on the temp directory's own
+ACLs") or drop the sentence. Do not leave an unqualified claim of a control that is conditionally
+absent — this is the same class of defect as WR-09 (prose asserting something the code does not do),
+and the same reason D-04 required the window to be *named* rather than overclaimed.
+
+
 ## Info
 
 ### IN-01: Stale comment — `requestExecutor` is no longer a cached thread pool
