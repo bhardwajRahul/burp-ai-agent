@@ -116,11 +116,12 @@ class CliBackend(
                     val finalText = historyText + text
                     val outputFile =
                         if (backendId == "codex-cli") {
-                            // REL-02: deleteOnExit() registers a JVM shutdown hook as crash-safety net;
-                            // the finally block below (:274-288) is the primary cleanup path.
+                            // REL-07 / SC5: the finally block below is the primary cleanup path; the registry is
+                            // a bounded safety net for one case only — a clean Burp quit while this call is in
+                            // flight. See CliTempFileRegistry's KDoc for the window it does not close.
                             java.io.File
                                 .createTempFile("burp-ai-agent-codex", ".txt")
-                                .also { it.deleteOnExit() }
+                                .also { CliTempFileRegistry.register(it) }
                         } else {
                             null
                         }
@@ -133,9 +134,9 @@ class CliBackend(
                         combinedText.length > Defaults.LARGE_PROMPT_THRESHOLD
                     ) {
                         val tFile = java.io.File.createTempFile("burp_uv_prompt_", ".txt")
-                        // REL-02: deleteOnExit() registers a JVM shutdown hook as crash-safety net;
-                        // the finally block below (:274-288) is the primary cleanup path.
-                        tFile.deleteOnExit()
+                        // REL-07 / SC5: same contract as the codex output file above — the finally block is
+                        // primary, this registration is the bounded net for a clean quit mid-call.
+                        CliTempFileRegistry.register(tFile)
                         try {
                             // Set restrictive permissions (owner-only read/write)
                             val posixPath = tFile.toPath()
@@ -154,6 +155,10 @@ class CliBackend(
                         } catch (e: Exception) {
                             // INTENTIONAL: temp file write failed; cleanup and propagate error via onComplete
                             tFile.delete()
+                            // REL-07 / SC5: this branch returns before the outer finally block, so it is the ONLY
+                            // place that can clear this entry. Without it the registry would retain one entry per
+                            // failed prompt write for the life of the JVM — the exact unbounded growth D-01 removes.
+                            CliTempFileRegistry.deregister(tFile)
                             onComplete(e)
                             return@submit
                         }
@@ -295,12 +300,16 @@ class CliBackend(
                             // INTENTIONAL: finally block cleanup; destroyForcibly() must not prevent file cleanup
                         }
                         try {
+                            // Delete first, deregister second: if the delete throws, the entry survives and the
+                            // registry's drain sweeps the file later. The reverse order would lose it entirely.
                             promptFile?.delete()
+                            promptFile?.let { CliTempFileRegistry.deregister(it) }
                         } catch (_: Exception) {
                             // INTENTIONAL: finally block cleanup; file deletion must not prevent process cleanup
                         }
                         try {
                             outputFile?.delete()
+                            outputFile?.let { CliTempFileRegistry.deregister(it) }
                         } catch (_: Exception) {
                             // INTENTIONAL: finally block cleanup; file deletion must not prevent process cleanup
                         }
