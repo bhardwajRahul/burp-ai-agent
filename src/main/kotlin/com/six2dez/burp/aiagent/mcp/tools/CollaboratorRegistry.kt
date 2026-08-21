@@ -1,6 +1,7 @@
 package com.six2dez.burp.aiagent.mcp.tools
 
 import burp.api.montoya.collaborator.CollaboratorClient
+import com.six2dez.burp.aiagent.util.scheduleGuarded
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -22,12 +23,16 @@ object CollaboratorRegistry {
         }
 
     init {
-        cleaner.scheduleWithFixedDelay(
-            { cleanupExpired() },
+        // REL-06: routed through scheduleGuarded so a throw on one cleaner tick cannot silently
+        // cancel expiry for the rest of the Burp session. See util/GuardedScheduling.kt.
+        cleaner.scheduleGuarded(
+            "CollaboratorRegistry",
+            "expiry cleanup",
+            ::log,
             CLEANUP_INTERVAL_MINUTES,
             CLEANUP_INTERVAL_MINUTES,
             TimeUnit.MINUTES,
-        )
+        ) { cleanupExpired() }
     }
 
     fun put(
