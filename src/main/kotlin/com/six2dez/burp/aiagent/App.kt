@@ -13,6 +13,7 @@ import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.audit.RollingLogConfig
 import com.six2dez.burp.aiagent.backends.BackendDiagnostics
 import com.six2dez.burp.aiagent.backends.BackendRegistry
+import com.six2dez.burp.aiagent.backends.cli.CliTempFileRegistry
 import com.six2dez.burp.aiagent.config.AgentSettingsRepository
 import com.six2dez.burp.aiagent.config.toPreprocessorSettings
 import com.six2dez.burp.aiagent.context.ContextCollector
@@ -232,6 +233,12 @@ object App {
         safeShutdownStep("Supervisor") { supervisor.shutdown() }
         safeShutdownStep("MCP supervisor") { mcpSupervisor.shutdown() }
         safeShutdownStep("Backend registry") { backendRegistry.shutdown() }
+        // REL-07 / SC5 / D-03: placed here because the CLI executor lives under the backend registry —
+        // by this point every in-flight CLI call has already had its finally block run, so the drain
+        // sweeps a settled set. It is also the ONLY cleanup an unload gets: the JVM exit hook does not
+        // fire when the extension is unloaded while Burp keeps running. Unregistering the hook here is
+        // what stops a reload from pinning a dead classloader (threat T-24-07).
+        safeShutdownStep("CLI temp files") { CliTempFileRegistry.shutdown() }
         BackendDiagnostics.retry = null
         safeShutdownStep("Worker pool") {
             workerPool.shutdown()

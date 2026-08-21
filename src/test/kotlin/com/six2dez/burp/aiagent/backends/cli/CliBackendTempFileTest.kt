@@ -317,7 +317,139 @@ class CliBackendTempFileTest {
         )
     }
 
+    // -------- REL-07-F: the structural gates (D-01, D-03) --------
+
+    /**
+     * REL-07-F (SC5) — the structural gate that pins the swap in `CliBackend.kt`, and the genuinely
+     * red-before-green half of this plan: the seven behavioural tests above drive a class that did not
+     * exist, so they were red merely by non-compilation, whereas this one reads the real pre-fix source
+     * and fails against it.
+     *
+     * **Comment lines are stripped, block comments included.** That strip is what lets
+     * `CliTempFileRegistry.kt` name the removed JDK facility in its own KDoc — which D-04 requires —
+     * without invalidating this gate. `build.gradle.kts` declares the whole `src/main/kotlin` tree as a
+     * `tasks.test` input under the property name `mainSourceTreeStructuralInputs`, so an edit to
+     * `CliBackend.kt` re-runs this assertion instead of serving it from cache.
+     */
+    @Test
+    fun theCliBackendTempFilesCannotRegressToPerInvocationJvmRegistration() {
+        val code = codeLinesOf(CLI_BACKEND_SOURCE)
+        // Assembled from parts so the token this test forbids is never itself a literal that a careless
+        // future grep over the test tree could mistake for a real use.
+        val forbiddenRegistration = "delete" + "OnExit("
+
+        assertEquals(
+            0,
+            code.count { it.contains(forbiddenRegistration) },
+            "CliBackend ledger: the temp-file sites must not go back to the JVM's own exit-time deletion " +
+                "facility. It keeps its registrations in a static set with NO removal API, so each call " +
+                "restores one permanent, unremovable JVM shutdown-hook entry that is retained for the life " +
+                "of the Burp JVM — growth bounded by lifetime invocation count (REL-07 / SC5, D-01, " +
+                "threat T-24-15).",
+        )
+        assertEquals(
+            2,
+            code.count { it.contains("CliTempFileRegistry.register(") },
+            "CliBackend ledger: exactly two registration sites — the codex output file and the " +
+                "large-prompt file. Fewer means a temp file lost its safety net for a clean Burp quit " +
+                "mid-call; more means a third temp file appeared that this suite does not cover.",
+        )
+        assertEquals(
+            3,
+            code.count { it.contains("CliTempFileRegistry.deregister(") },
+            "CliBackend ledger: exactly three deregistration sites. Two are in the finally block, beside " +
+                "each existing delete. The third is in the prompt write-failure branch, which returns " +
+                "before the outer finally and is therefore the ONLY place that can clear its own entry — " +
+                "dropping it retains one entry per failed write for the life of the JVM, which is the very " +
+                "growth D-01 removes. Note the plan predicted two; three is the count that actually keeps " +
+                "the registry bounded.",
+        )
+    }
+
+    /**
+     * D-03 — the unload half of SC5, pinned structurally.
+     *
+     * The JVM exit hook does NOT fire when the extension is unloaded while Burp keeps running, so
+     * `App.shutdown()`'s drain is the only thing that covers a CLI call in flight at unload, and the
+     * only thing that stops a reload from accumulating hooks that pin a dead classloader (threat
+     * T-24-07).
+     */
+    @Test
+    fun appShutdownDrainsTheRegistryAfterTheBackendRegistryAndBeforeTheWorkerPool() {
+        val code = codeLinesOf(APP_SOURCE)
+
+        assertEquals(
+            1,
+            code.count { it.contains("safeShutdownStep(\"CLI temp files\")") },
+            "App ledger: exactly one \"CLI temp files\" shutdown step. Zero means an extension unload " +
+                "leaves the extension's own exit hook armed — an extension-classloader object pinning a " +
+                "dead classloader on every reload — and leaves any CLI call in flight at unload without " +
+                "any cleanup at all, because the JVM exit hook does not fire on unload (D-03).",
+        )
+        assertEquals(
+            1,
+            code.count { it.contains("CliTempFileRegistry.shutdown()") },
+            "App ledger: the step must actually call into the registry. One call site, no more.",
+        )
+
+        val backendRegistryStep = code.indexOfFirst { it.contains("safeShutdownStep(\"Backend registry\")") }
+        val cliTempFilesStep = code.indexOfFirst { it.contains("safeShutdownStep(\"CLI temp files\")") }
+        val workerPoolStep = code.indexOfFirst { it.contains("safeShutdownStep(\"Worker pool\")") }
+
+        assertTrue(
+            backendRegistryStep >= 0 && workerPoolStep >= 0,
+            "App ledger: both neighbouring steps must still exist, or this ordering assertion is vacuous. " +
+                "Found Backend registry at $backendRegistryStep and Worker pool at $workerPoolStep.",
+        )
+        assertTrue(
+            cliTempFilesStep > backendRegistryStep,
+            "App ledger: the drain must run AFTER the backend registry has shut down. The CLI executor " +
+                "lives under the backend registry, so draining earlier would sweep a set that is still " +
+                "moving — a call whose finally block has not run yet would have its temp files deleted " +
+                "out from under it.",
+        )
+        assertTrue(
+            cliTempFilesStep < workerPoolStep,
+            "App ledger: the drain must run BEFORE the worker pool is torn down, so the step order stays " +
+                "the one D-03 fixed and reviewed.",
+        )
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Fixture
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * The non-comment lines of [path], read from disk.
+     *
+     * Named, resolved and asserted rather than left to surface as a bare `FileNotFoundException`,
+     * which is what a build-layout change would otherwise produce here. A line counts as a comment
+     * when its first non-space characters are a line-comment marker, a continuation asterisk, or a
+     * block-comment opener; stripping BLOCK comments is what makes it safe for the counted tokens to
+     * be named in the prose that documents them. (The three markers are written out longhand rather
+     * than quoted, because Kotlin block comments nest — a literal opener inside this KDoc would open a
+     * nested comment and swallow the rest of the file.)
+     */
+    private fun codeLinesOf(path: String): List<String> {
+        val file = File(path)
+        assertTrue(
+            file.isFile,
+            "Expected to find `$path` relative to the test working directory " +
+                "`${System.getProperty("user.dir")}`, resolved as `${file.absolutePath}`. If the build " +
+                "layout changed, fix the path here and the matching `tasks.test` input declaration " +
+                "`mainSourceTreeStructuralInputs` in build.gradle.kts.",
+        )
+        return file
+            .readLines()
+            .filterNot { line ->
+                val trimmed = line.trimStart()
+                trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")
+            }
+    }
+
     private companion object {
         const val SIMULATED_CALL_COUNT = 10
+        const val CLI_BACKEND_SOURCE = "src/main/kotlin/com/six2dez/burp/aiagent/backends/cli/CliBackend.kt"
+        const val APP_SOURCE = "src/main/kotlin/com/six2dez/burp/aiagent/App.kt"
     }
 }
