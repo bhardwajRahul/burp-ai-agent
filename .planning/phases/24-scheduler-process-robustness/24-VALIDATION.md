@@ -4,7 +4,7 @@ slug: scheduler-process-robustness
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 status: draft
 nyquist_compliant: false
-wave_0_complete: false  # set by execute-phase once the six suites exist
+wave_0_complete: false  # set by execute-phase once the seven Wave 0 suites exist (six new + the CliBackendTempFileTest rewrite)
 created: 2026-08-21
 ---
 
@@ -97,14 +97,19 @@ not tested the bypass."* Rows that genuinely go **red pre-fix**:
 |-----|---------------------|
 | REL-06-D | three files currently call `scheduleWithFixedDelay` directly |
 | REL-06-G | the failure log line carries no target id |
-| REL-07-B / C / D | no buffer class exists |
+| REL-07-D | `CliBackend.kt` declares an unsynchronised accumulator today and has no converted read site; the assertion reads the real pre-fix file structurally and fails on it |
 | REL-07-F | `deleteOnExit(` is present twice in `CliBackend.kt` |
 | REL-07-G / H | an unbounded cached pool is constructed twice; no named factories |
 | REL-07-I | `requestExecutor.submit(` sits before `return try {` in `sendRequestWithTimeout` |
 | REL-07-D (source-order half) | `App.kt` has no `"CLI temp files"` shutdown step |
 
-Rows REL-06-A/B/C and REL-07-A/E test code that does not exist yet and are red only by
+Rows REL-06-A/B/C, REL-07-A/B/C and REL-07-E test code that does not exist yet and are red only by
 non-compilation — that is weaker evidence. **Note it in the plan; do not claim them as gates.**
+
+REL-07-B and REL-07-C sit in this weak column deliberately, and an earlier draft of this file had them
+in the strong one. All three of REL-07-A/B/C drive the same non-existent `CliOutputBuffer` class, so
+"no buffer class exists" is the *reason* they are weak, not a reason they are strong: a suite that
+cannot compile has not exercised a bypass. Plan 24-03's single genuine gate is REL-07-D.
 
 ---
 
