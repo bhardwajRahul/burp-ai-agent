@@ -315,7 +315,14 @@ and `git diff --stat detekt-baseline.xml` must be empty (signature-keyed, pinned
 5. `deleteOnExit()` no longer registers one never-removed shutdown-hook entry per CLI invocation; temp-file cleanup still happens on the normal path and on crash.
 6. `App.workerPool` and `ActiveAiScanner.requestExecutor` use bounded pools; an active scan with many injection points cannot spawn unbounded threads. Executors created by this phase carry named thread factories so a Burp thread dump is readable.
 
-**Plans**: TBD
+**Plans**: 5 plans in 4 waves (24-02 and 24-03 run in parallel in wave 2). Wave order encodes the measured SC1↔SC6 coupling: bounding an executor creates a `RejectedExecutionException` throw site on the scheduler thread at `ActiveAiScanner.kt:391`, so the guard must land first or the scanner becomes strictly worse than it is today.
+
+Plans:
+- [ ] 24-01-PLAN.md — SC1: `runGuarded`/`scheduleGuarded` helper, three unguarded recurring sites migrated, structural allowlist gate, and the phase's shared `Defaults` constants plus `tasks.test` input declaration (wave 1)
+- [ ] 24-02-PLAN.md — SC2 + SC6 scanner half: per-target failure log carries `target.id`, `requestExecutor` bounded and named, rejected submit returns null (wave 2)
+- [ ] 24-03-PLAN.md — SC3 + SC4: `CliOutputBuffer` replaces the unsynchronised, unbounded CLI capture accumulator (wave 2)
+- [ ] 24-04-PLAN.md — SC5: `CliTempFileRegistry` per D-01…D-04, replacing the per-invocation JVM exit-hook registration (wave 3)
+- [ ] 24-05-PLAN.md — SC6 worker-pool half: service log pump moved to a named daemon thread, then `App.workerPool` bounded and named (wave 4)
 
 ---
 
