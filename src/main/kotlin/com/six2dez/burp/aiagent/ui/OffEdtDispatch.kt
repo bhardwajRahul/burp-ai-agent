@@ -73,6 +73,22 @@ internal object OffEdtDispatch {
      * Burp did not create is a throwable nobody would otherwise see, so both the work and the EDT tail
      * are wrapped and routed to it.
      *
+     * **Every sink on the path to the single `invokeLater` is itself wrapped, so the resulting contract
+     * is that the EDT tail is unreachable only if `SwingUtilities.invokeLater` itself fails (CR-04).**
+     * `logError` is a Montoya API handle at every production call site, and a handle whose extension has
+     * been unloaded is not guaranteed to keep accepting calls — which is exactly the co-occurring
+     * condition here, since the failure-path sink is reached only when `work` failed and one reason
+     * `work` fails is that the extension is tearing down. Unwrapped, a throwing logger killed the
+     * runnable outright: the tail never ran, so `ChatPanel` never cleared its busy state, `runningTool`
+     * kept a token nobody would clear, the completion callback was silently dropped, and the panel sat
+     * in UI-SPEC state S3 — Send hidden, input disabled — for the rest of the Burp session with nothing
+     * running. A throwing sink must cost a log line and nothing else.
+     *
+     * [dispatchedObserver] is deliberately NOT wrapped, and that asymmetry is a decision rather than an
+     * oversight. It is invoked on the CALLING thread before any dispatch exists, so nothing downstream
+     * depends on it and a throw there is the caller's own bug — one that must stay visible instead of
+     * being swallowed inside a helper. Wrapping it would buy nothing and hide something.
+     *
      * The daemon flag is set explicitly: a non-daemon worker can hold extension unload open. The thread
      * is named so a stuck worker is identifiable in a thread dump.
      */
@@ -91,7 +107,7 @@ internal object OffEdtDispatch {
             Runnable {
                 val outcome = runCatching(work)
                 outcome.exceptionOrNull()?.let { failure ->
-                    logError("[OffEdtDispatch] $label failed off the EDT: ${failure.javaClass.simpleName}: ${failure.message}")
+                    runCatching { logError("[OffEdtDispatch] $label failed off the EDT: ${failure.javaClass.simpleName}: ${failure.message}") }
                 }
                 SwingUtilities.invokeLater {
                     try {
@@ -100,11 +116,11 @@ internal object OffEdtDispatch {
                         runCatching { onEdt(outcome) }
                             .exceptionOrNull()
                             ?.let { failure ->
-                                logError("[OffEdtDispatch] $label failed in its EDT tail: ${failure.javaClass.simpleName}: ${failure.message}")
+                                runCatching { logError("[OffEdtDispatch] $label failed in its EDT tail: ${failure.javaClass.simpleName}: ${failure.message}") }
                             }
                     } finally {
                         // In the `finally`, so the work is recorded as settled even when the tail threw.
-                        settledObserver?.invoke(label)
+                        runCatching { settledObserver?.invoke(label) }
                     }
                 }
             }
