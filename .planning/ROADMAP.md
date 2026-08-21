@@ -282,7 +282,7 @@ Plans:
 
 **Gap wave 2** *(blocked on 23-06 — shares the SettingsPanel files)*
 
-- [ ] 23-08-PLAN.md — CR-01: `SettingsPanel.shutdown()` supersedes the in-flight save worker so an unloaded extension cannot leave an MCP server listening on `127.0.0.1`; plus WR-11, wiring `edtGuardWithoutAssertionsTest` into the PR gate and nightly regression (wave 2)
+- [x] 23-08-PLAN.md — CR-01: `SettingsPanel.shutdown()` supersedes the in-flight save worker so an unloaded extension cannot leave an MCP server listening on `127.0.0.1`; plus WR-11, wiring `edtGuardWithoutAssertionsTest` into the PR gate and nightly regression (wave 2)
 
 **Explicitly out of scope for gap closure:** D-14 stays closed (`KtorMcpServerManager.stop()` remains blocking;
 only its callers move), `assertEdt()` stays byte-identical (Phase 26 / QUAL-07 owns it), and CR-03 / D-23-04-1
@@ -365,7 +365,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
 | 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
 | 22. Agent Tool-Call Trust Boundary | 9/9 | Complete    | 2026-08-20 |
-| 23. EDT Confinement & UI Responsiveness | 7/8 | In Progress|  |
+| 23. EDT Confinement & UI Responsiveness | 8/8 | In Progress|  |
 | 24. Scheduler & Process Robustness | 0/? | Not started | — |
 | 25. Secondary Hardening | 0/? | Not started | — |
 | 26. Coverage, Static-Analysis Debt & Docs | 0/? | Not started | — |

@@ -5,16 +5,16 @@ milestone_name: Security Correctness & Agent Trust
 current_phase: 23
 current_phase_name: EDT Confinement & UI Responsiveness
 status: executing
-stopped_at: Completed 23-07-PLAN.md
-last_updated: "2026-08-21T09:43:54.251Z"
+stopped_at: Completed 23-08-PLAN.md
+last_updated: "2026-08-21T10:20:20.693Z"
 last_activity: 2026-08-21
 last_activity_desc: Phase 23 execution started
-state_head: bfacf95ff2e50c03bfc0f0ef0a0aa1443d779423
+state_head: 2766e4f2ad0d9a3d2683ecfe62e5626ce49ed92b
 progress:
   total_phases: 7
   completed_phases: 1
   total_plans: 46
-  completed_plans: 45
+  completed_plans: 46
   percent: 14
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 ## Current Position
 
 Phase: 23 (EDT Confinement & UI Responsiveness) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
 Resume file: None
 Last activity: 2026-08-21 — Phase 23 execution started
@@ -142,6 +142,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | Phase 23 P05 | 27 min | 2 tasks | 4 files |
 | Phase 23 P06 | 28 min | 3 tasks | 8 files |
 | Phase 23 P07 | 27 min | 3 tasks | 5 files |
+| Phase 23 P08 | 37 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -211,6 +212,9 @@ Recent decisions affecting current work:
 - [Phase 23]: 23-07: transcript-absence is asserted as a row COUNT — the row-TEXT form is false by construction because ChatMessagePanel renders every non-user role as the literal 'AI'
 - [Phase 23]: 23-07: no toolDecisionReporter.report and no durationMs in the new audit record — the user-originated paths are UNGATED by SC5 and measure no duration, so either would be a fabricated audit field
 - [Phase 23]: 23-07: red probes must run against a COMMITTED baseline — git checkout -- restores the correct implementation only if it is committed, otherwise it discards the work
+- [Phase 23]: Task 2's scanner supersede test ships as TWO shapes, not the plan's one: three sequential early-return guards mean a supersede landing before the first short-circuits the rest, so a single shape leaves every later guard unfalsifiable — Measured — probes 2-1 and 2-2 now fail on different lines naming different mocks; under the single-shape design 2-2 would have passed green with the active-scanner guard deleted
+- [Phase 23]: WR-11 belongs to Phase 23, not Phase 26/QUAL-07 — checked against both texts rather than assumed — QUAL-07 covers the detekt baseline's direction, the disposition of ChatPanel's assert()-based enforcement, and SecretCipher docs; none is CI wiring. edtGuardWithoutAssertionsTest and the check(...) it proves were both created by plan 23-02 inside this phase
+- [Phase 23]: The settings supersede's AtomicLong is redundant with the disposed flag at unload — measured by red probe 1-3, kept for the save-supersedes-save case D-10 currently makes unreachable — isCurrent is a conjunction, so disposed = true alone falsifies it; removing saveGeneration.incrementAndGet() from shutdown() left the test green
 
 ### Roadmap Evolution
 
@@ -253,6 +257,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T09:43:41.326Z
-Stopped at: Completed 23-07-PLAN.md
+Last session: 2026-08-21T10:20:08.636Z
+Stopped at: Completed 23-08-PLAN.md
 Resume file: None
