@@ -301,6 +301,14 @@ None — no external service configuration required.
 - **For 26-07:** this plan added a new test source directory `src/test/kotlin/com/six2dez/burp/aiagent/mcp/schema/` whose `package` declaration matches its path, so it adds no second `InvalidPackageDeclaration` violation to the one 26-07 is removing. `detekt-baseline.xml` is byte-identical to its state at `4f0ebd7`.
 - **Remaining headroom in the `mcp` tree** now sits mainly in `mcp/external` (137/225 = 60.89% line, 13/66 = 19.70% branch — untouched by this plan) and in the Montoya-bound functions listed under "Deliberate exclusions". Anyone raising the tree further should start with `mcp/external`'s branch coverage, which is the weakest number left.
 
+## Self-Check: PASSED
+
+- All three created test files exist and are tracked (`git ls-files`).
+- All four commits exist on `worktree-agent-a8df93ce43c8da45d`: `3881215`, `216a809`, `add9c8e`, `0a90268`.
+- `git diff --diff-filter=D --name-only 767776d HEAD` prints nothing — no file was deleted.
+- Working tree clean; no untracked files left behind.
+- `git diff --quiet src/main/kotlin` and `git diff --quiet detekt-baseline.xml` both exit 0.
+
 ---
 *Phase: 26-coverage-static-analysis-debt-docs*
 *Completed: 2026-08-22*
