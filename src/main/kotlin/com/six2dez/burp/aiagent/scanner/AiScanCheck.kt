@@ -247,7 +247,7 @@ class AiScanCheck(
         // Create Burp issue
         return AuditIssue.auditIssue(
             "[AI Active] ${vulnClass.name} (Burp Scanner)",
-            buildDetail(insertionPoint, payload, evidence, vulnClass),
+            buildDetail(insertionPoint, payload, evidence),
             ScannerIssueSupport.remediation(vulnClass),
             baseRequestResponse.request().url(),
             ScannerIssueSupport.mapSeverity(vulnClass),
@@ -323,7 +323,6 @@ class AiScanCheck(
         insertionPoint: AuditInsertionPoint,
         payload: Payload,
         evidence: String,
-        vulnClass: VulnClass,
     ): String {
         val settings = getSettings()
         val backendId = settings.preferredBackendId

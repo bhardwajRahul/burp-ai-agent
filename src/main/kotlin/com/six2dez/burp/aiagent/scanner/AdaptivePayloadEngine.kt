@@ -48,7 +48,6 @@ class AdaptivePayloadEngine(
         }
 
         // Redact sensitive data in prompt context when privacy mode is active
-        val safeHost = if (privacyMode != PrivacyMode.OFF) "[REDACTED_HOST]" else host
         val safeParamName = if (privacyMode == PrivacyMode.STRICT) "[REDACTED_PARAM]" else paramName
         val safeOriginalValue = if (privacyMode != PrivacyMode.OFF) "[REDACTED_VALUE]" else originalValue
         val safeErrorPatterns = if (privacyMode == PrivacyMode.STRICT) emptySet() else errorPatterns

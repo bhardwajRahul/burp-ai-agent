@@ -862,11 +862,6 @@ class ResponseAnalyzer {
         val diff = calculateDifference(originalBody, modifiedBody)
 
         // Identify payload type
-        val isTrueCondition =
-            payload.value.contains("1'='1") ||
-                payload.value.contains("1=1") ||
-                payload.expectedEvidence.contains("Same response", ignoreCase = true)
-
         val isFalseCondition =
             payload.value.contains("1'='2") ||
                 payload.value.contains("1=2") ||

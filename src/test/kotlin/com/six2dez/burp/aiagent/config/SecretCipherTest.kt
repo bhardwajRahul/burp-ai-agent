@@ -168,9 +168,13 @@ class SecretCipherTest {
                     captured.add(record.message)
                 }
 
-                override fun flush() {}
+                override fun flush() {
+                    // INTENTIONAL: the capture list needs no flushing; records are appended in publish().
+                }
 
-                override fun close() {}
+                override fun close() {
+                    // INTENTIONAL: nothing to release; the handler holds no resource beyond the list.
+                }
             }
         handler.level = Level.ALL
         logger.addHandler(handler)

@@ -47,7 +47,6 @@ class ProxyHistoryListenerPortFilterTest {
 
     private val host8080 = "port8080.example.com"
     private val host8081 = "port8081.example.com"
-    private val host9999 = "port9999.example.com"
 
     /** Builds a stubbed ProxyHttpRequestResponse whose listenerPort() returns [port]. */
     private fun stubItem(

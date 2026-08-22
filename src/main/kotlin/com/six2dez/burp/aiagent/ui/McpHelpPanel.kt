@@ -1,14 +1,11 @@
 package com.six2dez.burp.aiagent.ui
 
-import burp.api.montoya.MontoyaApi
 import java.awt.BorderLayout
 import javax.swing.BorderFactory
 import javax.swing.JPanel
 import javax.swing.JTextArea
 
-class McpHelpPanel(
-    api: MontoyaApi,
-) {
+class McpHelpPanel {
     val panel = JPanel(BorderLayout())
 
     init {

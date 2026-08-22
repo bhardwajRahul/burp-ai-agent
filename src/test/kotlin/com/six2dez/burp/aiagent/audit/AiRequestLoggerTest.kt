@@ -94,7 +94,7 @@ class AiRequestLoggerTest {
 
         for (i in 0 until numThreads) {
             executor.submit {
-                for (j in 0 until writesPerThread) {
+                repeat(writesPerThread) {
                     logger.log(ActivityType.PROMPT_SENT, "test", "b1", "Concurrent detail")
                 }
                 latch.countDown()

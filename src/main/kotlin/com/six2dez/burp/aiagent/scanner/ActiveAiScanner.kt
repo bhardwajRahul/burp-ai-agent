@@ -1320,38 +1320,6 @@ class ActiveAiScanner(
         }
     }
 
-    private fun buildMetadataSection(
-        backendInfo: AgentSupervisor.BackendInfo?,
-        scanType: String,
-        confidence: Int,
-    ): String =
-        buildString {
-            appendLine("---")
-            appendLine()
-            appendLine("### AI Analysis Metadata")
-            appendLine()
-            if (backendInfo != null) {
-                appendLine("**Backend:** ${backendInfo.displayName}")
-                if (backendInfo.model != null) {
-                    appendLine("**Model:** ${backendInfo.model}")
-                }
-            } else {
-                appendLine("**Backend:** Unknown")
-            }
-            appendLine("**Scan Type:** $scanType")
-            appendLine("**Confidence:** $confidence%")
-
-            val timestamp =
-                java.time.Instant
-                    .now()
-                    .toString()
-                    .replace('T', ' ')
-                    .substringBefore('.')
-            appendLine("**Scan Date:** $timestamp UTC")
-            appendLine()
-            appendLine("---")
-        }
-
     private fun buildMetadataSectionPlain(
         backendInfo: AgentSupervisor.BackendInfo?,
         scanType: String,

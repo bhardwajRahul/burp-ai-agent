@@ -1260,10 +1260,6 @@ class ChatPanel(
         if (failure == null) onSuccess(text)
     }
 
-    private fun cancelCurrentRequest() {
-        cancelInFlightRequest()
-    }
-
     private fun showToolsMenu() {
         val menu = javax.swing.JPopupMenu()
         val tools = McpToolCatalog.all()

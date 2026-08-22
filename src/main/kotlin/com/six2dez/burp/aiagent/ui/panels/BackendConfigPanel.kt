@@ -340,17 +340,6 @@ class BackendConfigPanel(
         )
     }
 
-    private fun buildSingleFieldPanel(
-        labelText: String,
-        field: JComponent,
-    ): JPanel {
-        val panel = formGrid()
-        panel.border = EmptyBorder(DesignTokens.Spacing.sectionPad, DesignTokens.Spacing.sectionPad, 0, DesignTokens.Spacing.sectionPad)
-        addRowFull(panel, labelText, field)
-        addSpacerRow(panel, DesignTokens.Spacing.sm)
-        return panel
-    }
-
     private fun buildSingleFieldPanelWithCli(
         labelText: String,
         field: JComponent,

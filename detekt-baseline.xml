@@ -61,11 +61,9 @@
     <ID>CyclomaticComplexMethod:UiActions.kt$UiActions$fun requestResponseMenuItems( api: MontoyaApi, event: ContextMenuEvent, tab: MainTab, mcpSupervisor: McpSupervisor, passiveAiScanner: PassiveAiScanner, activeAiScanner: ActiveAiScanner? = null, audit: AuditLogger? = null, ): List&lt;JMenuItem></ID>
     <ID>CyclomaticComplexMethod:UiActions.kt$UiActions$private fun buildTargetedTestsMenu( tab: MainTab, targets: Lazy&lt;List&lt;HttpRequestResponse>>, activeAiScanner: ActiveAiScanner?, targetLabel: String = "", ): JMenu</ID>
     <ID>CyclomaticComplexMethod:UiActions.kt$UiActions$private fun handleBountyPromptCompletion( api: MontoyaApi, tab: MainTab, definition: BountyPromptDefinition, responseText: String, targets: List&lt;HttpRequestResponse>, audit: AuditLogger?, )</ID>
-    <ID>EmptyFunctionBlock:SecretCipherTest.kt$SecretCipherTest.&lt;no name provided>${}</ID>
     <ID>ImplicitDefaultLocale:ChatPanel.kt$ChatPanel$String.format("%.1fK", chars / 1_000.0)</ID>
     <ID>ImplicitDefaultLocale:ChatPanel.kt$ChatPanel$String.format("%.1fM", chars / 1_000_000.0)</ID>
     <ID>ImplicitDefaultLocale:OllamaBackend.kt$OllamaBackend.OllamaConnection$String.format("\\u%04x", ch.code)</ID>
-    <ID>InvalidPackageDeclaration:AiGateMcpToolTest.kt$package com.six2dez.burp.aiagent.mcp.tools</ID>
     <ID>LargeClass:ActiveAiScanner.kt$ActiveAiScanner</ID>
     <ID>LargeClass:AgentSettings.kt$AgentSettingsRepository</ID>
     <ID>LargeClass:AgentSupervisor.kt$AgentSupervisor</ID>
@@ -809,7 +807,6 @@
     <ID>MayBeConst:DesignTokens.kt$DesignTokens.Spacing$/** 8 px — bottom border for form grids (rounds EmptyBorder(2,0,6,0) up to 4-grid). */ val formGridPad = 8</ID>
     <ID>MayBeConst:DesignTokens.kt$DesignTokens.Spacing$/** 8 px — outer border for section panels (rounds EmptyBorder(6,8,8,8) to 8). */ val sectionPad = 8</ID>
     <ID>MayBeConst:DesignTokens.kt$DesignTokens.Spacing$/** 8 px — row insets (vertical); button gap in button rows; section inter-spacing. */ val sm = 8</ID>
-    <ID>MayBeConst:RedactionTest.kt$Rfc5869TestCase1$val l = 42</ID>
     <ID>NestedBlockDepth:ActiveAiScanner.kt$ActiveAiScanner$fun manualScan( requests: List&lt;HttpRequestResponse>, vulnClasses: List&lt;VulnClass> = VulnClass.values().toList(), ): Int</ID>
     <ID>NestedBlockDepth:ActiveAiScanner.kt$ActiveAiScanner$private fun execute403Bypass( target: ActiveScanTarget, baseline: HttpRequestResponse, ): ActiveScanResult</ID>
     <ID>NestedBlockDepth:ActiveAiScanner.kt$ActiveAiScanner$private fun executeScan(target: ActiveScanTarget): ActiveScanResult</ID>
@@ -1045,24 +1042,9 @@
     <ID>TooManyFunctions:SettingsPanelScannerTabs.kt$com.six2dez.burp.aiagent.ui.SettingsPanelScannerTabs.kt</ID>
     <ID>TooManyFunctions:ToolCallParser.kt$ToolCallParser</ID>
     <ID>TooManyFunctions:UiActions.kt$UiActions</ID>
-    <ID>UnusedParameter:AiScanCheck.kt$AiScanCheck$vulnClass: VulnClass</ID>
     <ID>UnusedParameter:ResponseAnalyzer.kt$ResponseAnalyzer$truePayload: Payload</ID>
-    <ID>UnusedPrivateMember:ActiveAiScanner.kt$ActiveAiScanner$private fun buildMetadataSection( backendInfo: AgentSupervisor.BackendInfo?, scanType: String, confidence: Int, ): String</ID>
-    <ID>UnusedPrivateMember:BackendConfigPanel.kt$BackendConfigPanel$private fun buildSingleFieldPanel( labelText: String, field: JComponent, ): JPanel</ID>
-    <ID>UnusedPrivateMember:ChatPanel.kt$ChatPanel$private fun cancelCurrentRequest()</ID>
-    <ID>UnusedPrivateProperty:AdaptivePayloadEngine.kt$AdaptivePayloadEngine$val safeHost = if (privacyMode != PrivacyMode.OFF) "[REDACTED_HOST]" else host</ID>
-    <ID>UnusedPrivateProperty:AiRequestLoggerTest.kt$AiRequestLoggerTest$j</ID>
-    <ID>UnusedPrivateProperty:Components.kt$val bgColor = when (style) { BadgeStyle.NATIVE -> DesignTokens.Colors.badgeNative BadgeStyle.FULL -> DesignTokens.Colors.badgeFull }</ID>
     <ID>UnusedPrivateProperty:ContextCollector.kt$ContextCollector$private val api: MontoyaApi</ID>
-    <ID>UnusedPrivateProperty:McpHelpPanel.kt$McpHelpPanel$api: MontoyaApi</ID>
     <ID>UnusedPrivateProperty:OpenAiCompatibleBackend.kt$OpenAiCompatibleBackend$private val modelSelector: (AgentSettings) -> String = { it.openAiCompatibleModel.trim() }</ID>
-    <ID>UnusedPrivateProperty:PassiveAiScanner.kt$PassiveAiScanner$private val lastRequestTime = AtomicLong(0)</ID>
-    <ID>UnusedPrivateProperty:PassiveAiScannerHeuristics.kt$private const val LOCAL_FINDING_SKIP_CONFIDENCE = 90</ID>
-    <ID>UnusedPrivateProperty:PassiveAiScannerHeuristics.kt$private const val REQUEST_BODY_LOCAL_CHECK_MAX_CHARS = 3_000</ID>
-    <ID>UnusedPrivateProperty:PassiveAiScannerHeuristics.kt$private const val RESPONSE_BODY_LOCAL_CHECK_MAX_CHARS = 6_000</ID>
-    <ID>UnusedPrivateProperty:PrivacyPill.kt$PrivacyPill$private val offColor = Color(0xB3261E)</ID>
-    <ID>UnusedPrivateProperty:ProxyHistoryListenerPortFilterTest.kt$ProxyHistoryListenerPortFilterTest$private val host9999 = "port9999.example.com"</ID>
-    <ID>UnusedPrivateProperty:ResponseAnalyzer.kt$ResponseAnalyzer$val isTrueCondition = payload.value.contains("1'='1") || payload.value.contains("1=1") || payload.expectedEvidence.contains("Same response", ignoreCase = true)</ID>
     <ID>UseCheckOrError:CliBackend.kt$CliBackend.CliConnection$throw IllegalStateException("CLI executable not found")</ID>
     <ID>UseCheckOrError:CliBackend.kt$CliBackend.NonInteractiveCliConnection$throw IllegalStateException("CLI session ID lost between CAS and read")</ID>
     <ID>UseCheckOrError:KtorMcpServerManager.kt$KtorMcpServerManager$throw IllegalStateException("External MCP access requires TLS. Enable TLS to continue.")</ID>
