@@ -116,7 +116,7 @@ coverage:
     description: "REL-07-F — CliBackend.kt, comment-stripped, contains zero per-invocation JVM exit registrations, exactly 2 register sites and exactly 3 deregister sites"
     requirement: REL-07
     verification:
-      - kind: structural
+      - kind: unit
         ref: "src/test/kotlin/com/six2dez/burp/aiagent/backends/cli/CliBackendTempFileTest.kt#theCliBackendTempFilesCannotRegressToPerInvocationJvmRegistration"
         status: pass
     human_judgment: false
@@ -124,7 +124,7 @@ coverage:
     description: "App.kt, comment-stripped, has exactly one \"CLI temp files\" step calling into the registry, ordered after \"Backend registry\" and before \"Worker pool\" (D-03)"
     requirement: REL-07
     verification:
-      - kind: structural
+      - kind: unit
         ref: "src/test/kotlin/com/six2dez/burp/aiagent/backends/cli/CliBackendTempFileTest.kt#appShutdownDrainsTheRegistryAfterTheBackendRegistryAndBeforeTheWorkerPool"
         status: pass
     human_judgment: false
@@ -132,7 +132,7 @@ coverage:
     description: "The prompt temp file keeps its owner-read/owner-write POSIX permissions and its Windows fallback across the rewrite (ASVS V12, T-24-06)"
     requirement: REL-07
     verification:
-      - kind: structural
+      - kind: other
         ref: "grep -c 'setPosixFilePermissions' and 'OWNER_READ' on CliBackend.kt both return 1; the block is untouched in `git diff`"
         status: pass
     human_judgment: false

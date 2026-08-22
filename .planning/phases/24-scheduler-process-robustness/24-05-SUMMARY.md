@@ -64,7 +64,7 @@ coverage:
       - kind: unit
         ref: "src/test/kotlin/com/six2dez/burp/aiagent/WorkerPoolExecutorTest.kt#theWorkerPoolShapeIsBoundedAtTheSharedCeiling"
         status: pass
-      - kind: structural
+      - kind: unit
         ref: "src/test/kotlin/com/six2dez/burp/aiagent/WorkerPoolExecutorTest.kt#appDeclaresNoUnboundedPoolAndBuildsItsWorkerPoolFromTheSharedCeiling"
         status: pass
     human_judgment: false
@@ -72,7 +72,7 @@ coverage:
     description: "Bounding `workerPool` does not stall the extension: no task submitted to it occupies a thread for the lifetime of a service process"
     requirement: REL-07
     verification:
-      - kind: structural
+      - kind: unit
         ref: "src/test/kotlin/com/six2dez/burp/aiagent/WorkerPoolExecutorTest.kt#theSupervisorKeepsOnlyTheAutoRestartSubmitOnTheBoundedWorkerPool"
         status: pass
     human_judgment: false
@@ -80,10 +80,10 @@ coverage:
     description: "A managed service's stdout is still pumped and still logged, from a named daemon thread that never blocks extension unload"
     requirement: REL-07
     verification:
-      - kind: structural
+      - kind: unit
         ref: "src/test/kotlin/com/six2dez/burp/aiagent/WorkerPoolExecutorTest.kt#theSupervisorKeepsOnlyTheAutoRestartSubmitOnTheBoundedWorkerPool"
         status: pass
-      - kind: regression
+      - kind: other
         ref: "./gradlew test --tests '*Supervisor*' --tests '*Agent*' --tests '*Backend*'"
         status: pass
     human_judgment: true
@@ -108,10 +108,10 @@ coverage:
     description: "`App.shutdown()`'s worker-pool step, its 5-second awaitTermination and its shutdownNow fallback keep working unchanged, and 24-04's CLI-temp-files step keeps its position"
     requirement: REL-07
     verification:
-      - kind: structural
+      - kind: unit
         ref: "src/test/kotlin/com/six2dez/burp/aiagent/WorkerPoolExecutorTest.kt#appDeclaresNoUnboundedPoolAndBuildsItsWorkerPoolFromTheSharedCeiling"
         status: pass
-      - kind: command
+      - kind: other
         ref: "git diff -U0 src/main/kotlin/com/six2dez/burp/aiagent/App.kt (no change inside the Worker pool step)"
         status: pass
     human_judgment: true
