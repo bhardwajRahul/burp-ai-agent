@@ -110,6 +110,68 @@ class ChatPanelEdtGuardTest {
         assertNamesTheRemedy(MAYBE_EXECUTE_TOOL_CALL)
     }
 
+    /**
+     * SC4's uniformity clause — all four sites carry the same honest framing, none is left behind.
+     *
+     * **A partial conversion is the worst outcome available here, and this is the assertion that
+     * rejects it.** Plan 26-04's prohibition list names it directly: a file where the same-looking
+     * helper means different things at different call sites is worse than either end state, because a
+     * reader who checks one site generalises to the rest. Asserting the four together, in one test that
+     * iterates [GUARDED_CALL_SITES], is what makes "all four" a claim rather than three separate claims
+     * that happen to coexist.
+     */
+    @Test
+    fun allFourGuardedCallSitesCarryTheSameHonestFraming() {
+        GUARDED_CALL_SITES.forEach { declaration ->
+            assertNoFieldEnforcementClaim(declaration)
+            assertNamesTheRemedy(declaration)
+        }
+    }
+
+    /**
+     * SC4's uniformity clause, mechanism half — one mechanism, at exactly four sites, with no rival.
+     *
+     * **The test above pins the prose; this one pins the code the prose describes, and neither is
+     * sufficient alone.** A half-applied upgrade would leave some sites on `assert(...)` and others on
+     * a throwing `check(...)`, and the prose assertions would not notice — both shapes are compatible
+     * with any wording. Equally, counting invocations without reading the prose is how the file reached
+     * the state SC4 exists to end in the first place.
+     *
+     * The invocation count is line-based rather than a substring tally on purpose: a bare
+     * `occurrencesOf("assertEdt()")` also counts the declaration and every comment that names the
+     * helper, so it would move on prose alone. Counting lines whose entire content is the call counts
+     * call sites and nothing else.
+     */
+    @Test
+    fun theFileCarriesOneEdtMechanismAcrossExactlyFourCallSites() {
+        val source = chatPanelSource()
+
+        val invocations = source.lines().count { it.trim() == "$HELPER_NAME()" }
+        assertTrue(
+            invocations == GUARDED_CALL_SITES.size,
+            "QUAL-07 / SC4: expected exactly ${GUARDED_CALL_SITES.size} invocations of `$HELPER_NAME()` " +
+                "in ChatPanel.kt, found $invocations. FEWER means a call site lost its check while the " +
+                "prose around it still describes one. MORE means a site was added without a matching " +
+                "entry in GUARDED_CALL_SITES, so the uniformity assertions above silently stopped " +
+                "covering the whole set.",
+        )
+        assertTrue(
+            source.lines().count { it.trim().startsWith("private fun $HELPER_NAME()") } == 1,
+            "QUAL-07 / SC4: ChatPanel.kt must declare exactly one EDT check helper. Two would be the " +
+                "partial-upgrade state by another route.",
+        )
+        assertTrue(
+            !source.contains(RIVAL_MECHANISM),
+            "QUAL-07 / SC4: ChatPanel.kt must not contain `$RIVAL_MECHANISM` alongside the existing " +
+                "helper — that is two EDT mechanisms in one file, which plan 26-04's prohibition list " +
+                "rejects because the same-looking guard would then mean different things at different " +
+                "call sites. If the `upgrade-throwing-check` disposition is being adopted after all, " +
+                "convert ALL FOUR sites, move ChatPanelEdtConfinementTest's byte-identical pin and its " +
+                "mention counter, and add this class to edtGuardWithoutAssertionsTest's filter so the " +
+                "new mechanism is proved under -da rather than only under tasks.test's -ea.",
+        )
+    }
+
     private fun assertNoFieldEnforcementClaim(declaration: String) {
         val narrative = guardNarrative(declaration)
 
@@ -227,6 +289,29 @@ class ChatPanelEdtGuardTest {
         const val HELPER_NAME = "assertEdt"
 
         const val MAYBE_EXECUTE_TOOL_CALL = "private fun maybeExecuteToolCall("
+
+        /**
+         * The four `@GuardedBy("EDT")` entry points the check guards.
+         *
+         * This list IS the uniformity claim: every assertion that says "all four" iterates it, so a
+         * fifth site added without an entry here would leave the new site uncovered. That is caught by
+         * [theFileCarriesOneEdtMechanismAcrossExactlyFourCallSites]'s invocation count rather than
+         * being left to whoever notices, which is what stops this list quietly going stale.
+         *
+         * [MAYBE_EXECUTE_TOOL_CALL] appears here and separately above because it is the tracer site —
+         * plan 26-04 converted it first, end to end, and its two dedicated tests are what proved the
+         * proof mechanism worked while only one site was in flight.
+         */
+        val GUARDED_CALL_SITES =
+            listOf(
+                "fun cancelInFlightRequest()",
+                "private fun syncDraftFromInput()",
+                MAYBE_EXECUTE_TOOL_CALL,
+                "private fun resolveToolDecision(",
+            )
+
+        /** A throwing EDT check — the `upgrade-throwing-check` shape, which was NOT selected. */
+        const val RIVAL_MECHANISM = "check(SwingUtilities.isEventDispatchThread())"
 
         /** What the mechanism is: an aid used while developing, not a control that ships. */
         const val DEVELOPMENT_TIME_MARKER = "development-time"
