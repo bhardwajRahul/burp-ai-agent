@@ -945,52 +945,100 @@ internal fun buildCopilotCommand(
     return args
 }
 
-private fun normalizeWindowsCommand(cmd: List<String>): List<String> {
-    if (!isWindowsOs || cmd.isEmpty()) return cmd
+/**
+ * Windows launch fix-ups: strip a redundant `.exe`, resolve a non-executable npm shim next to an
+ * absolute path, or find the `.cmd` shim npm installed for a bare command name.
+ *
+ * [windows] is a defaulted parameter purely so both branches can be asserted on one machine, exactly
+ * as [buildPtyCommand] takes its OS name; production calls this with no explicit argument, so its
+ * behaviour is unchanged. The alternative — mutating the global `os.name` system property from a
+ * test — would leak into every other test sharing the JVM.
+ *
+ * Visibility: `internal` so CliCommandHelpersTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun normalizeWindowsCommand(
+    cmd: List<String>,
+    windows: Boolean = isWindowsOs,
+): List<String> {
+    if (!windows || cmd.isEmpty()) return cmd
     val first = cmd.first()
     val lower = first.lowercase(Locale.ROOT)
-
-    // Strip redundant .exe suffix
-    if (lower.endsWith(".exe")) {
-        return listOf(first.dropLast(4)) + cmd.drop(1)
-    }
-
-    // For absolute paths: check if it's a non-executable npm shim
-    if (first.contains("\\") || first.contains("/")) {
-        val file = java.io.File(first)
-        if (file.isAbsolute && file.exists() && !hasWindowsExeExtension(lower)) {
-            val cmdSibling = java.io.File(first + ".cmd")
-            if (cmdSibling.exists()) return listOf(cmdSibling.absolutePath) + cmd.drop(1)
-            // Fallback: wrap with cmd /c for shell script shims
-            return listOf("cmd", "/c", first) + cmd.drop(1)
+    val rest = cmd.drop(1)
+    return when {
+        // Strip redundant .exe suffix
+        lower.endsWith(".exe") -> listOf(first.dropLast(WINDOWS_EXTENSION_LENGTH)) + rest
+        // For absolute paths: check if it's a non-executable npm shim
+        first.contains("\\") || first.contains("/") -> {
+            val file = java.io.File(first)
+            if (file.isAbsolute && file.exists() && !hasWindowsExeExtension(lower)) {
+                val cmdSibling = java.io.File(first + ".cmd")
+                // Fallback when there is no .cmd sibling: wrap with cmd /c for shell script shims
+                if (cmdSibling.exists()) {
+                    listOf(cmdSibling.absolutePath) + rest
+                } else {
+                    listOf("cmd", "/c", first) + rest
+                }
+            } else {
+                cmd
+            }
         }
-        return cmd
+        // For bare command names: resolve npm .cmd shim
+        else -> {
+            val baseName = if (lower.endsWith(".cmd")) lower.dropLast(WINDOWS_EXTENSION_LENGTH) else lower
+            windowsNpmShimDirs
+                .map { java.io.File(it, "$baseName.cmd") }
+                .firstOrNull { it.exists() }
+                ?.let { listOf(it.absolutePath) + rest }
+                ?: cmd
+        }
     }
-
-    // For bare command names: resolve npm .cmd shim
-    val baseName = if (lower.endsWith(".cmd")) lower.dropLast(4) else lower
-    val resolved =
-        windowsNpmShimDirs
-            .map { java.io.File(it, "$baseName.cmd") }
-            .firstOrNull { it.exists() }
-            ?.absolutePath
-    if (resolved != null) return listOf(resolved) + cmd.drop(1)
-
-    return cmd
 }
 
-private fun hasWindowsExeExtension(path: String): Boolean {
+/** Length of the `.exe` / `.cmd` / `.bat` suffixes [normalizeWindowsCommand] strips. */
+private const val WINDOWS_EXTENSION_LENGTH = 4
+
+/**
+ * Whether [path] already names a directly executable Windows file, i.e. one that needs no `cmd /c`
+ * wrapper or `.cmd` shim lookup.
+ *
+ * Visibility: `internal` so CliCommandHelpersTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun hasWindowsExeExtension(path: String): Boolean {
     val l = path.lowercase(Locale.ROOT)
     return l.endsWith(".exe") || l.endsWith(".cmd") || l.endsWith(".bat")
 }
 
-private fun buildCliHistory(history: List<ChatMessage>?): String {
+/** Most recent turns of chat history a CLI prompt carries. */
+internal const val CLI_HISTORY_MAX_MESSAGES = 10
+
+/** Total characters of chat history a CLI prompt carries, counted role-prefix included. */
+internal const val CLI_HISTORY_MAX_CHARS = 20_000
+
+/**
+ * Render [history] as the `role: content` preamble prepended to a CLI prompt, bounded by
+ * [CLI_HISTORY_MAX_MESSAGES] and [CLI_HISTORY_MAX_CHARS]. Returns the empty string — not a stray
+ * blank line — when there is no history to carry.
+ *
+ * Visibility: `internal` so CliCommandHelpersTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun buildCliHistory(history: List<ChatMessage>?): String {
     if (history.isNullOrEmpty()) return ""
-    val limited = limitCliHistory(history, maxMessages = 10, maxChars = 20_000)
+    val limited = limitCliHistory(history, maxMessages = CLI_HISTORY_MAX_MESSAGES, maxChars = CLI_HISTORY_MAX_CHARS)
     return limited.joinToString("\n") { "${it.role}: ${it.content}" } + "\n\n"
 }
 
-private fun limitCliHistory(
+/**
+ * Trim [history] to the most recent [maxMessages] turns, then drop the oldest of those until the
+ * total fits [maxChars]. A single turn that alone exceeds [maxChars] is truncated rather than
+ * dropped, so the newest message is never lost entirely.
+ *
+ * Visibility: `internal` so CliCommandHelpersTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun limitCliHistory(
     history: List<ChatMessage>,
     maxMessages: Int,
     maxChars: Int,
@@ -1080,7 +1128,13 @@ private val windowsNpmShimDirs: List<java.io.File> =
         System.getenv("USERPROFILE")?.takeIf { it.isNotBlank() }?.let { java.io.File(it, "AppData\\Roaming\\npm") },
     )
 
-private fun stripAnsiCodes(text: String): String {
+/**
+ * Remove terminal control sequences from CLI output so the rendered answer carries no escape bytes.
+ *
+ * Visibility: `internal` so CliCommandHelpersTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun stripAnsiCodes(text: String): String {
     if (text.isEmpty()) return text
 
     var result = text
