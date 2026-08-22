@@ -106,6 +106,15 @@ object Defaults {
     const val PREPROCESS_PROXY_HISTORY_ENABLED = true
     const val PREPROCESS_MAX_RESPONSE_SIZE_KB = 20
     const val PREPROCESS_FILTER_BINARY_CONTENT = true
+
+    // WR-01 (25-REVIEW): minimum accepted length of an operator-typed MCP bearer token, in
+    // characters. Advisory only — nothing blocks on it. This value must NEVER exceed the length of
+    // McpSettings.generateToken()'s output (32 random bytes, Base64URL without padding, = 43
+    // characters), or the advisory fires against the product's own default token and the operator
+    // learns to dismiss it. McpTokenStrengthTest asserts that relation rather than the two numbers
+    // separately, so raising this alone fails the build.
+    const val MCP_MIN_TOKEN_LENGTH = 32
+
     const val MCP_PROXY_HISTORY_MAX_ITEMS_PER_REQUEST = 20
     const val MCP_PROXY_HISTORY_NEWEST_FIRST = true
     const val MCP_ALLOW_UNPREPROCESSED_PROXY_HISTORY = true

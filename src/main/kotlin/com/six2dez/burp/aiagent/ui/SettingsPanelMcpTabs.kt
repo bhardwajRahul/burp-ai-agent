@@ -1,6 +1,7 @@
 package com.six2dez.burp.aiagent.ui
 
 import burp.api.montoya.core.BurpSuiteEdition
+import com.six2dez.burp.aiagent.config.McpSettings
 import com.six2dez.burp.aiagent.mcp.McpToolCatalog
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.ui.components.AccordionPanel
@@ -573,51 +574,11 @@ internal fun SettingsPanel.updateMcpCorsWarning() {
  * below preserves all caveats simultaneously.
  */
 internal fun SettingsPanel.refreshMcpNotice() {
-    val selectedPrivacy = privacyMode.selectedItem as? PrivacyMode ?: PrivacyMode.STRICT
-    val mcpOn = mcpEnabled.isSelected
-    val external = mcpExternal.isSelected
-    val unsafeEnabled = mcpUnsafe.isSelected
-    val tokenBlank = mcpToken.text.trim().isBlank()
-    val hasAllowedOrigins = parseAllowedOriginsInput(mcpAllowedOrigins.text).isNotEmpty()
-
-    if (!mcpOn) {
+    if (!mcpEnabled.isSelected) {
         mcpNotice.hideNotice()
         return
     }
-
-    data class Item(
-        val level: SubtleNotice.Level,
-        val html: String,
-    )
-    val items = mutableListOf<Item>()
-    if (external && unsafeEnabled) {
-        items +=
-            Item(
-                SubtleNotice.Level.RISK,
-                "<b>External MCP + Unsafe mode.</b> Remote callers can invoke state-changing tools.",
-            )
-    }
-    if (external && tokenBlank) {
-        items +=
-            Item(
-                SubtleNotice.Level.RISK,
-                "<b>External MCP with empty token.</b> The endpoint is reachable without authentication.",
-            )
-    }
-    if (external && selectedPrivacy == PrivacyMode.OFF) {
-        items +=
-            Item(
-                SubtleNotice.Level.WARN,
-                "<b>External MCP with Privacy OFF.</b> Raw traffic may leave the host.",
-            )
-    }
-    if (external && !hasAllowedOrigins) {
-        items +=
-            Item(
-                SubtleNotice.Level.WARN,
-                "<b>External MCP with no allowed origins.</b> CORS will accept requests from any origin.",
-            )
-    }
+    val items = mcpNoticeItems()
     if (items.isEmpty()) {
         mcpNotice.hideNotice()
         return
@@ -630,4 +591,69 @@ internal fun SettingsPanel.refreshMcpNotice() {
         }
     val body = items.joinToString("<br>") { "• ${it.html}" }
     mcpNotice.setMessage(highest, body)
+}
+
+/** One bullet of the composed MCP advisory. */
+private data class McpNoticeItem(
+    val level: SubtleNotice.Level,
+    val html: String,
+)
+
+/**
+ * Every applicable MCP misconfiguration, in display order.
+ *
+ * Split out of [refreshMcpNotice] when the weak-token item pushed that function past the project's
+ * cyclomatic-complexity ceiling. The split is along the natural seam — WHAT to warn about here,
+ * HOW to render it there — and every caveat is still accumulated rather than short-circuited, which
+ * is the property the accumulator replaced a `when` chain to get.
+ */
+private fun SettingsPanel.mcpNoticeItems(): List<McpNoticeItem> {
+    val selectedPrivacy = privacyMode.selectedItem as? PrivacyMode ?: PrivacyMode.STRICT
+    val external = mcpExternal.isSelected
+    val unsafeEnabled = mcpUnsafe.isSelected
+    val tokenBlank = mcpToken.text.trim().isBlank()
+    val hasAllowedOrigins = parseAllowedOriginsInput(mcpAllowedOrigins.text).isNotEmpty()
+
+    val items = mutableListOf<McpNoticeItem>()
+    if (external && unsafeEnabled) {
+        items +=
+            McpNoticeItem(
+                SubtleNotice.Level.RISK,
+                "<b>External MCP + Unsafe mode.</b> Remote callers can invoke state-changing tools.",
+            )
+    }
+    if (external && tokenBlank) {
+        items +=
+            McpNoticeItem(
+                SubtleNotice.Level.RISK,
+                "<b>External MCP with empty token.</b> The endpoint is reachable without authentication.",
+            )
+    }
+    // WR-01: deliberately NOT gated on `external`. The bind-conflict takeover path that turns a
+    // captured proof into an offline verifier for the token runs in local mode too, which is the
+    // mode WR-01 is actually about — gating this on external mode would hide it in the only mode
+    // most operators ever use. Advisory only: nothing here blocks or rewrites the token.
+    if (!tokenBlank && McpSettings.isTokenWeak(mcpToken.text)) {
+        items +=
+            McpNoticeItem(
+                SubtleNotice.Level.RISK,
+                "<b>Weak MCP token.</b> A local process that wins the bind can capture the takeover " +
+                    "proof and guess a short token offline. Use <i>Regenerate token</i>.",
+            )
+    }
+    if (external && selectedPrivacy == PrivacyMode.OFF) {
+        items +=
+            McpNoticeItem(
+                SubtleNotice.Level.WARN,
+                "<b>External MCP with Privacy OFF.</b> Raw traffic may leave the host.",
+            )
+    }
+    if (external && !hasAllowedOrigins) {
+        items +=
+            McpNoticeItem(
+                SubtleNotice.Level.WARN,
+                "<b>External MCP with no allowed origins.</b> CORS will accept requests from any origin.",
+            )
+    }
+    return items
 }
