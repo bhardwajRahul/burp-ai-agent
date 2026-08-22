@@ -435,3 +435,15 @@ None — no external service configuration required.
 ---
 *Phase: 26-coverage-static-analysis-debt-docs*
 *Completed: 2026-08-22*
+
+## Self-Check: PASSED
+
+All claimed artifacts verified on disk and all five commits verified in `git log`:
+
+- `26-07-SUMMARY.md`, `26-COVERAGE.md`, `detekt-baseline.xml`, the moved
+  `mcp/tools/AiGateMcpToolTest.kt` and `build/libs/Custom-AI-Agent-full-0.9.2.jar` all present.
+- The old `mcp/AiGateMcpToolTest.kt` path is gone — the `git mv` completed as a rename, not a
+  delete-plus-add.
+- Commits `6014f60`, `bbd013e`, `a3f4b74`, `d19a9c6`, `1a50968` all present on
+  `worktree-agent-a7256b610cd8cc13f`.
+- `git status --porcelain` is empty — nothing uncommitted.
