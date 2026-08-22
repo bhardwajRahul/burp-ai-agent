@@ -374,6 +374,12 @@ negatively by `anExternalModeShutdownWithNoCredentialIsStillRejected`.
   discovered during execution rather than at planning time.
 - **No blockers.**
 
+## Self-Check: PASSED
+
+All five created files verified present on disk, and all six commit hashes verified reachable from
+the worktree branch `worktree-agent-aa6058896c6fd1e97`:
+`fbfb35c`, `aee704d`, `38ceadf`, `65ad70f`, `53595d0`, `247c86b`.
+
 ---
 *Phase: 25-secondary-hardening*
 *Completed: 2026-08-22*
