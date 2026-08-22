@@ -296,6 +296,13 @@ None — no external service configuration required.
 - No blockers for 25-01 or 25-03. This plan touched only `util/Ipv4Literal.kt`, `util/SsrfGuard.kt` and four files under `src/test/`, plus one new `src/test/resources` entry — no overlap with the MCP bearer-token work those plans own.
 - One cross-cutting note for reviewers of sibling plans: `CountingInetAddressResolverProvider` is now installed for the **entire test JVM**. Any suite that begins asserting on resolution behaviour should call `CountingInetAddressResolverProvider.reset()` first, and any suite that mocks `InetAddress` statically should be aware the provider sits underneath.
 
+## Self-Check: PASSED
+
+- All 5 created source/resource files verified present on disk, plus this SUMMARY.
+- All 4 commits verified in `git log`: `1b234e7`, `dfd86c9`, `154c66f`, `5a8d3c8`.
+- Full suite, `detekt` and `ktlintCheck` re-run green against the final committed tree.
+- `STATE.md` and `ROADMAP.md` intentionally NOT modified — the orchestrator owns those writes after the wave merges.
+
 ---
 *Phase: 25-secondary-hardening*
 *Completed: 2026-08-22*
