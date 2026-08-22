@@ -2,13 +2,16 @@ package com.six2dez.burp.aiagent.mcp.tools
 
 import burp.api.montoya.MontoyaApi
 import burp.api.montoya.core.BurpSuiteEdition
+import burp.api.montoya.core.HighlightColor
 import burp.api.montoya.http.message.HttpHeader
+import burp.api.montoya.scanner.BuiltInAuditConfiguration
 import com.six2dez.burp.aiagent.mcp.McpRequestLimiter
 import com.six2dez.burp.aiagent.mcp.McpToolContext
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -361,6 +364,391 @@ class McpToolHelpersTest {
         }
     }
 
+    // ── withAiIssuePrefix ────────────────────────────────────────────────────────────────
+
+    @Nested
+    inner class WithAiIssuePrefix {
+        @Test
+        fun anUnprefixedNameGainsThePrefix() {
+            assertEquals("[AI] SQL injection", withAiIssuePrefix("SQL injection"))
+        }
+
+        @Test
+        fun aNameAlreadyCarryingEitherRecognisedPrefixIsReturnedUnchanged() {
+            assertEquals("[AI] SQL injection", withAiIssuePrefix("[AI] SQL injection"))
+            assertEquals("[AI Passive] SQL injection", withAiIssuePrefix("[AI Passive] SQL injection"))
+        }
+
+        @Test
+        fun prefixRecognitionIsCaseInsensitive() {
+            assertEquals("[ai] SQL injection", withAiIssuePrefix("[ai] SQL injection"))
+            assertEquals("[AI PASSIVE] SQL injection", withAiIssuePrefix("[AI PASSIVE] SQL injection"))
+        }
+
+        @Test
+        fun surroundingWhitespaceIsTrimmedOnBothBranches() {
+            assertEquals("[AI] SQL injection", withAiIssuePrefix("   SQL injection   "))
+            assertEquals("[AI] SQL injection", withAiIssuePrefix("  [AI] SQL injection  "))
+        }
+    }
+
+    // ── truncateIfNeeded ─────────────────────────────────────────────────────────────────
+
+    @Nested
+    inner class TruncateIfNeeded {
+        @Test
+        fun aPayloadUnderTheLimitIsReturnedIdentically() {
+            val payload = "short body"
+
+            assertSame(payload, truncateIfNeeded(payload, 1024))
+        }
+
+        @Test
+        fun aPayloadExactlyAtTheLimitIsReturnedIdentically() {
+            val payload = "12345"
+
+            assertSame(payload, truncateIfNeeded(payload, payload.toByteArray(Charsets.UTF_8).size))
+        }
+
+        @Test
+        fun aPayloadOverTheLimitNamesTheOriginalByteCountAndTheLimit() {
+            val payload = "abcdefghij"
+
+            val truncated = truncateIfNeeded(payload, 4)
+
+            assertTrue(truncated.startsWith("abcd"), "expected the first 4 bytes; got: $truncated")
+            assertTrue(
+                truncated.endsWith("... (truncated 10 bytes to 4 bytes)"),
+                "suffix must name both the original byte count and the limit; got: $truncated",
+            )
+        }
+
+        @Test
+        fun theBoundIsOnBytesNotCharacters() {
+            // Three 2-byte characters: 3 chars but 6 bytes. A char-length bound with limit 5
+            // would return the input untouched; the byte bound must truncate it.
+            val payload = "ééé"
+
+            assertEquals(3, payload.length)
+            assertEquals(6, payload.toByteArray(Charsets.UTF_8).size)
+
+            val truncated = truncateIfNeeded(payload, 5)
+
+            assertTrue(
+                truncated.endsWith("... (truncated 6 bytes to 5 bytes)"),
+                "a multi-byte payload must be bounded on bytes; got: $truncated",
+            )
+        }
+
+        @Test
+        fun aNonPositiveLimitIsCoercedUpToOneRatherThanProducingAnEmptyResult() {
+            listOf(0, -1).forEach { limit ->
+                val truncated = truncateIfNeeded("abc", limit)
+
+                assertTrue(truncated.startsWith("a"), "limit=$limit must keep one byte; got: $truncated")
+                assertTrue(
+                    truncated.endsWith("... (truncated 3 bytes to 1 bytes)"),
+                    "limit=$limit must be coerced up to 1; got: $truncated",
+                )
+            }
+        }
+    }
+
+    // ── ensureAllowedProxyHistoryCount ───────────────────────────────────────────────────
+
+    @Nested
+    inner class EnsureAllowedProxyHistoryCount {
+        @Test
+        fun aRequestBelowTheLimitIsAllowed() {
+            ensureAllowedProxyHistoryCount(1, 50)
+        }
+
+        @Test
+        fun aRequestExactlyAtTheLimitIsAllowed() {
+            ensureAllowedProxyHistoryCount(50, 50)
+        }
+
+        @Test
+        fun aRequestAboveTheLimitIsRejectedAndTheMessageNamesBothCounts() {
+            val error =
+                assertThrows(IllegalArgumentException::class.java) {
+                    ensureAllowedProxyHistoryCount(51, 50)
+                }
+
+            assertTrue(error.message!!.contains("51"), "message must name the requested count; got: ${error.message}")
+            assertTrue(error.message!!.contains("50"), "message must name the allowed count; got: ${error.message}")
+        }
+    }
+
+    // ── orderedProxyHistory ──────────────────────────────────────────────────────────────
+
+    @Nested
+    inner class OrderedProxyHistory {
+        @Test
+        fun determinismModeSortsByTheSuppliedKeyRegardlessOfInputOrder() {
+            val items = listOf("c", "a", "b")
+
+            val ordered =
+                orderedProxyHistory(items, historyContext(determinism = true, newestFirst = false)) { it }.toList()
+
+            assertEquals(listOf("a", "b", "c"), ordered)
+        }
+
+        @Test
+        fun determinismOffWithNewestFirstReversesTheInput() {
+            val items = listOf("c", "a", "b")
+
+            val ordered =
+                orderedProxyHistory(items, historyContext(determinism = false, newestFirst = true)) { it }.toList()
+
+            assertEquals(listOf("b", "a", "c"), ordered)
+        }
+
+        @Test
+        fun determinismOffWithNewestFirstUnsetPreservesInputOrder() {
+            val items = listOf("c", "a", "b")
+
+            val ordered =
+                orderedProxyHistory(items, historyContext(determinism = false, newestFirst = false)) { it }.toList()
+
+            assertEquals(items, ordered)
+        }
+    }
+
+    // ── decodeJwt ────────────────────────────────────────────────────────────────────────
+
+    @Nested
+    inner class DecodeJwt {
+        @Test
+        fun aThreePartTokenYieldsHeaderPayloadAndSignatureLines() {
+            val token = "${b64("""{"alg":"HS256"}""")}.${b64("""{"sub":"1234"}""")}.c2ln"
+
+            val decoded = decodeJwt(token)
+
+            assertEquals(
+                """
+                header={"alg":"HS256"}
+                payload={"sub":"1234"}
+                signature=c2ln
+                """.trimIndent(),
+                decoded,
+            )
+        }
+
+        @Test
+        fun aTwoPartTokenYieldsAnEmptySignatureLine() {
+            val token = "${b64("""{"alg":"none"}""")}.${b64("""{"sub":"1234"}""")}"
+
+            val decoded = decodeJwt(token)
+
+            assertTrue(decoded.endsWith("signature="), "expected an empty signature line; got: $decoded")
+        }
+
+        @Test
+        fun aOnePartTokenYieldsTheFixedInvalidMessage() {
+            assertEquals("Invalid JWT: expected header.payload.signature", decodeJwt("notajwt"))
+        }
+
+        @Test
+        fun anEmptyTokenYieldsTheFixedInvalidMessage() {
+            assertEquals("Invalid JWT: expected header.payload.signature", decodeJwt(""))
+        }
+
+        @Test
+        fun segmentsThatAreNotValidBase64UrlYieldPlaceholdersWithoutThrowing() {
+            val decoded = decodeJwt("!!!.???.sig")
+
+            assertTrue(decoded.contains("header=<invalid header>"), "got: $decoded")
+            assertTrue(decoded.contains("payload=<invalid payload>"), "got: $decoded")
+        }
+
+        private fun b64(raw: String): String =
+            java.util.Base64
+                .getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(raw.toByteArray(Charsets.UTF_8))
+    }
+
+    // ── normalizeHashAlgorithm ───────────────────────────────────────────────────────────
+
+    @Nested
+    inner class NormalizeHashAlgorithm {
+        @Test
+        fun eachShorthandSpellingMapsToItsHyphenatedForm() {
+            assertEquals("SHA-1", normalizeHashAlgorithm("sha1"))
+            assertEquals("SHA-256", normalizeHashAlgorithm("sha256"))
+            assertEquals("SHA-512", normalizeHashAlgorithm("sha512"))
+        }
+
+        @Test
+        fun anAlreadyHyphenatedValuePassesThrough() {
+            assertEquals("SHA-256", normalizeHashAlgorithm("SHA-256"))
+            assertEquals("SHA-256", normalizeHashAlgorithm("sha-256"))
+        }
+
+        @Test
+        fun anUnknownValueIsUpperCasedAndReturned() {
+            assertEquals("MD5", normalizeHashAlgorithm("md5"))
+        }
+
+        @Test
+        fun surroundingWhitespaceIsTrimmed() {
+            assertEquals("SHA-256", normalizeHashAlgorithm("  sha256  "))
+        }
+    }
+
+    // ── diffLines ────────────────────────────────────────────────────────────────────────
+
+    @Nested
+    inner class DiffLines {
+        @Test
+        fun identicalInputsProduceOnlyContextLines() {
+            val diff = diffLines("GET /a\r\nHost: x", "GET /a\nHost: x")
+
+            assertEquals("--- request_a\n+++ request_b\n GET /a\n Host: x", diff)
+        }
+
+        @Test
+        fun anAddedLineIsMarkedWithAPlus() {
+            val diff = diffLines("a", "a\nb")
+
+            assertEquals("--- request_a\n+++ request_b\n a\n+b", diff)
+        }
+
+        @Test
+        fun aRemovedLineIsMarkedWithAMinus() {
+            val diff = diffLines("a\nb", "a")
+
+            assertEquals("--- request_a\n+++ request_b\n a\n-b", diff)
+        }
+
+        @Test
+        fun aChangedLineIsMarkedAsRemovedThenAdded() {
+            val diff = diffLines("a\nb", "a\nc")
+
+            assertEquals("--- request_a\n+++ request_b\n a\n-b\n+c", diff)
+        }
+
+        @Test
+        fun anEmptyRightSideRemovesEveryLine() {
+            val diff = diffLines("a\nb", "")
+
+            assertEquals("--- request_a\n+++ request_b\n-a\n+\n-b", diff)
+        }
+    }
+
+    // ── countOccurrences ─────────────────────────────────────────────────────────────────
+
+    @Nested
+    inner class CountOccurrences {
+        @Test
+        fun aNeedleThatIsAbsentCountsZero() {
+            assertEquals(0, countOccurrences("abcdef", "zz"))
+        }
+
+        @Test
+        fun aSingleOccurrenceCountsOne() {
+            assertEquals(1, countOccurrences("abcdef", "cd"))
+        }
+
+        @Test
+        fun everyOccurrenceIsCounted() {
+            assertEquals(3, countOccurrences("xaxaxa", "a"))
+        }
+
+        @Test
+        fun overlappingCandidatesAreCountedNonOverlapping() {
+            // "aaaa" contains three overlapping "aa" but the scan advances past each match,
+            // so the implementation reports two. Pinned as observed.
+            assertEquals(2, countOccurrences("aaaa", "aa"))
+        }
+
+        @Test
+        fun anEmptyNeedleCountsZeroRatherThanLoopingForever() {
+            assertEquals(0, countOccurrences("abcdef", ""))
+        }
+    }
+
+    // ── parseHighlightColor ──────────────────────────────────────────────────────────────
+
+    @Nested
+    inner class ParseHighlightColor {
+        @Test
+        fun aValidColourNameInLowerCaseIsParsed() {
+            assertEquals(HighlightColor.RED, parseHighlightColor("red"))
+        }
+
+        @Test
+        fun aValidColourNameInUpperCaseIsParsed() {
+            assertEquals(HighlightColor.MAGENTA, parseHighlightColor("MAGENTA"))
+        }
+
+        @Test
+        fun surroundingWhitespaceIsTrimmedBeforeParsing() {
+            assertEquals(HighlightColor.CYAN, parseHighlightColor("  cyan  "))
+        }
+
+        @Test
+        fun aBlankStringYieldsNull() {
+            assertNull(parseHighlightColor(""))
+            assertNull(parseHighlightColor("   "))
+        }
+
+        @Test
+        fun aNullOrUnrecognisedNameYieldsNull() {
+            assertNull(parseHighlightColor(null))
+            assertNull(parseHighlightColor("chartreuse"))
+        }
+    }
+
+    // ── resolveAuditConfig ───────────────────────────────────────────────────────────────
+
+    @Nested
+    inner class ResolveAuditConfig {
+        @Test
+        fun theThreeActiveAliasesResolveToTheLegacyActiveConfiguration() {
+            listOf("active", "active_checks", "legacy_active").forEach { alias ->
+                assertEquals(
+                    BuiltInAuditConfiguration.LEGACY_ACTIVE_AUDIT_CHECKS,
+                    resolveAuditConfig(alias),
+                    "alias=$alias",
+                )
+            }
+        }
+
+        @Test
+        fun theThreePassiveAliasesResolveToTheLegacyPassiveConfiguration() {
+            listOf("passive", "passive_checks", "legacy_passive").forEach { alias ->
+                assertEquals(
+                    BuiltInAuditConfiguration.LEGACY_PASSIVE_AUDIT_CHECKS,
+                    resolveAuditConfig(alias),
+                    "alias=$alias",
+                )
+            }
+        }
+
+        @Test
+        fun aCanonicalEnumNameIsReachedThroughTheElseBranch() {
+            assertEquals(
+                BuiltInAuditConfiguration.LEGACY_ACTIVE_AUDIT_CHECKS,
+                resolveAuditConfig("  legacy_active_audit_checks  "),
+            )
+            assertEquals(
+                BuiltInAuditConfiguration.LEGACY_PASSIVE_AUDIT_CHECKS,
+                resolveAuditConfig("LEGACY_PASSIVE_AUDIT_CHECKS"),
+            )
+        }
+
+        @Test
+        fun anUnrecognisedValuePropagatesTheEnumValueOfFailure() {
+            // Observed behaviour, pinned: the `else` branch delegates to Enum.valueOf, which
+            // throws. resolveAuditConfig does NOT catch it, so the caller sees the failure.
+            assertThrows(IllegalArgumentException::class.java) {
+                resolveAuditConfig("not_a_configuration")
+            }
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────────────
 
     private val stripped = "[STRIPPED]"
@@ -379,12 +767,30 @@ class McpToolHelpersTest {
     private fun contextWith(
         mode: PrivacyMode,
         salt: String,
+    ): McpToolContext = newContext(mode = mode, salt = salt)
+
+    private fun historyContext(
+        determinism: Boolean,
+        newestFirst: Boolean,
+    ): McpToolContext =
+        newContext(
+            mode = PrivacyMode.OFF,
+            salt = "history-salt",
+            determinism = determinism,
+            newestFirst = newestFirst,
+        )
+
+    private fun newContext(
+        mode: PrivacyMode,
+        salt: String,
+        determinism: Boolean = false,
+        newestFirst: Boolean = false,
     ): McpToolContext {
         val api = mock<MontoyaApi>(defaultAnswer = Answers.RETURNS_DEEP_STUBS)
         return McpToolContext(
             api = api,
             privacyMode = mode,
-            determinismMode = false,
+            determinismMode = determinism,
             hostSalt = salt,
             toolToggles = emptyMap(),
             unsafeEnabled = false,
@@ -393,6 +799,7 @@ class McpToolHelpersTest {
             limiter = McpRequestLimiter(4),
             edition = BurpSuiteEdition.PROFESSIONAL,
             maxBodyBytes = 1024,
+            proxyHistoryNewestFirst = newestFirst,
         )
     }
 }
