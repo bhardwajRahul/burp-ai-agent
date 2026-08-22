@@ -1099,9 +1099,7 @@ object McpToolExecutor {
         context: McpToolContext,
         name: String,
     ) {
-        if (context.edition != BurpSuiteEdition.PROFESSIONAL) {
-            throw IllegalStateException("Tool requires Burp Suite Professional: $name")
-        }
+        check(context.edition == BurpSuiteEdition.PROFESSIONAL) { "Tool requires Burp Suite Professional: $name" }
     }
 
     private fun errorResult(message: String): CallToolResult =

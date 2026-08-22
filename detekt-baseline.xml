@@ -61,9 +61,6 @@
     <ID>CyclomaticComplexMethod:UiActions.kt$UiActions$fun requestResponseMenuItems( api: MontoyaApi, event: ContextMenuEvent, tab: MainTab, mcpSupervisor: McpSupervisor, passiveAiScanner: PassiveAiScanner, activeAiScanner: ActiveAiScanner? = null, audit: AuditLogger? = null, ): List&lt;JMenuItem></ID>
     <ID>CyclomaticComplexMethod:UiActions.kt$UiActions$private fun buildTargetedTestsMenu( tab: MainTab, targets: Lazy&lt;List&lt;HttpRequestResponse>>, activeAiScanner: ActiveAiScanner?, targetLabel: String = "", ): JMenu</ID>
     <ID>CyclomaticComplexMethod:UiActions.kt$UiActions$private fun handleBountyPromptCompletion( api: MontoyaApi, tab: MainTab, definition: BountyPromptDefinition, responseText: String, targets: List&lt;HttpRequestResponse>, audit: AuditLogger?, )</ID>
-    <ID>ImplicitDefaultLocale:ChatPanel.kt$ChatPanel$String.format("%.1fK", chars / 1_000.0)</ID>
-    <ID>ImplicitDefaultLocale:ChatPanel.kt$ChatPanel$String.format("%.1fM", chars / 1_000_000.0)</ID>
-    <ID>ImplicitDefaultLocale:OllamaBackend.kt$OllamaBackend.OllamaConnection$String.format("\\u%04x", ch.code)</ID>
     <ID>LargeClass:ActiveAiScanner.kt$ActiveAiScanner</ID>
     <ID>LargeClass:AgentSettings.kt$AgentSettingsRepository</ID>
     <ID>LargeClass:AgentSupervisor.kt$AgentSupervisor</ID>
@@ -1045,15 +1042,5 @@
     <ID>UnusedParameter:ResponseAnalyzer.kt$ResponseAnalyzer$truePayload: Payload</ID>
     <ID>UnusedPrivateProperty:ContextCollector.kt$ContextCollector$private val api: MontoyaApi</ID>
     <ID>UnusedPrivateProperty:OpenAiCompatibleBackend.kt$OpenAiCompatibleBackend$private val modelSelector: (AgentSettings) -> String = { it.openAiCompatibleModel.trim() }</ID>
-    <ID>UseCheckOrError:CliBackend.kt$CliBackend.CliConnection$throw IllegalStateException("CLI executable not found")</ID>
-    <ID>UseCheckOrError:CliBackend.kt$CliBackend.NonInteractiveCliConnection$throw IllegalStateException("CLI session ID lost between CAS and read")</ID>
-    <ID>UseCheckOrError:KtorMcpServerManager.kt$KtorMcpServerManager$throw IllegalStateException("External MCP access requires TLS. Enable TLS to continue.")</ID>
-    <ID>UseCheckOrError:KtorMcpServerManager.kt$KtorMcpServerManager$throw IllegalStateException("MCP host must be loopback when external access is disabled.")</ID>
-    <ID>UseCheckOrError:KtorMcpServerManager.kt$KtorMcpServerManager$throw IllegalStateException("TLS enabled but keystore not available.")</ID>
-    <ID>UseCheckOrError:McpToolExecutorImpl.kt$McpToolExecutor$throw IllegalStateException("Tool requires Burp Suite Professional: $name")</ID>
-    <ID>UseRequire:McpToolHelpers.kt$throw IllegalArgumentException("Report path is empty")</ID>
-    <ID>UseRequire:McpToolHelpers.kt$throw IllegalArgumentException("Report path must be under $home")</ID>
-    <ID>UseRequire:ToolInvocationDialog.kt$ToolInvocationDialog.JsonEditor$throw IllegalArgumentException("Expected JSON array")</ID>
-    <ID>UseRequire:ToolInvocationDialog.kt$ToolInvocationDialog.JsonEditor$throw IllegalArgumentException("Expected JSON object")</ID>
   </CurrentIssues>
 </SmellBaseline>

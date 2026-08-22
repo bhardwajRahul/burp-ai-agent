@@ -357,9 +357,7 @@ internal fun maybeAnonymizeUrl(
 
 internal fun resolveReportPath(raw: String): java.nio.file.Path {
     val trimmed = raw.trim()
-    if (trimmed.isBlank()) {
-        throw IllegalArgumentException("Report path is empty")
-    }
+    require(trimmed.isNotBlank()) { "Report path is empty" }
     val rawPath =
         java.nio.file.Path
             .of(trimmed)
@@ -373,9 +371,7 @@ internal fun resolveReportPath(raw: String): java.nio.file.Path {
         } else {
             home.resolve(rawPath).normalize()
         }
-    if (!resolved.startsWith(home)) {
-        throw IllegalArgumentException("Report path must be under $home")
-    }
+    require(resolved.startsWith(home)) { "Report path must be under $home" }
     return resolved
 }
 

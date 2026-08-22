@@ -1672,8 +1672,8 @@ class ChatPanel(
 
     private fun formatChars(chars: Long): String =
         when {
-            chars >= 1_000_000 -> String.format("%.1fM", chars / 1_000_000.0)
-            chars >= 1_000 -> String.format("%.1fK", chars / 1_000.0)
+            chars >= 1_000_000 -> String.format(java.util.Locale.ROOT, "%.1fM", chars / 1_000_000.0)
+            chars >= 1_000 -> String.format(java.util.Locale.ROOT, "%.1fK", chars / 1_000.0)
             else -> "$chars"
         }
 

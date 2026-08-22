@@ -77,10 +77,10 @@ class KtorMcpServerManager(
                 server = null
 
                 if (settings.externalEnabled && !settings.tlsEnabled) {
-                    throw IllegalStateException("External MCP access requires TLS. Enable TLS to continue.")
+                    error("External MCP access requires TLS. Enable TLS to continue.")
                 }
                 if (!settings.externalEnabled && !isLoopbackHost(settings.host)) {
-                    throw IllegalStateException("MCP host must be loopback when external access is disabled.")
+                    error("MCP host must be loopback when external access is disabled.")
                 }
                 // SEC-05 5c / F19: LOG, do not throw. The gate already denies every non-health
                 // request with 401 BlockReason.BLANK_TOKEN in this configuration, so failing closed
@@ -134,7 +134,7 @@ class KtorMcpServerManager(
                         if (settings.tlsEnabled) {
                             val tlsMaterial =
                                 McpTls.resolve(settings)
-                                    ?: throw IllegalStateException("TLS enabled but keystore not available.")
+                                    ?: error("TLS enabled but keystore not available.")
                             sslConnector(
                                 keyStore = tlsMaterial.keyStore,
                                 keyAlias = tlsMaterial.keyAlias,
