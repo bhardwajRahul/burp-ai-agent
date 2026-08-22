@@ -1,20 +1,24 @@
 ---
 phase: 24-scheduler-process-robustness
 verified: 2026-08-21T19:20:00Z
-status: human_needed
+status: passed
 score: 6/6 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Load `Custom-AI-Agent-<version>.jar` in a real Burp session, configure a CLI backend (codex-cli or gemini-cli), and send one prompt that produces a normal-length answer."
     expected: "The full model answer is returned verbatim with no `[output truncated: ...]` marker and no error. The prompt/output temp files are gone from the OS temp directory after the call returns."
     why_human: "SC3/SC4/SC5 are verified against the extracted seams (`CliOutputBuffer`, `CliTempFileRegistry`) in pure JVM. No automated test drives a real `codex-cli`/`gemini-cli` subprocess through `CliBackend.executeInternal`, so the reader-thread/timeout-path interaction and the `finally`-block cleanup are proven at the seam, never end-to-end against a real process."
+
   - test: "With the extension loaded, run an active AI scan against a target with many injection points. While it runs, take a Burp thread dump (jstack on the Burp PID)."
     expected: "Thread names `burp-ai-agent-worker-N` (at most 4), `burp-ai-agent-scan-request-N` (at most 32), `burp-ai-agent-scan-worker-N`, `burp-ai-agent-scan-scheduler`, `burp-ai-agent-oast-poller` are present and bounded. No anonymous `pool-N-thread-M` growth attributable to the scanner. The scan completes and the queue drains to zero."
     why_human: "SC6's ceilings and names are asserted against locally-constructed pools of identical shape plus a structural read of `App.kt` / `ActiveAiScanner.kt`. The production pool instances are never observed under real scan load, and 'a Burp thread dump is readable' is by definition a live-Burp observation."
+
   - test: "Quit Burp cleanly (File > Exit) while a CLI backend call is still in flight, then inspect the OS temp directory."
     expected: "No `burp_uv_prompt_*.txt` or `burp-ai-agent-codex*.txt` files remain."
     why_human: "The exit-hook sweep was verified in a forked JVM against the real compiled `CliTempFileRegistry` (file registered, JVM exited with no `finally`/`shutdown()` call, file was gone). What is NOT covered is the same path inside a live Burp process with a real in-flight subprocess — the interleaving of Burp's own shutdown, `App.shutdown()`'s `removeShutdownHook`, and the JVM exit hook."
+
   - test: "Unload and reload the extension several times (Extensions > Installed > untick/retick), then check the JVM for accumulating `burp-ai-agent-cli-temp-sweep` threads and `McpScannerTaskRegistryCleaner` / `McpCollaboratorRegistryCleaner` threads."
     expected: "Exactly one `burp-ai-agent-cli-temp-sweep` hook thread at most, and it disappears on unload."
     why_human: "Extension reload cannot be simulated headlessly. Relevant because open review finding WR-04 records that the two MCP registry cleaner executors are never shut down (pre-existing, not introduced here), and WR-03 records a narrow `shutdown()`/`register()` race that could arm a hook that is never removed."
@@ -111,6 +115,7 @@ The structural ledger at `CliOutputBufferTest.kt:272` guards the exact failure m
 `CliTempFileRegistry.kt` holds one `ConcurrentHashMap.newKeySet()` bounded by in-flight calls, and `armHook()` (`:141`) returns early when a hook is already armed — so exactly one hook, not one per invocation.
 
 **CR-02 fix verified at source:**
+
 ```kotlin
 fun deleteAndDeregister(file: File?) {
     if (file == null) return
@@ -119,14 +124,17 @@ fun deleteAndDeregister(file: File?) {
     }
 }
 ```
+
 A `delete()` that returns `false` on a file that still exists keeps its entry, so the drain can retry. `CliBackendTempFileTest.kt:292` pins this with a deterministic fixture — a **non-empty directory**, whose `delete()` returns `false` on every platform — and asserts `sizeForTests() == 1` afterwards, with a fixture precondition assertion so it cannot pass vacuously. `:319` covers the three complementary arms (successful delete, already-gone file, `null`).
 
 **"and on crash" — verified end-to-end, not inferred.** I ran the real compiled `CliTempFileRegistry` in a forked JDK 21 JVM: registered a temp file, then exited the JVM with **no** `deleteAndDeregister` and **no** `shutdown()` call — simulating a clean Burp quit mid-CLI-call:
+
 ```
 registered exists=true hookArmed=true
 --- after JVM exit ---
 GONE (exit hook swept it)
 ```
+
 Wiring: `CliBackend.kt:124,139` register; `:160,305,310` `deleteAndDeregister`; `App.kt:263 safeShutdownStep("CLI temp files") { CliTempFileRegistry.shutdown() }`, sequenced after the backend registry and before the worker pool (pinned by `CliBackendTempFileTest.kt:466`).
 
 The SIGKILL residual is an accepted, KDoc-documented non-goal (D-04), not an SC clause.
