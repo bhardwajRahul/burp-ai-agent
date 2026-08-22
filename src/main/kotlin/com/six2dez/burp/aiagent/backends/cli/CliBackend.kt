@@ -815,29 +815,52 @@ class CliBackend(
                 .start()
         }
 
-        private fun buildPtyCommand(cmd: List<String>): List<String> {
-            val joined = cmd.joinToString(" ") { shellEscape(it) }
-            val os = System.getProperty("os.name").lowercase(Locale.ROOT)
-            return if (os.contains("mac")) {
-                // macOS: script -q /dev/null /bin/sh -c "command"
-                listOf("script", "-q", "/dev/null", "/bin/sh", "-c", joined)
-            } else {
-                // Linux: script -q -c "command" /dev/null
-                listOf("script", "-q", "-c", joined, "/dev/null")
-            }
-        }
-
-        private fun shellEscape(arg: String): String {
-            if (arg.isEmpty()) return "''"
-            if (arg.none { it.isWhitespace() || it == '"' || it == '\'' }) return arg
-            return "'" + arg.replace("'", "'\"'\"'") + "'"
-        }
-
         private fun isUnixLike(): Boolean {
             val os = System.getProperty("os.name").lowercase(Locale.ROOT)
             return os.contains("mac") || os.contains("nix") || os.contains("nux")
         }
     }
+}
+
+/**
+ * Build the argv that runs [cmd] under a pseudo-terminal via `script(1)`.
+ *
+ * The two platform shapes differ because macOS `script` takes the command as trailing argv while
+ * Linux `script` takes it behind `-c`. Both funnel the whole argv through ONE shell string, which
+ * is why every element is passed through [shellEscape] before the join — this is the only place in
+ * the file where argument boundaries are re-derived by `/bin/sh`.
+ *
+ * [osName] is a defaulted parameter purely so both platform shapes can be asserted on one machine;
+ * production calls it with no explicit argument and therefore behaves exactly as before.
+ *
+ * Visibility: `internal` so ShellEscapeTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun buildPtyCommand(
+    cmd: List<String>,
+    osName: String = System.getProperty("os.name"),
+): List<String> {
+    val joined = cmd.joinToString(" ") { shellEscape(it) }
+    val os = osName.lowercase(Locale.ROOT)
+    return if (os.contains("mac")) {
+        // macOS: script -q /dev/null /bin/sh -c "command"
+        listOf("script", "-q", "/dev/null", "/bin/sh", "-c", joined)
+    } else {
+        // Linux: script -q -c "command" /dev/null
+        listOf("script", "-q", "-c", joined, "/dev/null")
+    }
+}
+
+/**
+ * Quote [arg] so a POSIX shell reads it back as exactly one word with no metacharacter meaning.
+ *
+ * Visibility: `internal` so ShellEscapeTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun shellEscape(arg: String): String {
+    if (arg.isEmpty()) return "''"
+    if (arg.none { it.isWhitespace() || it == '"' || it == '\'' }) return arg
+    return "'" + arg.replace("'", "'\"'\"'") + "'"
 }
 
 /**
