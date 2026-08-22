@@ -62,4 +62,16 @@ class SsrfGuardTest {
     fun ipv6Ula_fd_isFlagged() {
         assertTrue(SsrfGuard.isPrivateOrLinkLocal("http://[fd12:3456::1]"))
     }
+
+    // SEC-07 tracer: non-dotted-quad IPv4 notations must be parsed and classified, not rejected.
+
+    @Test
+    fun decimalLiteral_cloudMetadata_isFlagged() {
+        assertTrue(SsrfGuard.isPrivateOrLinkLocal("http://2852039166/"))
+    }
+
+    @Test
+    fun decimalLiteral_loopback_isNotFlagged() {
+        assertFalse(SsrfGuard.isPrivateOrLinkLocal("http://2130706433/"))
+    }
 }

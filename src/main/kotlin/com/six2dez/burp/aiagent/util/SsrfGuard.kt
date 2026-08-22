@@ -15,13 +15,30 @@ import java.net.URI
  * - No DNS resolution: only literal IP hosts are classified. Hostname-format hosts return false.
  * - No network calls; never throws on malformed/blank input.
  *
+ * "Literal" means every `inet_aton` notation, not only the dotted quad (SEC-07). Decimal, octal and
+ * hexadecimal IPv4 literals are parsed locally by [Ipv4Literal] and classified from their bytes, so
+ * `http://2852039166/` — the decimal spelling of the cloud-metadata address 169.254.169.254 — is now
+ * flagged exactly as its dotted-quad equivalent is, and `2130706433`, `0177.0.0.1` and `0x7f.1` are
+ * all recognised as loopback and therefore excluded.
+ *
+ * The IPv4 branch calls no resolving API at all. That CLOSED a real defect rather than preserving a
+ * property: `256.0.0.1` matched the old dotted-quad regex, passed the literal gate and reached the
+ * JDK's name-resolving lookup, which could not read it as a literal and resolved it as a NAME — a
+ * real outbound lookup, measured at 27 ms on JDK 21 (2026-08-22), leaking the typed or imported
+ * string to the configured resolver. (`0400.0.0.1` did NOT match the old regex — corrected
+ * 2026-08-22 — so `256.0.0.1` alone carries that evidence.) `InetAddress.getByAddress` cannot
+ * resolve, and the one surviving resolving call is on the IPv6 branch, which a ':' guard already
+ * keeps away from names. That one call is why a bare `grep -c` for the resolving method name in this
+ * file must return exactly 1: the count simultaneously proves the IPv4 branch stopped resolving and
+ * proves the IPv6 branch was not deleted along with it. Do not name it again in prose here.
+ *
  * The result is advisory only — the caller shows a non-blocking inline warning and proceeds.
  */
 object SsrfGuard {
-    // Conservative literal-IP detectors. A dotted-quad is IPv4; anything with a ':' that is all
-    // hex/colon is treated as a literal IPv6 candidate. These guards keep getByName from doing any
-    // reverse/forward DNS for hostnames.
-    private val IPV4_REGEX = Regex("""^\d{1,3}(\.\d{1,3}){3}$""")
+    // Conservative literal-IP detector for IPv6: anything with a ':' that is all hex/colon is treated
+    // as a literal IPv6 candidate. That guard keeps the resolving call below from doing any
+    // reverse/forward DNS for hostnames. IPv4 literals need no such guard — Ipv4Literal parses them
+    // without any lookup.
     private val IPV6_REGEX = Regex("""^[0-9a-fA-F:]+$""")
 
     fun isPrivateOrLinkLocal(url: String): Boolean {
@@ -39,17 +56,16 @@ object SsrfGuard {
         val host = (rawHost ?: extractAuthorityHost(url))?.trim()?.removeSurrounding("[", "]")
         if (host.isNullOrBlank()) return false
 
-        // Only classify literal IPs — never resolve hostnames.
-        val isIpv4 = IPV4_REGEX.matches(host)
-        val isIpv6 = host.contains(':') && IPV6_REGEX.matches(host)
-        if (!isIpv4 && !isIpv6) return false
-
+        // Only classify literal IPs — never resolve hostnames. IPv4 literals are parsed locally in
+        // every inet_aton notation and turned into an address from their raw bytes, so this branch
+        // performs no name resolution whatsoever.
+        val ipv4Bytes = Ipv4Literal.parse(host)
         val addr =
-            try {
-                InetAddress.getByName(host)
-            } catch (e: Exception) {
-                return false
-            }
+            when {
+                ipv4Bytes != null -> InetAddress.getByAddress(ipv4Bytes)
+                host.contains(':') && IPV6_REGEX.matches(host) -> resolveIpv6Literal(host)
+                else -> null
+            } ?: return false
 
         return when {
             addr.isLoopbackAddress -> false // loopback excluded per D-01
@@ -62,6 +78,21 @@ object SsrfGuard {
             else -> false
         }
     }
+
+    /**
+     * Turns an already-validated literal IPv6 host into an address, or null when the JDK rejects it.
+     *
+     * This is the ONLY resolving call left in this object, and it is unreachable for anything that is
+     * not colon-shaped: the caller gates it behind `host.contains(':')` plus [IPV6_REGEX], and a
+     * string containing ':' never reaches the resolver (measured on JDK 21: resolving `abcd:efab`
+     * throws in 0 ms, i.e. without a lookup). IPv4 no longer comes through here at all.
+     */
+    private fun resolveIpv6Literal(host: String): InetAddress? =
+        try {
+            InetAddress.getByName(host)
+        } catch (e: Exception) {
+            null
+        }
 
     /**
      * Returns true when [addr] falls within the IPv6 Unique Local Address range fc00::/7.
