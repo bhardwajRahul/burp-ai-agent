@@ -177,6 +177,12 @@ tasks.test {
         .file("src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpToolCatalog.kt")
         .withPropertyName("secTierKdocSource")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+    // DOC-03 / SC5: SecurityDocsTest reads SECURITY.md from disk — same stale-cache defect as the
+    // DECISIONS.md declaration above, and a documentation-only edit is the purest form of it.
+    inputs
+        .file("SECURITY.md")
+        .withPropertyName("securityPolicy")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     // SEC-06 / SC5 / CR-02: ToolApprovalGateVisibilityTest reads this file from disk to pin
     // `approvedOrigin` as private and `ModelApproved` as file-private, for the same reason and with the
     // same caveat as the two declarations above. A visibility widening does change the compiled output,
