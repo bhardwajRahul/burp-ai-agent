@@ -152,4 +152,103 @@ class EntropyTest {
         val result = Entropy.maxQualifyingTokenEntropy(token)
         assertTrue(result > 0.0, "Regression: dot-free high-entropy base64 token must remain detected; got $result")
     }
+
+    // ── The negative arms of the charset x threshold gate ────────────────────────────────────────
+    //
+    // The gate is `(isHex && h >= 3.0) || (isB64 && h >= 4.5)`. The suite above only ever exercised
+    // it with both halves of one disjunct true. Each of the ways it can be false is a way a secret
+    // is silently NOT reported, so each gets its own assertion.
+
+    // Long enough, hex charset, but no entropy at all: the length gate is not the only gate.
+    @Test
+    fun longLowEntropyHexTokenDoesNotQualify() {
+        val flat = "a".repeat(32) // 32 chars, hex charset, Shannon entropy 0.0
+        assertTrue(flat.length >= 20, "Pre-condition: the length gate must not be what rejects this")
+        val result = Entropy.maxQualifyingTokenEntropy(flat)
+        assertEquals(0.0, result, 0.001, "A flat hex run must fall to the entropy threshold, not pass it; got $result")
+    }
+
+    // Long enough, base64-only charset (uppercase Z is not a hex digit), entropy far below 4.5.
+    @Test
+    fun longLowEntropyBase64TokenDoesNotQualify() {
+        val flat = "Z".repeat(32)
+        assertTrue(flat.none { it in "0123456789abcdefABCDEF" }, "Pre-condition: must not be hex, or the hex arm decides")
+        val result = Entropy.maxQualifyingTokenEntropy(flat)
+        assertEquals(0.0, result, 0.001, "A flat base64 run must not qualify; got $result")
+    }
+
+    // Neither charset: '_' and '-' survive TOKEN_SPLIT but are outside BASE64_CHARS, so however
+    // high the Shannon entropy climbs the token can never qualify. This is the arm that documents
+    // the detector's real blind spot rather than pretending it has none.
+    @Test
+    fun highEntropyTokenOutsideBothCharsetsNeverQualifies() {
+        val token = "aB3_xY9-zQ2_wE7-rT4_uI8-oP5_lK1" // 31 chars, mixed case, digits, '_' and '-'
+        assertTrue(token.length >= 20, "Pre-condition: the length gate must not be what rejects this")
+        assertTrue(Entropy.shannon(token) > 4.5, "Pre-condition: entropy must clear the base64 threshold on its own")
+        val result = Entropy.maxQualifyingTokenEntropy(token)
+        assertEquals(
+            0.0,
+            result,
+            0.001,
+            "A token outside both charsets cannot qualify however high its entropy; got $result",
+        )
+    }
+
+    // The dot-joined pass is deliberately BASE64-only: pure hex maxes out at 4.0 bits/char, below
+    // the 4.5 gate, so a dotted hex run (MAC addresses, hex-octet sequences) stays out of the audit
+    // trail. Without this the second pass would report every MAC address on the wire.
+    @Test
+    fun dottedHexRunDoesNotQualifyViaTheDotJoinedPass() {
+        val dotted = "aabbccddeeff.001122334455.66778899aabb"
+        val joined = dotted.replace(".", "")
+        assertTrue(joined.length >= 20, "Pre-condition: dots-removed must clear the length gate")
+        assertTrue(Entropy.shannon(joined) < 4.5, "Pre-condition: hex cannot reach 4.5 bits/char")
+        val result = Entropy.maxQualifyingTokenEntropy(dotted)
+        assertEquals(0.0, result, 0.001, "A dotted hex run must not qualify via the dot-joined pass; got $result")
+    }
+
+    // The dot-joined pass gates on the STANDARD base64 alphabet, which does not contain '-' or '_'.
+    // The dot-aware splitter keeps both characters inside the candidate, so a dotted base64URL
+    // secret carrying either one fails the charset gate and is never scored — a real blind spot in
+    // the detector, named here rather than left for someone to discover from a missed finding.
+    @Test
+    fun dottedBase64urlTokenCarryingDashOrUnderscoreIsNotScored() {
+        val dotted = "xK8mN2pQr-5v.WyZ1aB3cD6e.FgHiJkLmNoPqRsT7uV"
+        val joined = dotted.replace(".", "")
+        assertTrue(joined.length >= 20, "Pre-condition: dots-removed must clear the length gate")
+        assertTrue(joined.contains('-'), "Pre-condition: the candidate must carry a base64URL-only character")
+        val result = Entropy.maxQualifyingTokenEntropy(dotted)
+        assertEquals(
+            0.0,
+            result,
+            0.001,
+            "The dot-joined pass gates on the STANDARD base64 alphabet, so a '-' or '_' disqualifies " +
+                "the whole candidate; got $result",
+        )
+    }
+
+    // The dot-joined pass is ADDITIVE, never subtractive: when the segment pass already found a
+    // higher-entropy token, a qualifying-but-lower dotted candidate must not lower the reported
+    // maximum. This is the `h > max` half of the second pass's guard.
+    @Test
+    fun dotJoinedPassNeverLowersAMaximumTheSegmentPassAlreadyFound() {
+        val contiguous = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuv" // 48 distinct chars
+        val dotted = "xK8mN2pQrT5v.WyZ1aB3cD6e.FgHiJkLmNoPqRsT7uV"
+
+        val contiguousAlone = Entropy.maxQualifyingTokenEntropy(contiguous)
+        val dottedAlone = Entropy.maxQualifyingTokenEntropy(dotted)
+        assertTrue(
+            dottedAlone in 4.5..contiguousAlone,
+            "Pre-condition: the dotted candidate must qualify but score lower than the contiguous one " +
+                "(dotted=$dottedAlone, contiguous=$contiguousAlone)",
+        )
+
+        val together = Entropy.maxQualifyingTokenEntropy("$contiguous and also $dotted")
+        assertEquals(
+            contiguousAlone,
+            together,
+            0.001,
+            "The dot-joined pass must not lower the maximum the segment pass already reported; got $together",
+        )
+    }
 }
