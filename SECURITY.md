@@ -2,13 +2,14 @@
 
 ## Supported Versions
 
-Only the latest minor release receives security updates. `0.10.0` is the current development line and
-is not yet published; until it ships, security fixes are also backported to the released `0.9.x` line.
+Only the latest minor release receives security updates. `1.0.0` is the current released line.
+The `0.9.x` line is no longer supported — it carries the two advisories below unfixed, so the
+remedy for a `0.9.x` install is to upgrade rather than to wait for a backport.
 
 | Version | Supported                                                  |
 | ------- | ---------------------------------------------------------- |
-| 0.10.x  | Yes                                                        |
-| 0.9.x   | Security fixes only, until 0.10.0 ships                    |
+| 1.0.x   | Yes                                                        |
+| 0.9.x   | No — carries SEC-04 and PRIV-05 unfixed; upgrade to 1.0.0  |
 | < 0.9   | No                                                         |
 
 ## Reporting a Vulnerability
@@ -53,14 +54,14 @@ Two defects below were confirmed by **running** the shipped code during a review
 2026-08-05, not by reading it. Both affect every published `0.9.x` release.
 
 **No CVE and no GHSA identifier has been issued for either finding.** Do not look for one — none
-exists at the time of writing. Both are fixed in `0.10.0`, which is **not yet published**; the fixes
-are in the development line and will be available when that release ships. If you find a further
-issue, report it privately using the instructions in
+exists at the time of writing. Both are fixed in `1.0.0`, which is published: upgrading is the
+remedy, and the user actions below still apply to anyone who ran an affected release. If you find a
+further issue, report it privately using the instructions in
 [Reporting a Vulnerability](#reporting-a-vulnerability) above rather than opening a public issue.
 
 ### SEC-04 — MCP access-control checks did not run on resolved routes
 
-**Affected:** 0.9.0, 0.9.1, 0.9.2 · **Fixed in:** 0.10.0 (unreleased) · **Severity:** critical
+**Affected:** 0.9.0, 0.9.1, 0.9.2 · **Fixed in:** 1.0.0 · **Severity:** critical
 
 The access-control interceptor was registered *after* the `routing` block in Ktor's `Call` phase, and
 Ktor runs same-phase interceptors in registration order, so any request whose route resolved was
@@ -90,7 +91,7 @@ you did not initiate.
 
 ### PRIV-05 — session cookies reached AI backends unredacted in STRICT and BALANCED
 
-**Affected:** 0.9.0, 0.9.1, 0.9.2 · **Fixed in:** 0.10.0 (unreleased) · **Severity:** high
+**Affected:** 0.9.0, 0.9.1, 0.9.2 · **Fixed in:** 1.0.0 · **Severity:** high
 
 The passive scanner emitted a dedicated cookies section into the prompt as bare `name=value` pairs,
 dropping the `Cookie:` header prefix that the redaction rule keyed on. Sensitive-key matching was an

@@ -33,8 +33,8 @@ private val AT_REST_DOCS = listOf(README_FILE, SPEC_FILE, SECURITY_FILE, ANTHROP
 /** The three published releases SEC-04 and PRIV-05 are live in. */
 private val AFFECTED_VERSIONS = listOf("0.9.0", "0.9.1", "0.9.2")
 
-/** The release that carries both fixes. Unpublished at the time this guard was written. */
-private const val FIXED_VERSION = "0.10.0"
+/** The release that carries both fixes. Published at the 1.0.0 release cut. */
+private const val FIXED_VERSION = "1.0.0"
 
 /**
  * DOC-03 / SC5 guard on the security advisory — the statement owed to every user running 0.9.0
@@ -175,15 +175,21 @@ class SecurityDocsTest {
     }
 
     @Test
-    fun theAdvisoryDoesNotImplyThePublishedFixExists() {
+    fun theAdvisoryDoesNotStillCallTheFixUnreleased() {
         val advisories = advisoriesSection()
 
-        assertTrue(
-            advisories.contains("not yet published", ignoreCase = true),
-            "The advisories section must say that $FIXED_VERSION is not yet published. A reader who " +
-                "believes a fixed release is available will go looking for it, fail, and conclude " +
-                "the advisory is wrong about everything else too.",
-        )
+        // Inverted at the $FIXED_VERSION release cut. Before it, this guard asserted the advisory
+        // said the fix was "not yet published", so a reader would not go hunting for a release that
+        // did not exist. Now that $FIXED_VERSION ships, the same sentence is the lie: it would tell
+        // a user on an affected version to keep waiting when the remedy is available today.
+        listOf("not yet published", "unreleased", "will be available when that release ships").forEach { stale ->
+            assertFalse(
+                advisories.contains(stale, ignoreCase = true),
+                "The advisories section still contains \"$stale\", but $FIXED_VERSION is published. " +
+                    "A user on an affected version reading that will keep waiting for a fix they " +
+                    "could already install. Update the advisory in the same commit that ships the release.",
+            )
+        }
     }
 
     @Test

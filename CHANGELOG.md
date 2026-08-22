@@ -6,6 +6,102 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-22
+
+First stable release. The whole line is a security-correctness milestone: an external review of
+`0.9.2` on 2026-08-05 confirmed two exploitable defects by running the shipped code, and this release
+fixes both plus the wider class of issues the same review surfaced. **Users on 0.9.0-0.9.2 should
+read [SECURITY.md](SECURITY.md#security-advisories) and act on it** - one of the two requires
+rotating credentials that may already have been disclosed to a third party.
+
+### Security
+
+- **SEC-04 (critical) - MCP access-control checks did not run on resolved routes.** The interceptor
+  was registered *after* the `routing` block in Ktor's `Call` phase, and Ktor runs same-phase
+  interceptors in registration order, so any request whose route resolved was served by its handler
+  before the checks ran. With external access enabled, unauthenticated `POST /message` and SSE
+  connects reached the MCP handler instead of being rejected with `401`; in local mode the
+  Origin/Host/User-Agent checks and the security response headers were inert on matched routes. The
+  access-control decision now runs in the `Plugins` phase, ahead of routing, and the
+  `POST /__mcp/shutdown` handler keeps its own in-handler check as defence in depth.
+- **PRIV-05 (high) - session cookies reached AI backends unredacted in STRICT and BALANCED.** The
+  passive scanner emitted a cookies section as bare `name=value` pairs, dropping the `Cookie:` prefix
+  the redaction rule keyed on, and sensitive-key matching was an exact match against a fixed list.
+  Values named `JSESSIONID`, `PHPSESSID`, `connect.sid`, `auth_token`, `csrftoken` and `remember_me`
+  went verbatim to the configured backend. Redaction now recognises real-world cookie names and
+  covers the scanner's own sections.
+- **SEC-06 - model-emitted tool calls require a user decision.** A tool call parsed out of *model
+  output* no longer executes against Burp until you approve it. Every tool carries a security tier:
+  `AUTO` (read-only and bounded output), `CONFIRM` (offers approve-for-session) or `CONFIRM_EACH`.
+  Resolution fails closed - an unknown tool name resolves to `CONFIRM_EACH`, and every
+  `ext:`-namespaced external tool does so before the catalog is consulted. Denying returns a neutral
+  "not authorised, do not retry" result rather than an error. Recorded in ADR-15.
+- **SEC-07 - the MCP token is no longer disclosed during a port takeover.** The bind-conflict
+  takeover path presented `Authorization: Bearer <token>` to whatever held the port, and the probe
+  could not establish that holder's identity: the `X-Burp-AI-Agent: mcp` marker is echoable by any
+  local process, and in external mode it was not checked at all. The client now presents
+  `McpTakeoverProof` - `HMAC-SHA256(key = token, message = "burp-ai-agent/mcp-takeover|v1|<host>:<port>|<10s window>")` -
+  so there is no secret to harvest. The server accepts either the proof or the legacy bearer form, so
+  driving the endpoint by hand still works. Recorded in ADR-16.
+- **SEC-07 - loopback TLS takeover is pinned to the extension's own certificate.** `openConnection`
+  previously installed a blanket-accept trust manager and an always-true hostname verifier on
+  loopback. It now pins the server's leaf certificate to the one in `tlsKeystorePath`, compares with
+  `MessageDigest.isEqual`, and installs no TLS override at all when no pin can be read - failing
+  closed rather than falling back to trusting an unidentified listener.
+- **SEC-07 - `SsrfGuard` classifies alternate IPv4 notations.** A backend or MCP base URL written in
+  decimal, octal or hexadecimal (`http://2852039166/` for `169.254.169.254`) was rejected at a
+  dotted-quad regex and skipped classification entirely, so the private/link-local advisory could be
+  sidestepped by notation alone. Literals are now parsed and classified identically to their
+  dotted-quad equivalent, while performing strictly *less* name resolution than before - the
+  classifier now resolves nothing at all. Loopback stays excluded, so local Ollama and LM Studio
+  users see no new warning.
+- **QUAL-06 - shell arguments are quoted by allowlist.** `shellEscape` quoted by denylist, so an
+  argument carrying shell metacharacters without whitespace (`foo;id`, `$(cmd)`) could reach `sh -c`
+  unquoted - a settings-import-to-command-execution path. Anything outside `[A-Za-z0-9._/-]` is now
+  quoted.
+- **An advisory now ships with the project.** [SECURITY.md](SECURITY.md#security-advisories) names
+  the affected versions, the impact and the required user action for SEC-04 and PRIV-05, and the
+  documentation site carries the same statement.
+
+### Added
+
+- **MCP token strength floor.** `Defaults.MCP_MIN_TOKEN_LENGTH` plus an advisory notice when a
+  configured token is weak. Advisory only - it does not block - but a weak token matters more now
+  that the takeover proof is an offline verifier for it (recorded as a residual in ADR-16).
+- **A non-loopback TLS takeover diagnostic**, so a bind conflict against a non-loopback host explains
+  why the takeover was skipped instead of failing silently.
+- **ADR-15, ADR-16 and ADR-17** in `DECISIONS.md`, recording the tool-call trust boundary, the
+  takeover credential decision with all seven accepted residuals, and the EDT-enforcement
+  disposition.
+
+### Changed
+
+- **EDT confinement (REL).** Tool execution, backend HTTP and MCP `stop()` moved off the Swing event
+  dispatch thread, so a slow backend or a hung MCP shutdown can no longer freeze Burp's UI.
+- **Scheduler and process robustness (REL).** Recurring tasks are guarded against death-by-exception,
+  the CLI output race is fixed, and unbounded resource use in the scanner and CLI paths is capped.
+- **`ChatPanel`'s EDT enforcement is documented as a test-only mechanism.** It is a JVM `assert`,
+  which is inert unless `-ea` is passed, so it never reported in production Burp. `tasks.test` runs
+  with `-ea`, so it is a real gate in CI - and now says so rather than reading as a runtime guarantee
+  (ADR-17).
+- **The at-rest encryption claim is stated accurately** in `README.md`, `SPEC.md`, `SECURITY.md` and
+  the documentation site: `SecretCipher` encrypts secrets with AES-256-GCM under a per-install master
+  key, and that master key is stored in Burp Preferences beside the ciphertext. It defends against
+  casual inspection of a preferences file or an export, not against a local attacker.
+
+### Fixed
+
+- **The detekt baseline shrinks rather than grows** - 1096 to 1040 entries, with 45 of the 56
+  removals backed by a real source fix rather than a stale-entry prune, and no finding from this
+  milestone added to it.
+
+### Testing
+
+- Test suite grown from 660 to **1131 tests across 158 classes**. Line coverage on the
+  security-relevant packages rose against the 2026-08-05 baseline: project-wide 34% to **58.14%**
+  line and 23% to **35.75%** branch, with `redact` at 96%, `config` at 96%, the `mcp` tree from
+  61.8% to **71.0%** and `mcp/schema` from 48.6% to **97.9%**.
+
 ## [0.9.2] - 2026-07-29
 
 ### Fixed
