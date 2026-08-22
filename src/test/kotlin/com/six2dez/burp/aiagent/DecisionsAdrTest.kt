@@ -21,9 +21,12 @@ private const val AUTO_DEFINITION: String =
 private const val DECISIONS_FILE = "DECISIONS.md"
 private const val CATALOG_FILE = "src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpToolCatalog.kt"
 
+/** The number of `Residual:` bullets phase 25 committed ADR-16 to carrying. */
+private const val MIN_ADR16_RESIDUALS = 5
+
 /**
  * SEC-06 / SC1 guard on ADR-15 — the written rule by which a tool added in a later phase inherits the
- * trust boundary instead of re-litigating it.
+ * trust boundary instead of re-litigating it — and, since phase 25, the SEC-07 guard on ADR-16.
  *
  * **What this test can do.** It is a string-match guard. It stops ADR-15 from disappearing, stops it
  * from silently losing D-05's `AUTO` sentence in a later edit, and — the part that carries the real
@@ -40,20 +43,44 @@ private const val CATALOG_FILE = "src/main/kotlin/com/six2dez/burp/aiagent/mcp/M
  */
 class DecisionsAdrTest {
     @Test
-    fun adr15ExistsAndIsTheHighestNumberedAdr() {
+    fun adr16ExistsAndIsTheHighestNumberedAdr() {
         val decisions = readProjectFile(DECISIONS_FILE)
 
         assertTrue(
             decisions.lineSequence().any { it.startsWith("## ADR-15") },
             "$DECISIONS_FILE must contain a heading line starting `## ADR-15`. ADR-15 is SEC-06's " +
-                "record of the agent tool-call trust boundary; if it was renumbered, the guard below " +
+                "record of the agent tool-call trust boundary; if it was renumbered, the guards below " +
                 "and 22-HUMAN-UAT.md both point at nothing.",
         )
-        assertFalse(
+        assertTrue(
             decisions.lineSequence().any { it.startsWith("## ADR-16") },
-            "$DECISIONS_FILE contains `## ADR-16`, so ADR-15 is no longer the highest-numbered ADR. " +
+            "$DECISIONS_FILE must contain a heading line starting `## ADR-16`. ADR-16 is SEC-07's " +
+                "record of the MCP takeover credential and the loopback certificate pin; without it " +
+                "the phase's accepted residuals survive only in `.planning/`, which does not ship.",
+        )
+        assertFalse(
+            decisions.lineSequence().any { it.startsWith("## ADR-17") },
+            "$DECISIONS_FILE contains `## ADR-17`, so ADR-16 is no longer the highest-numbered ADR. " +
                 "This assertion exists to make the NEXT phase's author notice they must claim a new " +
                 "number and extend this guard, rather than quietly reusing one.",
+        )
+    }
+
+    @Test
+    fun adr16RecordsEveryResidualItAccepts() {
+        val section = adrSection("## ADR-16")
+        val residuals = section.lineSequence().count { it.contains("Residual:") }
+
+        // T-25-17: a residual that is accepted but not written down is indistinguishable from a
+        // residual nobody noticed. Phase 25 accepted five across three plans - proof replay inside the
+        // validity window, host-string identity, version skew, filesystem read defeating the pin, and
+        // fail-closed takeover under TLS. Deleting one from the ADR must be a deliberate act with a red
+        // test in front of it, not an editing accident.
+        assertTrue(
+            residuals >= MIN_ADR16_RESIDUALS,
+            "ADR-16 lists $residuals `Residual:` bullets, fewer than the $MIN_ADR16_RESIDUALS this " +
+                "phase accepted. If a residual was genuinely closed, close it here deliberately and " +
+                "lower this bound in the same commit.",
         )
     }
 
@@ -124,10 +151,15 @@ class DecisionsAdrTest {
      * ADR-15's own text, sliced from its heading to the next `## ADR` heading or end of file, so an
      * assertion cannot be satisfied by wording that belongs to a different ADR.
      */
-    private fun adr15Section(): String {
+    private fun adr15Section(): String = adrSection("## ADR-15")
+
+    /**
+     * The named ADR's own text, sliced from its heading to the next `## ADR` heading or end of file.
+     */
+    private fun adrSection(heading: String): String {
         val decisions = readProjectFile(DECISIONS_FILE)
-        val start = decisions.indexOf("## ADR-15")
-        assertTrue(start >= 0, "$DECISIONS_FILE contains no `## ADR-15` heading to slice.")
+        val start = decisions.indexOf(heading)
+        assertTrue(start >= 0, "$DECISIONS_FILE contains no `$heading` heading to slice.")
         val next = decisions.indexOf("\n## ADR", start + 1)
         return if (next >= 0) decisions.substring(start, next) else decisions.substring(start)
     }
