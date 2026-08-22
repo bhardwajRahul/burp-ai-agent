@@ -21,8 +21,17 @@ private const val AUTO_DEFINITION: String =
 private const val DECISIONS_FILE = "DECISIONS.md"
 private const val CATALOG_FILE = "src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpToolCatalog.kt"
 
-/** The number of `Residual:` bullets phase 25 committed ADR-16 to carrying. */
-private const val MIN_ADR16_RESIDUALS = 5
+/**
+ * The number of `Residual:` bullets ADR-16 actually ships, and therefore the bound below which the
+ * guard below stops meaning what its own comment says.
+ *
+ * It sat at 5 against 6 shipped bullets from phase 25 until phase 26 (25-REVIEW IN-02): a bound one
+ * below the shipped count cannot catch the deletion of exactly one bullet, which is the only deletion
+ * an editing accident ever produces. Phase 26 added the seventh bullet and raised this to 7 in the
+ * same commit. Keep the two EQUAL: raising it above the shipped count makes the suite red for no
+ * reason, and lowering it below re-opens the gap.
+ */
+private const val MIN_ADR16_RESIDUALS = 7
 
 /**
  * SEC-06 / SC1 guard on ADR-15 — the written rule by which a tool added in a later phase inherits the
@@ -72,10 +81,17 @@ class DecisionsAdrTest {
         val residuals = section.lineSequence().count { it.contains("Residual:") }
 
         // T-25-17: a residual that is accepted but not written down is indistinguishable from a
-        // residual nobody noticed. Phase 25 accepted five across three plans - proof replay inside the
-        // validity window, host-string identity, version skew, filesystem read defeating the pin, and
-        // fail-closed takeover under TLS. Deleting one from the ADR must be a deliberate act with a red
-        // test in front of it, not an editing accident.
+        // residual nobody noticed. ADR-16 ships seven, and they are enumerated here so this comment
+        // cannot drift from the file it guards - which is the drift the guard exists to catch:
+        //   1. proof replay inside the validity window (25-01 T-25-04)
+        //   2. host-string identity (25-01 A-25-05)
+        //   3. version skew (25-01 A-25-06)
+        //   4. filesystem read defeats the pin
+        //   5. fail-closed takeover under TLS (T-25-16)
+        //   6. the SSRF half of SEC-07 stays advisory (plan 25-02)
+        //   7. offline token guessing from a captured proof (25-REVIEW WR-01, added by phase 26)
+        // Deleting one from the ADR must be a deliberate act with a red test in front of it, not an
+        // editing accident.
         assertTrue(
             residuals >= MIN_ADR16_RESIDUALS,
             "ADR-16 lists $residuals `Residual:` bullets, fewer than the $MIN_ADR16_RESIDUALS this " +
