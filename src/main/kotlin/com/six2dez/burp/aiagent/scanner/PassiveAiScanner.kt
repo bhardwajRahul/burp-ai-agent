@@ -61,7 +61,6 @@ class PassiveAiScanner(
     internal val requestsAnalyzed = AtomicInteger(0)
     internal val issuesFound = AtomicInteger(0)
     internal val lastAnalysisTime = AtomicLong(0)
-    private val lastRequestTime = AtomicLong(0)
     internal val aiBackoffUntilMs = AtomicLong(0)
     internal val lastBackoffLogTime = AtomicLong(0)
     internal val executor =

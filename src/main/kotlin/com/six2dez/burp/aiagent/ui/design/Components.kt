@@ -427,11 +427,6 @@ fun toolBadge(
     label: String,
     style: BadgeStyle,
 ): JLabel {
-    val bgColor =
-        when (style) {
-            BadgeStyle.NATIVE -> DesignTokens.Colors.badgeNative
-            BadgeStyle.FULL -> DesignTokens.Colors.badgeFull
-        }
     val fgColor =
         when (style) {
             BadgeStyle.NATIVE -> DesignTokens.Colors.statusSuccess

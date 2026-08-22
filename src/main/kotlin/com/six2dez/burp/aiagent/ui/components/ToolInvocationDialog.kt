@@ -122,11 +122,11 @@ class ToolInvocationDialog(
 
         override fun readJsonValue(): JsonElement {
             val parsed = Json.parseToJsonElement(area.text.trim())
-            if (expectedType == "array" && parsed !is kotlinx.serialization.json.JsonArray) {
-                throw IllegalArgumentException("Expected JSON array")
+            require(expectedType != "array" || parsed is kotlinx.serialization.json.JsonArray) {
+                "Expected JSON array"
             }
-            if (expectedType == "object" && parsed !is JsonObject) {
-                throw IllegalArgumentException("Expected JSON object")
+            require(expectedType != "object" || parsed is JsonObject) {
+                "Expected JSON object"
             }
             return parsed
         }

@@ -22,7 +22,8 @@ private object Rfc5869TestCase1 {
     // info = 0xf0f1...f9 (10 bytes)
     val info: ByteArray = ByteArray(10) { i -> (0xf0 + i).toByte() }
 
-    val l = 42
+    // RFC 5869 names this output length L; the const keeps the RFC's own notation.
+    const val L = 42
 
     // Expected PRK (HMAC-SHA256 of salt over IKM):
     // 077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5
@@ -551,7 +552,7 @@ class RedactionTest {
             "PRK must match RFC 5869 Test Case 1",
         )
 
-        val okm = Redaction.testHkdfExpand(prk, Rfc5869TestCase1.info, Rfc5869TestCase1.l)
+        val okm = Redaction.testHkdfExpand(prk, Rfc5869TestCase1.info, Rfc5869TestCase1.L)
         assertEquals(
             Rfc5869TestCase1.expectedOkm.toList(),
             okm.toList(),

@@ -553,7 +553,7 @@ class CliBackend(
                     args.add("--resume")
                     args.add(
                         cliSessionIdRef.get()
-                            ?: throw IllegalStateException("CLI session ID lost between CAS and read"),
+                            ?: error("CLI session ID lost between CAS and read"),
                     )
                 }
             }
@@ -798,9 +798,7 @@ class CliBackend(
             env: Map<String, String>,
         ): Process {
             val resolvedCmd = resolveCommand(cmd, env)
-            if (resolvedCmd.isEmpty()) {
-                throw IllegalStateException("CLI executable not found")
-            }
+            check(resolvedCmd.isNotEmpty()) { "CLI executable not found" }
             val normalizedCmd = normalizeWindowsCommand(resolvedCmd)
             if (usePty && isUnixLike()) {
                 val ptyCmd = buildPtyCommand(normalizedCmd)

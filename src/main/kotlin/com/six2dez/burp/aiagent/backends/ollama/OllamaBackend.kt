@@ -473,7 +473,7 @@ class OllamaBackend : AiBackend {
                     '\t' -> out.append("\\t")
                     else -> {
                         if (ch < ' ') {
-                            out.append(String.format("\\u%04x", ch.code))
+                            out.append(String.format(java.util.Locale.ROOT, "\\u%04x", ch.code))
                         } else {
                             out.append(ch)
                         }

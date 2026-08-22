@@ -5,9 +5,10 @@ import burp.api.montoya.http.message.responses.HttpResponse
 
 // AWT-free contract: MUST NOT import java.awt.* or javax.swing.*
 
-private const val LOCAL_FINDING_SKIP_CONFIDENCE = 90
-private const val REQUEST_BODY_LOCAL_CHECK_MAX_CHARS = 3_000
-private const val RESPONSE_BODY_LOCAL_CHECK_MAX_CHARS = 6_000
+// The confidence = 90 values below are deliberately at the LOCAL_FINDING_SKIP_CONFIDENCE
+// threshold declared in PassiveAiScannerFilters.kt, so a local finding here suppresses the AI
+// call. Body truncation limits live in PassiveAiScanner.kt. Both were duplicated here by the
+// file split and the copies were never referenced.
 
 private val SERIALIZED_NAME_REGEX = Regex("(data|payload|serialized|object|state|viewstate)", RegexOption.IGNORE_CASE)
 

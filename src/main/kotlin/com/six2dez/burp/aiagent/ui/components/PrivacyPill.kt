@@ -10,7 +10,6 @@ import javax.swing.border.EmptyBorder
 class PrivacyPill : JLabel() {
     private val strictColor = Color(0x1B9E5A)
     private val balancedColor = Color(0xF9A825)
-    private val offColor = Color(0xB3261E)
 
     init {
         font = UiTheme.Typography.label.deriveFont(Font.PLAIN, UiTheme.Typography.label.size2D)
