@@ -364,7 +364,7 @@ Plans:
 5. `SECURITY.md` carries an advisory for SEC-04 and PRIV-05 naming affected versions (0.9.0–0.9.2), impact, and the fixed version.
 6. `README.md`, `SPEC.md`, `DECISIONS.md` and the GitBook repo (`burp-ai-agent-docs`) describe the tool-call confirmation flow and state `SecretCipher`'s at-rest guarantee accurately — the master key is stored beside the ciphertext in Burp Preferences, so this is obfuscation against casual inspection, not protection against a local attacker.
 
-**Plans**: 4/7 plans executed in 3 waves. Wave 1 is four fully independent plans (disjoint files, disjoint criteria). Wave 2 holds the two documentation plans: 26-06 has two content dependencies — its ADR-16 residual asserts the mitigation 26-03 lands, and its ADR-17 clause copies 26-04's blocking-checkpoint selection verbatim out of a SUMMARY that does not exist until wave 1 closes — and 26-05 waits only because it and 26-04 both edit `build.gradle.kts`. 26-07 is wave 3 because it edits four files wave 1 owns, because it must confirm no earlier plan added a detekt finding, and because it carries the phase's coverage seal.
+**Plans**: 6/7 plans executed in 3 waves. Wave 1 is four fully independent plans (disjoint files, disjoint criteria). Wave 2 holds the two documentation plans: 26-06 has two content dependencies — its ADR-16 residual asserts the mitigation 26-03 lands, and its ADR-17 clause copies 26-04's blocking-checkpoint selection verbatim out of a SUMMARY that does not exist until wave 1 closes — and 26-05 waits only because it and 26-04 both edit `build.gradle.kts`. 26-07 is wave 3 because it edits four files wave 1 owns, because it must confirm no earlier plan added a detekt finding, and because it carries the phase's coverage seal.
 
 SC2's "rises measurably" was resolved by measurement rather than by asking: the planner ran the full suite with jacoco at `4f0ebd7` on 2026-08-22 (880 tests, 0 failures) and derived per-package floors from the result. The measurement showed that `redact` (96.13% line) and `config` (95.57% line) are already saturated against the 2026-08-05 bar of 34% line / 23% branch, and that the criterion's remaining headroom is entirely in the `mcp` tree (61.83%) and `backends/cli` (30.76%). Every floor and its provenance are recorded in each plan and sealed into `26-COVERAGE.md` by 26-07.
 
@@ -374,8 +374,8 @@ Plans:
 - [x] 26-02-PLAN.md — SC2 for the `mcp` tree: `McpToolHelpers`' privacy and path-containment guards, the MCP wire schema and the model-supplied tool inputs; tree line coverage 61.83% → ≥ 65.0% (wave 1)
 - [x] 26-03-PLAN.md — SC2 for `redact` and `config`, plus two Phase-25 follow-ups: W-2 (IPv4-mapped IPv6 notation evasion in `SsrfGuard`) and W-1b (`McpSettings.isTokenWeak` entropy floor) (wave 1)
 - [x] 26-04-PLAN.md — SC4: the disposition of `ChatPanel`'s `assert()`-based EDT enforcement, taken by the developer at a blocking `checkpoint:decision` against a measured probe result (wave 1, `autonomous: false`)
-- [ ] 26-05-PLAN.md — SC5 + the user-facing half of SC6: the SEC-04 / PRIV-05 advisory in `SECURITY.md`, corrected at-rest claims and the tool-call confirmation flow across `README.md`, `SPEC.md` and three `docs/` pages, with the out-of-repo GitBook changes handed over as a prepared diff (wave 2, `autonomous: false`)
-- [ ] 26-06-PLAN.md — the `DECISIONS.md` half of SC6: ADR-16's seventh residual with a guard bound that can catch its deletion (W-1a / IN-02), ADR-17 for QUAL-07's three dispositions, and W-3's honest non-loopback TLS diagnostic (wave 2)
+- [x] 26-05-PLAN.md — SC5 + the user-facing half of SC6: the SEC-04 / PRIV-05 advisory in `SECURITY.md`, corrected at-rest claims and the tool-call confirmation flow across `README.md`, `SPEC.md` and three `docs/` pages, with the out-of-repo GitBook changes handed over as a prepared diff (wave 2, `autonomous: false`)
+- [x] 26-06-PLAN.md — the `DECISIONS.md` half of SC6: ADR-16's seventh residual with a guard bound that can catch its deletion (W-1a / IN-02), ADR-17 for QUAL-07's three dispositions, and W-3's honest non-loopback TLS diagnostic (wave 2)
 - [ ] 26-07-PLAN.md — SC3: the detekt baseline shrinks from 1096 to ≤ 1045 across eleven named rule categories with a removals-only diff and `detekt.yml` untouched; carries the phase coverage seal (wave 3)
 
 ---
@@ -394,7 +394,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 23. EDT Confinement & UI Responsiveness | 8/8 | Complete    | 2026-08-21 |
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
-| 26. Coverage, Static-Analysis Debt & Docs | 4/7 | In Progress|  |
+| 26. Coverage, Static-Analysis Debt & Docs | 6/7 | In Progress|  |
 
 ## Backlog
 
