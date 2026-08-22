@@ -203,45 +203,45 @@ class AgentSettingsRepository(
                     .getString(KEY_CODEX_CMD)
                     .orEmpty()
                     .trim()
-                    .ifBlank { defaultCodexCmd() },
-            geminiCmd = normalizeLegacyGeminiCmd(rawGeminiCmd).ifBlank { defaultGeminiCmd() },
+                    .ifBlank { DEFAULT_CODEX_CMD },
+            geminiCmd = normalizeLegacyGeminiCmd(rawGeminiCmd).ifBlank { DEFAULT_GEMINI_CMD },
             opencodeCmd =
                 prefs
                     .getString(KEY_OPENCODE_CMD)
                     .orEmpty()
                     .trim()
-                    .ifBlank { defaultOpenCodeCmd() },
+                    .ifBlank { DEFAULT_OPENCODE_CMD },
             claudeCmd =
                 prefs
                     .getString(KEY_CLAUDE_CMD)
                     .orEmpty()
                     .trim()
-                    .ifBlank { defaultClaudeCmd() },
+                    .ifBlank { DEFAULT_CLAUDE_CMD },
             agentProfile =
                 prefs
                     .getString(KEY_AGENT_PROFILE)
                     .orEmpty()
                     .trim()
-                    .ifBlank { defaultAgentProfile() },
+                    .ifBlank { DEFAULT_AGENT_PROFILE },
             ollamaCliCmd =
                 prefs
                     .getString(KEY_OLLAMA_CLI_CMD)
                     .orEmpty()
                     .trim()
-                    .ifBlank { defaultOllamaCliCmd() },
+                    .ifBlank { DEFAULT_OLLAMA_CLI_CMD },
             ollamaModel =
                 prefs
                     .getString(KEY_OLLAMA_MODEL)
                     .orEmpty()
                     .trim()
-                    .ifBlank { defaultOllamaModel() },
+                    .ifBlank { DEFAULT_OLLAMA_MODEL },
             ollamaUrl = (prefs.getString(KEY_OLLAMA_URL) ?: "http://127.0.0.1:11434").trim(),
             ollamaServeCmd =
                 prefs
                     .getString(KEY_OLLAMA_SERVE_CMD)
                     .orEmpty()
                     .trim()
-                    .ifBlank { defaultOllamaServeCmd() },
+                    .ifBlank { DEFAULT_OLLAMA_SERVE_CMD },
             ollamaAutoStart = prefs.getBoolean(KEY_OLLAMA_AUTOSTART) ?: true,
             ollamaApiKey = cipher.decrypt(prefs.getString(KEY_OLLAMA_API_KEY).orEmpty().trim(), KEY_OLLAMA_API_KEY),
             ollamaHeaders = prefs.getString(KEY_OLLAMA_HEADERS).orEmpty(),
@@ -249,7 +249,7 @@ class AgentSettingsRepository(
                 (prefs.getInteger(KEY_OLLAMA_TIMEOUT) ?: defaultOllamaTimeoutSeconds())
                     .coerceIn(30, 3600),
             ollamaContextWindow =
-                (prefs.getInteger(KEY_OLLAMA_CONTEXT_WINDOW) ?: defaultOllamaContextWindow())
+                (prefs.getInteger(KEY_OLLAMA_CONTEXT_WINDOW) ?: DEFAULT_OLLAMA_CONTEXT_WINDOW)
                     .coerceIn(2048, 256000),
             lmStudioUrl = (prefs.getString(KEY_LMSTUDIO_URL) ?: "http://127.0.0.1:1234").trim(),
             lmStudioModel =
@@ -257,7 +257,7 @@ class AgentSettingsRepository(
                     .getString(KEY_LMSTUDIO_MODEL)
                     .orEmpty()
                     .trim()
-                    .ifBlank { defaultLmStudioModel() },
+                    .ifBlank { DEFAULT_LM_STUDIO_MODEL },
             lmStudioTimeoutSeconds =
                 (prefs.getInteger(KEY_LMSTUDIO_TIMEOUT) ?: defaultLmStudioTimeoutSeconds())
                     .coerceIn(30, 3600),
@@ -266,7 +266,7 @@ class AgentSettingsRepository(
                     .getString(KEY_LMSTUDIO_SERVER_CMD)
                     .orEmpty()
                     .trim()
-                    .ifBlank { defaultLmStudioServerCmd() },
+                    .ifBlank { DEFAULT_LM_STUDIO_SERVER_CMD },
             lmStudioAutoStart = prefs.getBoolean(KEY_LMSTUDIO_AUTOSTART) ?: true,
             lmStudioApiKey = cipher.decrypt(prefs.getString(KEY_LMSTUDIO_API_KEY).orEmpty().trim(), KEY_LMSTUDIO_API_KEY),
             lmStudioHeaders = prefs.getString(KEY_LMSTUDIO_HEADERS).orEmpty(),
@@ -279,8 +279,8 @@ class AgentSettingsRepository(
                 (prefs.getInteger(KEY_OPENAI_COMPAT_TIMEOUT) ?: defaultOpenAiCompatTimeoutSeconds())
                     .coerceIn(30, 3600),
             nvidiaNimUrl =
-                (prefs.getString(KEY_NVIDIA_NIM_URL) ?: defaultNvidiaNimUrl()).trim().ifBlank {
-                    defaultNvidiaNimUrl()
+                (prefs.getString(KEY_NVIDIA_NIM_URL) ?: DEFAULT_NVIDIA_NIM_URL).trim().ifBlank {
+                    DEFAULT_NVIDIA_NIM_URL
                 },
             nvidiaNimModel = prefs.getString(KEY_NVIDIA_NIM_MODEL).orEmpty().trim(),
             nvidiaNimApiKey = cipher.decrypt(prefs.getString(KEY_NVIDIA_NIM_API_KEY).orEmpty().trim(), KEY_NVIDIA_NIM_API_KEY),
@@ -289,8 +289,8 @@ class AgentSettingsRepository(
                 (prefs.getInteger(KEY_NVIDIA_NIM_TIMEOUT) ?: defaultNvidiaNimTimeoutSeconds())
                     .coerceIn(30, 3600),
             perplexityUrl =
-                (prefs.getString(KEY_PERPLEXITY_URL) ?: defaultPerplexityUrl()).trim().ifBlank {
-                    defaultPerplexityUrl()
+                (prefs.getString(KEY_PERPLEXITY_URL) ?: DEFAULT_PERPLEXITY_URL).trim().ifBlank {
+                    DEFAULT_PERPLEXITY_URL
                 },
             perplexityModel = prefs.getString(KEY_PERPLEXITY_MODEL).orEmpty().trim(),
             perplexityApiKey = cipher.decrypt(prefs.getString(KEY_PERPLEXITY_API_KEY).orEmpty().trim(), KEY_PERPLEXITY_API_KEY),
@@ -319,7 +319,7 @@ class AgentSettingsRepository(
                     .getString(KEY_COPILOT_CMD)
                     .orEmpty()
                     .trim()
-                    .ifBlank { defaultCopilotCmd() },
+                    .ifBlank { DEFAULT_COPILOT_CMD },
             requestPromptTemplate = prefs.getString(KEY_PROMPT_FIND_VULNS).orEmpty().ifBlank { defaultRequestPrompt() },
             issuePromptTemplate = prefs.getString(KEY_PROMPT_FULL_REPORT).orEmpty().ifBlank { defaultIssuePrompt() },
             issueAnalyzePrompt = prefs.getString(KEY_PROMPT_ISSUE_ANALYZE).orEmpty().ifBlank { defaultIssueAnalyzePrompt() },
@@ -437,24 +437,24 @@ class AgentSettingsRepository(
 
     fun defaultSettings(): AgentSettings =
         AgentSettings(
-            codexCmd = defaultCodexCmd(),
-            geminiCmd = defaultGeminiCmd(),
-            opencodeCmd = defaultOpenCodeCmd(),
-            claudeCmd = defaultClaudeCmd(),
-            agentProfile = defaultAgentProfile(),
-            ollamaCliCmd = defaultOllamaCliCmd(),
-            ollamaModel = defaultOllamaModel(),
+            codexCmd = DEFAULT_CODEX_CMD,
+            geminiCmd = DEFAULT_GEMINI_CMD,
+            opencodeCmd = DEFAULT_OPENCODE_CMD,
+            claudeCmd = DEFAULT_CLAUDE_CMD,
+            agentProfile = DEFAULT_AGENT_PROFILE,
+            ollamaCliCmd = DEFAULT_OLLAMA_CLI_CMD,
+            ollamaModel = DEFAULT_OLLAMA_MODEL,
             ollamaUrl = "http://127.0.0.1:11434",
-            ollamaServeCmd = defaultOllamaServeCmd(),
+            ollamaServeCmd = DEFAULT_OLLAMA_SERVE_CMD,
             ollamaAutoStart = true,
             ollamaApiKey = "",
             ollamaHeaders = "",
             ollamaTimeoutSeconds = defaultOllamaTimeoutSeconds(),
-            ollamaContextWindow = defaultOllamaContextWindow(),
+            ollamaContextWindow = DEFAULT_OLLAMA_CONTEXT_WINDOW,
             lmStudioUrl = "http://127.0.0.1:1234",
-            lmStudioModel = defaultLmStudioModel(),
+            lmStudioModel = DEFAULT_LM_STUDIO_MODEL,
             lmStudioTimeoutSeconds = defaultLmStudioTimeoutSeconds(),
-            lmStudioServerCmd = defaultLmStudioServerCmd(),
+            lmStudioServerCmd = DEFAULT_LM_STUDIO_SERVER_CMD,
             lmStudioAutoStart = true,
             lmStudioApiKey = "",
             lmStudioHeaders = "",
@@ -463,12 +463,12 @@ class AgentSettingsRepository(
             openAiCompatibleApiKey = "",
             openAiCompatibleHeaders = "",
             openAiCompatibleTimeoutSeconds = defaultOpenAiCompatTimeoutSeconds(),
-            nvidiaNimUrl = defaultNvidiaNimUrl(),
+            nvidiaNimUrl = DEFAULT_NVIDIA_NIM_URL,
             nvidiaNimModel = "",
             nvidiaNimApiKey = "",
             nvidiaNimHeaders = "",
             nvidiaNimTimeoutSeconds = defaultNvidiaNimTimeoutSeconds(),
-            perplexityUrl = defaultPerplexityUrl(),
+            perplexityUrl = DEFAULT_PERPLEXITY_URL,
             perplexityModel = "",
             perplexityApiKey = "",
             perplexityHeaders = "",
@@ -478,7 +478,7 @@ class AgentSettingsRepository(
             anthropicApiKey = "",
             tokenBudgetWarnThreshold = 0,
             tokenBudgetHardCap = 0,
-            copilotCmd = defaultCopilotCmd(),
+            copilotCmd = DEFAULT_COPILOT_CMD,
             requestPromptTemplate = defaultRequestPrompt(),
             issuePromptTemplate = defaultIssuePrompt(),
             issueAnalyzePrompt = defaultIssueAnalyzePrompt(),
@@ -804,7 +804,7 @@ class AgentSettingsRepository(
         val rawGeminiCmd = prefs.getString(KEY_GEMINI_CMD).orEmpty().trim()
         val legacyDefault = "gemini --output-format text --model gemini-2.5-flash"
         if (rawGeminiCmd == legacyDefault) {
-            prefs.setString(KEY_GEMINI_CMD, defaultGeminiCmd())
+            prefs.setString(KEY_GEMINI_CMD, DEFAULT_GEMINI_CMD)
         }
     }
 
@@ -963,53 +963,53 @@ class AgentSettingsRepository(
         // bearerToken encryption. Atomic with the if (effectiveVersion < 5) migration branch.
         private const val CURRENT_SETTINGS_SCHEMA_VERSION = 5
 
-        private fun defaultCodexCmd(): String = "codex chat"
+        private const val DEFAULT_CODEX_CMD = "codex chat"
 
-        private fun defaultGeminiCmd(): String = "gemini --output-format text --model gemini-2.5-flash --yolo"
+        private const val DEFAULT_GEMINI_CMD = "gemini --output-format text --model gemini-2.5-flash --yolo"
 
         private fun normalizeLegacyGeminiCmd(raw: String): String {
             if (raw.isBlank()) return raw
             val legacyDefault = "gemini --output-format text --model gemini-2.5-flash"
             return if (raw == legacyDefault) {
-                defaultGeminiCmd()
+                DEFAULT_GEMINI_CMD
             } else {
                 raw
             }
         }
 
-        private fun defaultOpenCodeCmd(): String = "opencode"
+        private const val DEFAULT_OPENCODE_CMD = "opencode"
 
-        private fun defaultClaudeCmd(): String = "claude"
+        private const val DEFAULT_CLAUDE_CMD = "claude"
 
-        private fun defaultAgentProfile(): String = "pentester"
+        private const val DEFAULT_AGENT_PROFILE = "pentester"
 
-        private fun defaultOllamaCliCmd(): String = "ollama run llama3.1"
+        private const val DEFAULT_OLLAMA_CLI_CMD = "ollama run llama3.1"
 
-        private fun defaultOllamaModel(): String = "llama3.1"
+        private const val DEFAULT_OLLAMA_MODEL = "llama3.1"
 
-        private fun defaultOllamaServeCmd(): String = "ollama serve"
+        private const val DEFAULT_OLLAMA_SERVE_CMD = "ollama serve"
 
         private fun defaultOllamaTimeoutSeconds(): Int = Defaults.CLI_PROCESS_TIMEOUT_SECONDS
 
-        private fun defaultOllamaContextWindow(): Int = 8192
+        private const val DEFAULT_OLLAMA_CONTEXT_WINDOW = 8192
 
-        private fun defaultLmStudioModel(): String = "lmstudio"
+        private const val DEFAULT_LM_STUDIO_MODEL = "lmstudio"
 
         private fun defaultLmStudioTimeoutSeconds(): Int = Defaults.CLI_PROCESS_TIMEOUT_SECONDS
 
-        private fun defaultLmStudioServerCmd(): String = "lms server start"
+        private const val DEFAULT_LM_STUDIO_SERVER_CMD = "lms server start"
 
         private fun defaultOpenAiCompatTimeoutSeconds(): Int = Defaults.CLI_PROCESS_TIMEOUT_SECONDS
 
-        private fun defaultNvidiaNimUrl(): String = "https://integrate.api.nvidia.com"
+        private const val DEFAULT_NVIDIA_NIM_URL = "https://integrate.api.nvidia.com"
 
-        private fun defaultPerplexityUrl(): String = "https://api.perplexity.ai"
+        private const val DEFAULT_PERPLEXITY_URL = "https://api.perplexity.ai"
 
         private fun defaultPerplexityTimeoutSeconds(): Int = Defaults.CLI_PROCESS_TIMEOUT_SECONDS
 
         private fun defaultNvidiaNimTimeoutSeconds(): Int = Defaults.CLI_PROCESS_TIMEOUT_SECONDS
 
-        private fun defaultCopilotCmd(): String = "copilot"
+        private const val DEFAULT_COPILOT_CMD = "copilot"
 
         private fun defaultBountyPromptDir(): String =
             java.io
