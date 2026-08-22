@@ -265,3 +265,9 @@ None — no external service configuration required.
 ---
 *Phase: 25-secondary-hardening*
 *Completed: 2026-08-22*
+
+## Self-Check: PASSED
+
+- All 8 created/modified files verified present on disk.
+- All 4 commits verified in `git log`: `2fdcbc1`, `44f93d1`, `068fa1b`, `2737c22`.
+- Every task `<acceptance_criteria>` and the plan-level `<verification>` re-run; results in the Verification Results table above.
