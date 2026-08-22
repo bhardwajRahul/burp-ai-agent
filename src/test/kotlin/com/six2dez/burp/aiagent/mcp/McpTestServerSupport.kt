@@ -141,6 +141,33 @@ internal object McpTestServerSupport {
         )
 
     /**
+     * The FIRST fixture in this repository that binds anything other than `127.0.0.1`, and the reason
+     * it exists is 25-REVIEW WR-03: every phase-25 fixture pinned loopback — [localSettings],
+     * [localTlsSettings] and [externalTlsSettings] alike — so the non-loopback limb of
+     * `McpSupervisor.openConnection`'s TLS branch had no coverage at all, and the claim that
+     * external-mode takeover works was proven only for a loopback bind.
+     *
+     * External mode is the only mode that permits a non-loopback host — `KtorMcpServerManager.start`
+     * requires loopback only when external access is off — so this is external-mode settings with the
+     * host moved off loopback, and it is the configuration a real external deployment uses.
+     *
+     * [DEFAULT_NON_LOOPBACK_HOST] is a `.internal` name deliberately: it never resolves, so a test
+     * built on this fixture that accidentally opens a real socket fails loudly instead of reaching
+     * something on the network. The keystore is still a caller-supplied temp directory, for the same
+     * non-negotiable reason as [externalTlsSettings] — `McpTls.resolve` auto-generates into whatever
+     * path it is handed.
+     */
+    fun nonLoopbackTlsSettings(
+        port: Int,
+        keystoreDir: Path,
+        host: String = DEFAULT_NON_LOOPBACK_HOST,
+        token: String = "test-token",
+    ): McpSettings = externalTlsSettings(port = port, keystoreDir = keystoreDir, token = token).copy(host = host)
+
+    /** The host [nonLoopbackTlsSettings] binds by default. Never resolvable, by construction. */
+    const val DEFAULT_NON_LOOPBACK_HOST = "mcp.example.internal"
+
+    /**
      * Starts [manager] and blocks until the lifecycle callback reaches a terminal state, asserting it
      * is [McpServerState.Running].
      *
