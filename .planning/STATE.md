@@ -4,16 +4,16 @@ milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
 current_phase: 26
 current_phase_name: Coverage, Static-Analysis Debt & Docs
-status: planning
+status: executing
 stopped_at: Phase 25 complete, ready to plan Phase 26
-last_updated: "2026-08-22T11:09:01.615Z"
+last_updated: "2026-08-22T12:48:23.951Z"
 last_activity: 2026-08-22
-last_activity_desc: Phase 25 complete, transitioned to Phase 26
-state_head: f00d39b9c6065f550d867d071e73a6b5ed80919f
+last_activity_desc: Phase 26 execution started
+state_head: 767776d6330a29322983026e7e31e10c6dfd0399
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 54
+  total_plans: 61
   completed_plans: 54
   percent: 57
 ---
@@ -25,15 +25,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-05)
 
 **Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable.
-**Current focus:** Phase 25 — Secondary Hardening
+**Current focus:** Phase 26 — Coverage, Static-Analysis Debt & Docs
 
 ## Current Position
 
-Phase: 26 — Coverage, Static-Analysis Debt & Docs
-Plan: Not started
-Status: Ready to plan
+Phase: 26 (Coverage, Static-Analysis Debt & Docs) — EXECUTING
+Plan: 1 of 7
+Status: Executing Phase 26
 Resume file: None
-Last activity: 2026-08-22 — Phase 25 complete, transitioned to Phase 26
+Last activity: 2026-08-22 — Phase 26 execution started
 
 ## Milestone Origin
 
