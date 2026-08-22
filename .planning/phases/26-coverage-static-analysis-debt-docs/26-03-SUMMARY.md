@@ -313,6 +313,14 @@ None - no external service configuration required.
 - **`STATE.md` and `ROADMAP.md` were not touched**, per the parallel-execution contract.
 - No blockers.
 
+## Self-Check: PASSED
+
+- Created files present on disk: `26-03-SUMMARY.md`, `McpTokenStrengthTest.kt`, `RedactionPolicyTest.kt`
+- All six commits present in `git log 767776d..HEAD`: `447feb9`, `4fed7ce`, `7f8db6b`, `8e6018f`, `5ebb311`, `ea0edaa`
+- Working tree clean after the SUMMARY commit
+- Every plan `<acceptance_criteria>` re-run at HEAD: `./gradlew test detekt ktlintCheck` green (937 tests, 0 failures, 1 pre-existing skip); `grep -c 'getByName' SsrfGuard.kt` = 1; corpus = 21 URLs with a lookup count of 0; `git diff --quiet detekt-baseline.xml` exits 0; `git diff --stat build.gradle.kts` empty; `git diff --name-only | grep -c 'RedactionTest.kt'` = 0
+- All four coverage floors cleared (table above)
+
 ---
 *Phase: 26-coverage-static-analysis-debt-docs*
 *Completed: 2026-08-22*
