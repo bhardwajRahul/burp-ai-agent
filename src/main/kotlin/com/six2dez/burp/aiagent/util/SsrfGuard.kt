@@ -21,6 +21,18 @@ import java.net.URI
  * flagged exactly as its dotted-quad equivalent is, and `2130706433`, `0177.0.0.1` and `0x7f.1` are
  * all recognised as loopback and therefore excluded.
  *
+ * Notation independence extends to the IPv6 arm (WR-02, 25-REVIEW). The IPv4-mapped IPv6 forms —
+ * `[::ffff:169.254.169.254]`, `[0:0:0:0:0:ffff:192.168.1.10]` and their unbracketed spellings — are
+ * classified IDENTICALLY to their hex equivalents `[::ffff:a9fe:a9fe]` and `[::ffff:c0a8:10a]`, and
+ * `[::ffff:127.0.0.1]` stays excluded exactly as `127.0.0.1` does. Before this was fixed the hex
+ * spelling was flagged and the dotted spelling of the same address was not, so the paragraph above
+ * described the IPv4 arm only while reading as though it covered both. What makes the fix safe is
+ * that [IPV6_REGEX] is not the gate that keeps hostnames away from the one resolving call — the
+ * `host.contains(':')` conjunct is. Admitting '.' into the character class therefore widens which
+ * LITERALS are recognised without widening what a name lookup could ever be attempted on: a dotted
+ * host with no ':' does not reach that branch at all, and `SsrfGuardNoResolutionTest` asserts the
+ * JVM-wide lookup count is zero across a corpus that now includes the mapped forms.
+ *
  * The IPv4 branch calls no resolving API at all. That CLOSED a real defect rather than preserving a
  * property: `256.0.0.1` matched the old dotted-quad regex, passed the literal gate and reached the
  * JDK's name-resolving lookup, which could not read it as a literal and resolved it as a NAME — a
@@ -35,11 +47,12 @@ import java.net.URI
  * The result is advisory only — the caller shows a non-blocking inline warning and proceeds.
  */
 object SsrfGuard {
-    // Conservative literal-IP detector for IPv6: anything with a ':' that is all hex/colon is treated
-    // as a literal IPv6 candidate. That guard keeps the resolving call below from doing any
-    // reverse/forward DNS for hostnames. IPv4 literals need no such guard — Ipv4Literal parses them
-    // without any lookup.
-    private val IPV6_REGEX = Regex("""^[0-9a-fA-F:]+$""")
+    // Conservative literal-IP detector for IPv6: anything with a ':' that is all hex/colon/dot is
+    // treated as a literal IPv6 candidate. The '.' is what admits the IPv4-mapped spellings
+    // (`::ffff:192.168.1.10`); it does NOT admit hostnames, because the `host.contains(':')`
+    // conjunct at the call site — not this character class — is the resolver gate. IPv4 literals
+    // need no such guard at all — Ipv4Literal parses them without any lookup.
+    private val IPV6_REGEX = Regex("""^[0-9a-fA-F:.]+$""")
 
     fun isPrivateOrLinkLocal(url: String): Boolean {
         if (url.isBlank()) return false
