@@ -12,6 +12,7 @@ and the Montoya API call sites they guard — cannot be misread as a new integra
 `24-RESEARCH.md` §Standard Stack records the same conclusion from the other direction: this phase adds
 no dependency, and `gradle/libs.versions.toml` is asserted untouched by every plan.
 
-| capability | decision | reason |
-|---|---|---|
-| _(none — no external API in scope)_ | | |
+*No capability table follows, deliberately: the seal-time validator accepts a reasoned
+no-integration declaration only when it stands with zero rows. A placeholder row parses as a real
+capability with an empty decision and fails the gate — which is exactly what it did before this
+edit.*
