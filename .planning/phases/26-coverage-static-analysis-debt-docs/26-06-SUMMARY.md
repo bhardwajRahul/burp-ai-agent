@@ -23,7 +23,7 @@ affects: [26-07, hardening phases touching McpSupervisor's host gate, any phase 
 actuals:
   tokens: 10920
   tasks: 3
-  commits: 4
+  commits: 5
 
 tech-stack:
   added: []
@@ -329,3 +329,11 @@ None.
 ---
 *Phase: 26-coverage-static-analysis-debt-docs*
 *Completed: 2026-08-22*
+
+## Self-Check: PASSED
+
+- All 6 modified files plus `26-06-SUMMARY.md` present on disk.
+- All 5 commits present in `git log ca932ea..HEAD`: `3d6272b`, `eddd823`, `e371e61`, `9d4cb1d`, `e8598d8`.
+- Working tree clean after the SUMMARY commit; no file deleted by any commit in this plan (`git diff --diff-filter=D` empty at every commit).
+- Every plan `<acceptance_criteria>` re-run at HEAD — see the "Invariants re-verified at HEAD" table above.
+- `STATE.md` and `ROADMAP.md` untouched, per the parallel-execution contract.
