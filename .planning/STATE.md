@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
-current_phase: 24
-current_phase_name: Scheduler & Process Robustness
-status: executing
-stopped_at: Phase 24 executed and verified 6/6 — human UAT outstanding
-last_updated: "2026-08-21T13:34:19.559Z"
-last_activity: 2026-08-21
-last_activity_desc: Phase 24 verified 6/6 MET; 2 review Criticals fixed; human UAT pending
-state_head: 9a00f6950cfa886533e885ba11e648a2353cada0
+current_phase: 25
+current_phase_name: Secondary Hardening
+status: planning
+stopped_at: Phase 24 complete, ready to plan Phase 25
+last_updated: "2026-08-22T08:39:15.722Z"
+last_activity: 2026-08-22
+last_activity_desc: Phase 24 complete, transitioned to Phase 25
+state_head: 5c580a43333d3cf42eb1fd825eeb27cbeb0f70d4
 progress:
   total_phases: 7
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 51
   completed_plans: 51
-  percent: 29
+  percent: 43
 ---
 
 # Project State
@@ -25,15 +25,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-05)
 
 **Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable.
-**Current focus:** Phase 24 — Scheduler & Process Robustness
+**Current focus:** Phase 25 — Secondary Hardening
 
 ## Current Position
 
-Phase: 24 — Scheduler & Process Robustness
-Plan: 05 of 5 complete (all 4 waves done)
-Status: Executed — verification human_needed, run /gsd-verify-work 24
+Phase: 25 — Secondary Hardening
+Plan: Not started
+Status: Ready to plan
 Resume file: None
-Last activity: 2026-08-21 — verified 6/6; 121 suites / 838 tests green
+Last activity: 2026-08-22 — Phase 24 complete, transitioned to Phase 25
 
 ## Milestone Origin
 
@@ -79,7 +79,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 
 **Velocity:**
 
-- Total plans completed: 78
+- Total plans completed: 83
 - Average duration: —
 - Total execution time: 0 hours
 
@@ -101,6 +101,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | 21 | 19 | - | - |
 | 22 | 9 | - | - |
 | 23 | 8 | - | - |
+| 24 | 5 | - | - |
 
 **Recent Trend:**
 
@@ -220,6 +221,12 @@ Recent decisions affecting current work:
 - [Phase 23]: 23-08: a supersede's KDoc names the window it does NOT close, because overclaiming makes the next reader stop looking
 - [Phase 23]: seal: the api-coverage verify:pre gate fired on two false-positive signals (`wraps api`, `(surface) api`, both tracing to the Burp Montoya host API) and was closed with a reasoned COVERAGE.md no-integration declaration rather than a fabricated matrix
 - [Phase 23]: seal: four SUMMARYs (23-01, 23-02, 23-04, 23-06) shipped with no `## Threat Flags` section, so their 14 registered threats had no executor self-report; all 14 were closed by direct code reading in 23-SECURITY.md — a missing Threat Flags section should count as an executor self-check failure in future phases
+- [Phase 24]: the SC1 guard and the SC6 pool bounds are COUPLED — `exec.submit` at `ActiveAiScanner.kt:391` sits outside any try, so bounding an executor CREATES the RejectedExecutionException throw site the guard must catch; wave order encodes this and doing SC6 first would make the scanner strictly worse than unfixed
+- [Phase 24]: the two pools got deliberately DIFFERENT rejection contracts — requestExecutor uses SynchronousQueue+AbortPolicy, workerPool an unbounded queue with none; CallerRunsPolicy on workerPool would run an infinite reader.forEachLine pump on the caller, possibly the EDT Phase 23 cleared
+- [Phase 24]: the service log pump had to move off workerPool BEFORE the pool was bounded — it occupies a thread for a service process's whole lifetime, so bounding first would starve the pool
+- [Phase 24]: executors found FOUR factually wrong plan acceptance criteria and strengthened the assertion each time rather than bending code to pass; 24-04's caught a real leak (a return@submit escaping before the outer finally) that would have rebuilt the exact unbounded growth D-01 removes
+- [Phase 24]: CR-02 — File.delete() returns false, it does not throw; a comment reasoning about a delete that 'throws' was protecting against an impossible failure mode while the real one (Windows handle still held) orphaned the file
+- [Phase 24]: coverage `kind:` must use the schema enum (unit/integration/e2e/automated_ui/manual_procedural/other) — invented values like `structural` fail validation and the fail-safe escalates genuinely-covered deliverables to human checkpoints
 - [Phase 23]: Task 2's scanner supersede test ships as TWO shapes, not the plan's one: three sequential early-return guards mean a supersede landing before the first short-circuits the rest, so a single shape leaves every later guard unfalsifiable — Measured — probes 2-1 and 2-2 now fail on different lines naming different mocks; under the single-shape design 2-2 would have passed green with the active-scanner guard deleted
 - [Phase 23]: WR-11 belongs to Phase 23, not Phase 26/QUAL-07 — checked against both texts rather than assumed — QUAL-07 covers the detekt baseline's direction, the disposition of ChatPanel's assert()-based enforcement, and SecretCipher docs; none is CI wiring. edtGuardWithoutAssertionsTest and the check(...) it proves were both created by plan 23-02 inside this phase
 - [Phase 23]: The settings supersede's AtomicLong is redundant with the disposed flag at unload — measured by red probe 1-3, kept for the save-supersedes-save case D-10 currently makes unreachable — isCurrent is a conjunction, so disposed = true alone falsifies it; removing saveGeneration.incrementAndGet() from shutdown() left the test green
@@ -269,5 +276,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-08-21T13:34:19.433Z
-Stopped at: Completed 24-01-PLAN.md (wave 1 gate) — waves 2-4 unblocked
+Stopped at: Phase 24 complete, ready to plan Phase 25
 Resume file: None
