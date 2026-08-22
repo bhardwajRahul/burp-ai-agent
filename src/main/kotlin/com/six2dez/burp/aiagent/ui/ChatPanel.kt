@@ -817,9 +817,29 @@ class ChatPanel(
     }
 
     /**
-     * Asserts that the calling code is on the AWT Event Dispatch Thread.
-     * Uses JVM assert (active under -ea in CI tests; no-op in production) so this never
-     * changes prod behavior — the EDT-confinement test is the real SC1 gate, not this check.
+     * Development-time EDT check for the `@GuardedBy("EDT")` session maps — **not** a production control.
+     *
+     * **Read this as a statement of what the check does NOT do.** It is the JVM's debug-time assertion
+     * facility, which is disabled unless the JVM was started with `-ea`. `tasks.test` passes `-ea`; no
+     * shipped Burp does. So in the extension a user actually runs, this compiles to nothing and has
+     * no production effect at all: it can neither stop an off-EDT touch of a session map nor report
+     * that one happened. It is a development-time aid, and QUAL-07 / SC4 exists because the wording
+     * around it used to suggest otherwise.
+     *
+     * **What actually holds REL-01 is the callers.** Every entry point reachable off the EDT marshals
+     * before it touches a guarded map — the unload path is the documented example, wrapping its whole
+     * teardown block in `invokeAndWait` because Burp's unload handler runs on a Montoya thread. The
+     * evidence that the discipline holds is `ChatPanelEdtConfinementTest`, not this function. If you
+     * meet a violation, fix the CALLER by marshalling onto the EDT; do not expect this to have caught
+     * it in the field.
+     *
+     * **Why it was not upgraded.** Plan 26-04 measured the alternative: converting this to a throwing
+     * `check(...)`, the shape `McpToolExecutorImpl`'s production door guard already uses, breaks no
+     * behavioural test in the suite — the existing tests all marshal correctly. The disposition
+     * recorded in `26-04-SUMMARY.md` § `SC4 decision` (and ADR-17) was nonetheless to keep the
+     * mechanism and state its limits honestly, so this KDoc is the deliverable rather than a
+     * consolation for one. `ChatPanelEdtGuardTest` pins the wording so it cannot drift back into
+     * reading as a guarantee.
      */
     private fun assertEdt() {
         assert(SwingUtilities.isEventDispatchThread()) {
@@ -1049,8 +1069,12 @@ class ChatPanel(
      *
      * REL-01: reads `sessionsList.selectedValue` / `sessionPanels` (both `@GuardedBy("EDT")`)
      * and mutates Swing (`setSendingState`, `panel.addMessage`), so it MUST run on the EDT.
-     * Callers reachable off the EDT (e.g. `shutdown()` from Burp's unload handler) must marshal
-     * onto the EDT first — see `shutdown()`.
+     * Callers reachable off the EDT must marshal with `invokeAndWait` before calling it — the unload
+     * path is the worked example, and it is the one that matters most, because Burp's unload handler
+     * runs on a Montoya thread rather than the EDT.
+     *
+     * That marshalling is the whole of the guarantee. The check on the first line is a development-time
+     * aid the JVM disables without `-ea`, so it catches nothing in a shipped Burp; see its KDoc.
      */
     fun cancelInFlightRequest(): Boolean {
         assertEdt()
@@ -1514,10 +1538,14 @@ class ChatPanel(
 
     private fun syncDraftFromInput() {
         // sessionDrafts is @GuardedBy("EDT") like every other session map, and this writes it — so it
-        // owes the same assertion they do. It had none, which is why the SC4 harness could type into the
+        // owes the same check they do. It had none, which is why the SC4 harness could type into the
         // input area from the JUnit thread for a whole phase with `-ea` on and nothing firing (WR-10).
-        // A DocumentListener callback is always dispatched on the EDT in production, so this is a
-        // no-op there in both senses: `assert` is disabled without `-ea`, and the condition holds.
+        //
+        // A DocumentListener callback is dispatched on whatever thread mutated the Document, which in
+        // production is always the EDT. Anything writing inputArea.text from elsewhere must marshal
+        // with invokeAndWait first, because the listener would otherwise write sessionDrafts off-EDT.
+        // The check below will not tell you when that happens: the JVM disables it without `-ea`, i.e.
+        // in every shipped Burp, so it is a development-time aid only. See its KDoc.
         assertEdt()
         if (suppressDraftSync) return
         val id = activeSessionId ?: sessionsList.selectedValue?.id ?: return
@@ -2606,8 +2634,11 @@ class ChatPanel(
         traceId: String,
         onCompleted: ((String, Throwable?) -> Unit)?,
     ): ToolCallOutcome {
-        // REL-01: this function reads EDT-confined maps and calls panel.addMessage (Swing).
-        // It must only be called from the EDT — enforced by assertEdt() under -ea.
+        // REL-01: this function reads EDT-confined maps and calls panel.addMessage (Swing), so every
+        // caller must ALREADY be on the EDT; one that is not must marshal with invokeAndWait first.
+        // The assertEdt() below does not make that true — the JVM disables it without -ea, i.e. in
+        // every shipped Burp — so treat it as a development-time aid and read its KDoc before
+        // relying on it.
         assertEdt()
         val call = if (remainingToolIterations > 0) ToolCallParser.extractFirst(responseText) else null
         val panel = sessionPanels[sessionId]
@@ -2812,7 +2843,11 @@ class ChatPanel(
      * Applies the user's click and restarts the parked chain (D-11).
      *
      * Runs inside the card's `ActionListener`, which the AWT event pump dispatches on the EDT by
-     * definition — so this adds no `invokeLater` and changes nothing about REL-01.
+     * definition — so this adds no `invokeLater` and changes nothing about REL-01. That structural
+     * fact, not the check on its first line, is why the `@GuardedBy("EDT")` reads below are safe: any
+     * future caller reaching this from somewhere other than an AWT event must marshal with
+     * `invokeAndWait` itself, because the check is a development-time aid the JVM disables without
+     * `-ea` and so reports nothing in a shipped Burp. See its KDoc.
      */
     private fun resolveToolDecision(
         sessionId: String,
