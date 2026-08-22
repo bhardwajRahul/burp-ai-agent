@@ -360,31 +360,67 @@ class McpSupervisor(
      * null, so our own server cannot be running under TLS unless a readable keystore exists at that
      * path. A client that cannot read one there is not talking to our server, and weakening TLS to
      * reach it would be exactly backwards. See ADR-16.
+     *
+     * The pin is scoped to a LOOPBACK bind, and a non-loopback bind is an explicit limb rather than a
+     * silent fall-through (25-REVIEW WR-03). External mode is the only mode that permits a
+     * non-loopback host, and there no override is installed, the JDK defaults refuse our own
+     * `CN=burp-mcp` certificate and the takeover does not happen — so the operator is told that,
+     * rather than being told by `handleBindFailure` that no compatible MCP server was found when the
+     * listener was their own. Dropping the host gate, which would make external-mode TLS takeover work
+     * for the first time, is an accepted residual recorded in ADR-17; it is a change to when this
+     * extension shuts down a remote listener and belongs to a hardening phase, not to this one.
      */
     private fun openConnection(
         url: URL,
         settings: McpSettings,
     ): HttpURLConnection {
         val conn = url.openConnection() as HttpURLConnection
-        if (settings.tlsEnabled && conn is HttpsURLConnection && isLoopbackUrlHost(url.host)) {
-            val pin = McpTls.pinnedLeafSha256(settings)
-            if (pin == null) {
-                api.logging().logToOutput(
-                    "MCP takeover was not attempted under TLS: no pinned certificate could be read from " +
-                        "${settings.tlsKeystorePath}. The takeover client trusts only the certificate in " +
-                        "that keystore and never falls back to trusting an unidentified listener.",
-                )
+        if (settings.tlsEnabled && conn is HttpsURLConnection) {
+            if (isLoopbackUrlHost(url.host)) {
+                installLoopbackPin(conn, settings)
             } else {
-                conn.sslSocketFactory = pinnedSslContext(pin).socketFactory
-                conn.hostnameVerifier =
-                    HostnameVerifier { _, session ->
-                        // An unverified session must yield false rather than propagate
-                        // SSLPeerUnverifiedException out of the verifier.
-                        leafDigestMatches(runCatching { session.peerCertificates }.getOrNull(), pin)
-                    }
+                // 25-REVIEW WR-03. This limb used to be a silent fall-through: nothing was installed,
+                // the JDK default trust store refused our own CN=burp-mcp certificate,
+                // probeExistingServer returned false and handleBindFailure reported "no compatible
+                // MCP server was detected" — the opposite of what happened, with no retry scheduled.
+                // The gate itself is unchanged; only the operator's information is.
+                api.logging().logToOutput(
+                    "MCP takeover was not attempted under TLS: certificate pinning is applied to " +
+                        "loopback hosts only and this server is bound to ${url.host}. No TLS override " +
+                        "was installed and the existing listener was left running — free the port " +
+                        "manually, then restart MCP.",
+                )
             }
         }
         return conn
+    }
+
+    /**
+     * The loopback limbs of [openConnection]'s TLS branch, unchanged in behaviour: pin when a
+     * certificate can be read, and fail closed with one Output line naming the keystore path when it
+     * cannot. Extracted only so the non-loopback limb above reads as its own case rather than as the
+     * absence of one.
+     */
+    private fun installLoopbackPin(
+        conn: HttpsURLConnection,
+        settings: McpSettings,
+    ) {
+        val pin = McpTls.pinnedLeafSha256(settings)
+        if (pin == null) {
+            api.logging().logToOutput(
+                "MCP takeover was not attempted under TLS: no pinned certificate could be read from " +
+                    "${settings.tlsKeystorePath}. The takeover client trusts only the certificate in " +
+                    "that keystore and never falls back to trusting an unidentified listener.",
+            )
+        } else {
+            conn.sslSocketFactory = pinnedSslContext(pin).socketFactory
+            conn.hostnameVerifier =
+                HostnameVerifier { _, session ->
+                    // An unverified session must yield false rather than propagate
+                    // SSLPeerUnverifiedException out of the verifier.
+                    leafDigestMatches(runCatching { session.peerCertificates }.getOrNull(), pin)
+                }
+        }
     }
 
     private fun isLoopbackUrlHost(host: String): Boolean =

@@ -21,12 +21,22 @@ private const val AUTO_DEFINITION: String =
 private const val DECISIONS_FILE = "DECISIONS.md"
 private const val CATALOG_FILE = "src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpToolCatalog.kt"
 
-/** The number of `Residual:` bullets phase 25 committed ADR-16 to carrying. */
-private const val MIN_ADR16_RESIDUALS = 5
+/**
+ * The number of `Residual:` bullets ADR-16 actually ships, and therefore the bound below which the
+ * guard below stops meaning what its own comment says.
+ *
+ * It sat at 5 against 6 shipped bullets from phase 25 until phase 26 (25-REVIEW IN-02): a bound one
+ * below the shipped count cannot catch the deletion of exactly one bullet, which is the only deletion
+ * an editing accident ever produces. Phase 26 added the seventh bullet and raised this to 7 in the
+ * same commit. Keep the two EQUAL: raising it above the shipped count makes the suite red for no
+ * reason, and lowering it below re-opens the gap.
+ */
+private const val MIN_ADR16_RESIDUALS = 7
 
 /**
  * SEC-06 / SC1 guard on ADR-15 — the written rule by which a tool added in a later phase inherits the
- * trust boundary instead of re-litigating it — and, since phase 25, the SEC-07 guard on ADR-16.
+ * trust boundary instead of re-litigating it — since phase 25 the SEC-07 guard on ADR-16, and since
+ * phase 26 the QUAL-07 guard on ADR-17.
  *
  * **What this test can do.** It is a string-match guard. It stops ADR-15 from disappearing, stops it
  * from silently losing D-05's `AUTO` sentence in a later edit, and — the part that carries the real
@@ -43,7 +53,7 @@ private const val MIN_ADR16_RESIDUALS = 5
  */
 class DecisionsAdrTest {
     @Test
-    fun adr16ExistsAndIsTheHighestNumberedAdr() {
+    fun adr17ExistsAndIsTheHighestNumberedAdr() {
         val decisions = readProjectFile(DECISIONS_FILE)
 
         assertTrue(
@@ -58,11 +68,60 @@ class DecisionsAdrTest {
                 "record of the MCP takeover credential and the loopback certificate pin; without it " +
                 "the phase's accepted residuals survive only in `.planning/`, which does not ship.",
         )
-        assertFalse(
+        assertTrue(
             decisions.lineSequence().any { it.startsWith("## ADR-17") },
-            "$DECISIONS_FILE contains `## ADR-17`, so ADR-16 is no longer the highest-numbered ADR. " +
+            "$DECISIONS_FILE must contain a heading line starting `## ADR-17`. ADR-17 is QUAL-07's " +
+                "record of three dispositions phase 26 took — the detekt baseline's direction, the " +
+                "disposition of `ChatPanel`'s EDT enforcement, and what `SecretCipher`'s at-rest " +
+                "property actually is. ADR-15's `assertEdt()` residual points here, so deleting it " +
+                "strands that pointer.",
+        )
+        assertFalse(
+            decisions.lineSequence().any { it.startsWith("## ADR-18") },
+            "$DECISIONS_FILE contains `## ADR-18`, so ADR-17 is no longer the highest-numbered ADR. " +
                 "This assertion exists to make the NEXT phase's author notice they must claim a new " +
                 "number and extend this guard, rather than quietly reusing one.",
+        )
+    }
+
+    @Test
+    fun adr17NamesAllThreeDispositionsItRecords() {
+        val section = adrSection("## ADR-17")
+
+        // The heading alone is worthless: an edit that keeps `## ADR-17` while emptying it would leave
+        // the assertion above green and the record gone. Each subject below is named by the symbol or
+        // file the clause is ABOUT, so a rewording survives and a removal does not.
+        val subjects =
+            mapOf(
+                "detekt-baseline.xml" to
+                    "clause 1 — the rule that the baseline shrinks and is never appended to. Without " +
+                    "it a future contributor has no written answer to \"may I just baseline this?\"",
+                "assertEdt" to
+                    "clause 2 — the disposition of `ChatPanel`'s EDT enforcement, including that the " +
+                    "selection was auto-selected by the harness before the user accepted it, and " +
+                    "the off-EDT `shutdown()` residual the probe could not retire.",
+                "SecretCipher" to
+                    "clause 3 — what the AES-256-GCM envelope does and does not protect. ADR-16's " +
+                    "filesystem-read residual depends on this statement being here and correct.",
+            )
+        subjects.forEach { (symbol, why) ->
+            assertTrue(
+                section.contains(symbol),
+                "ADR-17 no longer names `$symbol`, so it has lost $why",
+            )
+        }
+        assertTrue(
+            section.contains("Burp Preferences"),
+            "ADR-17 clause 3 must say where `SecretCipher`'s master key lives — Base64-encoded in a " +
+                "Burp Preferences entry, beside the ciphertext it protects. That location is the " +
+                "whole reason the at-rest property is bounded the way it is; an at-rest claim with " +
+                "the storage location removed reads as stronger than what ships.",
+        )
+        assertTrue(
+            section.contains("document-test-only"),
+            "ADR-17 clause 2 must carry the SC4 selection verbatim as it appears in " +
+                "`26-04-SUMMARY.md`. A paraphrased decision is a second decision, made by whoever " +
+                "paraphrased it.",
         )
     }
 
@@ -72,10 +131,17 @@ class DecisionsAdrTest {
         val residuals = section.lineSequence().count { it.contains("Residual:") }
 
         // T-25-17: a residual that is accepted but not written down is indistinguishable from a
-        // residual nobody noticed. Phase 25 accepted five across three plans - proof replay inside the
-        // validity window, host-string identity, version skew, filesystem read defeating the pin, and
-        // fail-closed takeover under TLS. Deleting one from the ADR must be a deliberate act with a red
-        // test in front of it, not an editing accident.
+        // residual nobody noticed. ADR-16 ships seven, and they are enumerated here so this comment
+        // cannot drift from the file it guards - which is the drift the guard exists to catch:
+        //   1. proof replay inside the validity window (25-01 T-25-04)
+        //   2. host-string identity (25-01 A-25-05)
+        //   3. version skew (25-01 A-25-06)
+        //   4. filesystem read defeats the pin
+        //   5. fail-closed takeover under TLS (T-25-16)
+        //   6. the SSRF half of SEC-07 stays advisory (plan 25-02)
+        //   7. offline token guessing from a captured proof (25-REVIEW WR-01, added by phase 26)
+        // Deleting one from the ADR must be a deliberate act with a red test in front of it, not an
+        // editing accident.
         assertTrue(
             residuals >= MIN_ADR16_RESIDUALS,
             "ADR-16 lists $residuals `Residual:` bullets, fewer than the $MIN_ADR16_RESIDUALS this " +
