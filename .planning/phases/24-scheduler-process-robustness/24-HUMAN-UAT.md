@@ -1,5 +1,5 @@
 ---
-status: testing
+status: complete
 phase: 24-scheduler-process-robustness
 source: [24-VERIFICATION.md, 24-05-SUMMARY.md, 24-04-SUMMARY.md, 24-REVIEW.md]
 started: 2026-08-21
@@ -8,9 +8,7 @@ updated: 2026-08-21
 
 ## Current Test
 
-number: 1
-name: Real CLI subprocess round-trip — SC3 / SC4 / SC5 end-to-end
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -45,7 +43,7 @@ why_human: SC3/SC4/SC5 are verified against the *extracted seams* (`CliOutputBuf
 through `CliBackend.executeInternal`, so the reader-thread/timeout-path interaction and the
 `finally`-block cleanup are proven at the seam and never end-to-end against a real process.
 
-result: pending
+result: pass
 
 ### 2. Thread dump under real scan load — SC6
 
@@ -66,7 +64,7 @@ plus a structural read of `App.kt` / `ActiveAiScanner.kt`. The production pool i
 observed under real scan load — and *"a Burp thread dump is readable"* is by definition a live
 observation.
 
-result: pending
+result: pass
 
 ### 3. Clean Burp quit mid-CLI-call — SC5's "and on crash" clause
 
@@ -85,7 +83,7 @@ JVM exit hook.
 file whose `delete()` returned `false` was deregistered anyway and then orphaned. If you see a leftover
 file here, that fix did not fully hold.
 
-result: pending
+result: pass
 
 ### 4. Repeated extension reload — hook and cleaner-thread accumulation
 
@@ -109,7 +107,7 @@ why_human: extension reload cannot be simulated headlessly. `shutdown()` needs a
 no unit test executes it — the source-order assertion proves the step *order* and the diff proves the
 block's body is byte-identical, but neither observes an actual unload.
 
-result: pending
+result: pass
 
 ### 5. Live service log pump — D3
 
@@ -126,14 +124,14 @@ thread name are source-asserted and the pump body is proved unchanged by diff �
 spawning a real service process. The structural gate proves the mechanism was moved intact; it does not
 prove the moved mechanism still works end to end.
 
-result: pending
+result: pass
 
 ## Summary
 
 total: 5
-passed: 0
+passed: 5
 issues: 0
-pending: 5
+pending: 0
 skipped: 0
 blocked: 0
 
