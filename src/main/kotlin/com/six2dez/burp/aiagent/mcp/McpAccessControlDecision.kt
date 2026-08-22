@@ -16,6 +16,14 @@ import java.security.MessageDigest
 internal const val HEALTH_PATH = "/__mcp/health"
 
 /**
+ * Bind-conflict takeover route. Named here rather than left as a literal in the routing block because
+ * SEC-07 makes it the second path the gate has to reason about: the takeover credential is a proof of
+ * possession, not a bearer token, so [evaluateExternal] must recognise it or the gate would refuse the
+ * request before the route could accept it.
+ */
+internal const val SHUTDOWN_PATH = "/__mcp/shutdown"
+
+/**
  * Authorities that count as loopback. The expanded IPv6 form is listed alongside `::1` so a server
  * bound to IPv6 loopback cannot reject its own `Host` header (SEC-05 5b).
  */
@@ -87,6 +95,16 @@ internal data class RequestFacts(
     val referer: String? = null,
     val userAgent: String? = null,
     val authorization: String? = null,
+    /** SEC-07: value of [McpTakeoverProof.HEADER], the bind-conflict takeover credential. */
+    val takeoverProof: String? = null,
+    /**
+     * Injected clock. The proof credential is window-bound, so the gate needs the time — but reading it
+     * inside [evaluate] would break the pure-by-contract rule this whole file is built on. The impure
+     * adapter (`requestFacts` in McpAccessControlPlugin.kt) reads the clock; the decision stays a pure
+     * function of its inputs and every row of the matrix stays assertable with no server and no clock.
+     * Defaults to `0`, which is fail-closed: a fact built without a clock can never match a live proof.
+     */
+    val epochMillis: Long = 0L,
 )
 
 /** Outcome of [evaluate]: either the request proceeds, or it is refused with a status and a reason. */
@@ -129,6 +147,19 @@ private fun evaluateExternal(
         // rather than admitting "Bearer " as a valid credential.
         settings.token.isBlank() ->
             GateDecision.Deny(HttpStatusCode.Unauthorized, BlockReason.BLANK_TOKEN, facts)
+        // SEC-07: the bind-conflict takeover presents a PROOF OF POSSESSION, never the bearer token —
+        // the port holder's identity cannot be established, so it must not be handed a reusable
+        // secret. Without this limb the gate would 401 the takeover before the shutdown route could
+        // accept it, and external-mode takeover would silently stop working: the MCP server would stay
+        // down after every bind conflict in the one mode where that is hardest to notice.
+        //
+        // This OPENS NOTHING. The proof is an HMAC keyed by the same token the bearer branch below
+        // checks, so a caller who does not already hold the token cannot produce one and still falls
+        // through to the same 401 with the same BlockReason and the same D-06 report. It sits BELOW the
+        // blank-token guard on purpose, so SEC-05 5c still fails closed first.
+        facts.path == SHUTDOWN_PATH &&
+            McpTakeoverProof.accepts(settings.token, settings.host, settings.port, facts.epochMillis, facts.takeoverProof.orEmpty()) ->
+            GateDecision.Allow
         !isAuthorizedBearer(facts.authorization.orEmpty(), settings.token) ->
             GateDecision.Deny(HttpStatusCode.Unauthorized, BlockReason.UNAUTHORIZED, facts)
         else -> GateDecision.Allow

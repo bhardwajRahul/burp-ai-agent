@@ -204,9 +204,20 @@ class KtorMcpServerManager(
                                 }
                                 call.respondText("ok")
                             }
-                            post("/__mcp/shutdown") {
+                            // SHUTDOWN_PATH, not a literal: the access-control gate now matches this
+                            // same path to recognise the SEC-07 proof credential, and the two must not
+                            // drift apart.
+                            post(SHUTDOWN_PATH) {
+                                // SEC-07: two accepted credential forms, and the order is not
+                                // load-bearing. The bearer check is unchanged so an operator driving
+                                // this endpoint by hand still works; the proof form is what the
+                                // bind-conflict takeover client now presents, because the token must
+                                // never reach a port holder whose identity cannot be established.
                                 val authHeader = call.request.headers["Authorization"].orEmpty()
-                                if (!isAuthorized(authHeader, settings.token)) {
+                                val proof = call.request.headers[McpTakeoverProof.HEADER].orEmpty()
+                                if (!isAuthorized(authHeader, settings.token) &&
+                                    !McpTakeoverProof.accepts(settings.token, settings.host, settings.port, System.currentTimeMillis(), proof)
+                                ) {
                                     call.respond(HttpStatusCode.Unauthorized)
                                     return@post
                                 }

@@ -53,7 +53,7 @@ class McpSupervisor(
         takeoverClientOverride ?: object : McpTakeoverClient {
             override fun probe(settings: McpSettings): Boolean = probeExistingServer(settings)
 
-            override fun requestShutdown(settings: McpSettings): Boolean = requestRemoteShutdownWithToken(settings)
+            override fun requestShutdown(settings: McpSettings): Boolean = requestRemoteShutdown(settings)
         }
 
     init {
@@ -275,6 +275,11 @@ class McpSupervisor(
                 // (3) Establishing REAL listener identity is Phase 25 / SEC-07 per D-05. Nothing in
                 //     this probe may present the bearer token to an unverified port holder, so it
                 //     sends no credential header of any kind — do not add one here.
+                // (4) SEC-07 update: the signals inspected below are no longer load-bearing for
+                //     credential disclosure, because the takeover path no longer has a secret to
+                //     disclose — requestRemoteShutdown presents a proof of possession instead of the
+                //     token. They remain as a cheap filter that avoids issuing shutdown requests at
+                //     listeners that are obviously not ours.
                 if (alive && settings.externalEnabled) {
                     api.logging().logToOutput(
                         "MCP probe on ${settings.host}:${settings.port} could not establish server identity: " +
@@ -291,14 +296,23 @@ class McpSupervisor(
             false
         }
 
-    private fun requestRemoteShutdownWithToken(settings: McpSettings): Boolean =
-        try {
+    /**
+     * SEC-07 / T-25-01 — the Phase-22-era name was `requestRemoteShutdownWithToken`, and it stopped
+     * being true here: the MCP bearer token is no longer sent to the port holder. It keys an HMAC that
+     * proves possession instead, so a local process squatting the port collects nothing it can reuse.
+     *
+     * Fails closed on a blank token: without a key there is no meaningful proof, and the old code
+     * would have presented a bare `Bearer ` to the holder. No request is issued at all in that case.
+     */
+    private fun requestRemoteShutdown(settings: McpSettings): Boolean {
+        val proof = takeoverProof(settings) ?: return false
+        return try {
             val scheme = if (settings.tlsEnabled) "https" else "http"
             val url = URI.create("$scheme://${settings.host}:${settings.port}/__mcp/shutdown").toURL()
             val conn = openConnection(url, settings.tlsEnabled)
             try {
                 conn.requestMethod = "POST"
-                conn.setRequestProperty("Authorization", "Bearer ${settings.token}")
+                conn.setRequestProperty(McpTakeoverProof.HEADER, proof)
                 conn.connectTimeout = 500
                 conn.readTimeout = 500
                 conn.connect()
@@ -310,6 +324,17 @@ class McpSupervisor(
             api.logging().logToOutput("MCP remote shutdown request was not accepted: ${e.message}")
             false
         }
+    }
+
+    /**
+     * The ONLY place in this file that touches the MCP token, and it uses it as an HMAC key rather
+     * than as a header value. `McpTakeoverSquatterTest` asserts that structurally: the token property
+     * is referenced exactly once in this file, on a line that also carries
+     * `McpTakeoverProof.forTarget`. That assertion goes red the day a future edit puts the secret back
+     * on the wire under any header name — so do not name that property anywhere else here, not even
+     * in a comment.
+     */
+    private fun takeoverProof(settings: McpSettings): String? = settings.token.takeIf { it.isNotBlank() }?.let { McpTakeoverProof.forTarget(it, settings.host, settings.port, System.currentTimeMillis()) }
 
     private fun openConnection(
         url: URL,

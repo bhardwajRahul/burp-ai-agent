@@ -191,6 +191,10 @@ private fun requestFacts(call: ApplicationCall): RequestFacts =
         referer = call.request.headers["Referer"],
         userAgent = call.request.headers["User-Agent"],
         authorization = call.request.headers["Authorization"],
+        takeoverProof = call.request.headers[McpTakeoverProof.HEADER],
+        // The ONLY clock read on the gate path, and it lives here rather than in `evaluate` so the
+        // decision core stays pure by contract (SEC-07).
+        epochMillis = System.currentTimeMillis(),
     )
 
 /**
