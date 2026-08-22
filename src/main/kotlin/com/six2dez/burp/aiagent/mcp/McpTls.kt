@@ -3,6 +3,7 @@ package com.six2dez.burp.aiagent.mcp
 import com.six2dez.burp.aiagent.config.McpSettings
 import java.io.File
 import java.security.KeyStore
+import java.security.MessageDigest
 
 data class McpTlsMaterial(
     val keyStore: KeyStore,
@@ -30,6 +31,43 @@ object McpTls {
 
         val alias = keyStore.aliases().toList().firstOrNull() ?: "mcp"
         return McpTlsMaterial(keyStore = keyStore, password = password, keyAlias = alias)
+    }
+
+    /**
+     * SEC-07 / SC5 — the SHA-256 digest of the leaf certificate stored at
+     * [McpSettings.tlsKeystorePath], or null when no certificate can be read there.
+     *
+     * This is the value the bind-conflict takeover client pins the loopback TLS handshake to, so that
+     * it trusts exactly the certificate this extension serves and not whatever certificate a local
+     * process squatting the MCP port chooses to present.
+     *
+     * READS ONLY. It never generates, never writes and never creates a directory, and it is
+     * deliberately NOT implemented in terms of [resolve] even though the two read the same keystore.
+     * [resolve] mints a self-signed keystore when `tlsAutoGenerate` is on and none exists, which is
+     * correct for the server that is about to serve it and wrong for a client that is about to
+     * identify one: a client-side probe generating key material would create a file the user never
+     * asked for AND mint a fresh certificate that by construction cannot match the certificate the
+     * already-running server is presenting, producing a pin that is guaranteed wrong exactly when it
+     * matters. If a future refactor collapses these two functions into one, TLS takeover breaks in
+     * precisely the configuration it exists to serve.
+     */
+    fun pinnedLeafSha256(settings: McpSettings): ByteArray? {
+        val keystorePath = settings.tlsKeystorePath.trim()
+        val keystoreFile = File(keystorePath)
+        if (keystorePath.isBlank() || !keystoreFile.exists()) return null
+        // runCatching rather than a catch clause on purpose: a corrupt keystore, a wrong password or
+        // an aliasless store must all yield null (fail closed) rather than throw, and runCatching has
+        // no catch clause, so it adds neither a TooGenericExceptionCaught nor a SwallowedException
+        // finding to the frozen detekt baseline.
+        return runCatching {
+            val password = settings.tlsKeystorePassword.toCharArray()
+            val keyStore = KeyStore.getInstance("PKCS12")
+            keystoreFile.inputStream().use { input ->
+                keyStore.load(input, password)
+            }
+            val alias = keyStore.aliases().toList().firstOrNull() ?: "mcp"
+            MessageDigest.getInstance("SHA-256").digest(keyStore.getCertificate(alias).encoded)
+        }.getOrNull()
     }
 
     private fun generateSelfSigned(

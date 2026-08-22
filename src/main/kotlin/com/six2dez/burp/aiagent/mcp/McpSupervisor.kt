@@ -14,6 +14,11 @@ import java.net.BindException
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.security.cert.Certificate
+import java.security.cert.CertificateException
+import java.security.cert.X509Certificate
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -255,7 +260,7 @@ class McpSupervisor(
         try {
             val scheme = if (settings.tlsEnabled) "https" else "http"
             val url = URI.create("$scheme://${settings.host}:${settings.port}/__mcp/health").toURL()
-            val conn = openConnection(url, settings.tlsEnabled)
+            val conn = openConnection(url, settings)
             try {
                 conn.requestMethod = "GET"
                 conn.connectTimeout = 800
@@ -309,7 +314,7 @@ class McpSupervisor(
         return try {
             val scheme = if (settings.tlsEnabled) "https" else "http"
             val url = URI.create("$scheme://${settings.host}:${settings.port}/__mcp/shutdown").toURL()
-            val conn = openConnection(url, settings.tlsEnabled)
+            val conn = openConnection(url, settings)
             try {
                 conn.requestMethod = "POST"
                 conn.setRequestProperty(McpTakeoverProof.HEADER, proof)
@@ -336,41 +341,103 @@ class McpSupervisor(
      */
     private fun takeoverProof(settings: McpSettings): String? = settings.token.takeIf { it.isNotBlank() }?.let { McpTakeoverProof.forTarget(it, settings.host, settings.port, System.currentTimeMillis()) }
 
+    /**
+     * SEC-07 / SC5 / T-25-12 — the loopback TLS branch used to install a trust manager whose
+     * `checkServerTrusted` body was `= Unit` together with a hostname verifier that returned true
+     * unconditionally, so the takeover client could not tell this extension's own MCP server from any
+     * local process holding the port with any self-signed certificate. Both are gone. The client now
+     * trusts exactly one certificate: the leaf in the keystore that `settings.tlsKeystorePath` names,
+     * which is the same file `KtorMcpServerManager.start` hands to Ktor's `sslConnector`.
+     *
+     * The hostname verifier is REPLACED rather than disabled. `McpTls` generates the certificate with
+     * `-dname CN=burp-mcp`, which can never match `localhost` or `127.0.0.1`, so name-based identity
+     * was never available here; the identity assertion moves from the name to the key.
+     *
+     * Fails closed when no pin can be read: no TLS override is installed at all, the JDK defaults
+     * reject the self-signed certificate and the takeover does not happen. That is a classification,
+     * not a degradation — `KtorMcpServerManager.start` throws
+     * `IllegalStateException("TLS enabled but keystore not available.")` when `McpTls.resolve` returns
+     * null, so our own server cannot be running under TLS unless a readable keystore exists at that
+     * path. A client that cannot read one there is not talking to our server, and weakening TLS to
+     * reach it would be exactly backwards. See ADR-16.
+     */
     private fun openConnection(
         url: URL,
-        tlsEnabled: Boolean,
+        settings: McpSettings,
     ): HttpURLConnection {
         val conn = url.openConnection() as HttpURLConnection
-        if (tlsEnabled && conn is HttpsURLConnection) {
-            val isLoopback =
-                url.host.equals("localhost", ignoreCase = true) ||
-                    url.host.equals("127.0.0.1") ||
-                    url.host.equals("::1")
-
-            if (isLoopback) {
-                val trustAll =
-                    arrayOf<TrustManager>(
-                        object : X509TrustManager {
-                            override fun getAcceptedIssuers() = emptyArray<java.security.cert.X509Certificate>()
-
-                            override fun checkClientTrusted(
-                                chain: Array<java.security.cert.X509Certificate>,
-                                authType: String,
-                            ) = Unit
-
-                            override fun checkServerTrusted(
-                                chain: Array<java.security.cert.X509Certificate>,
-                                authType: String,
-                            ) = Unit
-                        },
-                    )
-                val sslContext = SSLContext.getInstance("TLS")
-                sslContext.init(null, trustAll, java.security.SecureRandom())
-                conn.sslSocketFactory = sslContext.socketFactory
-                conn.hostnameVerifier = HostnameVerifier { _, _ -> true }
+        if (settings.tlsEnabled && conn is HttpsURLConnection && isLoopbackUrlHost(url.host)) {
+            val pin = McpTls.pinnedLeafSha256(settings)
+            if (pin == null) {
+                api.logging().logToOutput(
+                    "MCP takeover was not attempted under TLS: no pinned certificate could be read from " +
+                        "${settings.tlsKeystorePath}. The takeover client trusts only the certificate in " +
+                        "that keystore and never falls back to trusting an unidentified listener.",
+                )
+            } else {
+                conn.sslSocketFactory = pinnedSslContext(pin).socketFactory
+                conn.hostnameVerifier =
+                    HostnameVerifier { _, session ->
+                        // An unverified session must yield false rather than propagate
+                        // SSLPeerUnverifiedException out of the verifier.
+                        leafDigestMatches(runCatching { session.peerCertificates }.getOrNull(), pin)
+                    }
             }
         }
         return conn
+    }
+
+    private fun isLoopbackUrlHost(host: String): Boolean =
+        host.equals("localhost", ignoreCase = true) ||
+            host == "127.0.0.1" ||
+            host == "::1"
+
+    /**
+     * An [SSLContext] whose only trust manager accepts a chain if and only if its leaf certificate
+     * digests to [pin].
+     */
+    private fun pinnedSslContext(pin: ByteArray): SSLContext {
+        val pinned =
+            arrayOf<TrustManager>(
+                object : X509TrustManager {
+                    override fun getAcceptedIssuers() = emptyArray<X509Certificate>()
+
+                    // Client-side manager: this is never called. It throws rather than returning Unit
+                    // so that reusing this object on a server would fail loudly instead of trusting
+                    // every client that ever connects.
+                    override fun checkClientTrusted(
+                        chain: Array<X509Certificate>,
+                        authType: String,
+                    ): Unit = throw CertificateException("This trust manager is client-side only and authenticates no clients.")
+
+                    override fun checkServerTrusted(
+                        chain: Array<X509Certificate>,
+                        authType: String,
+                    ) {
+                        if (!leafDigestMatches(chain, pin)) {
+                            throw CertificateException(
+                                "The listener on the MCP port presented a certificate that does not match the " +
+                                    "one in the configured keystore. Refusing the takeover.",
+                            )
+                        }
+                    }
+                },
+            )
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, pinned, SecureRandom())
+        return sslContext
+    }
+
+    /** True when the first certificate of [chain] digests to [pin]. Compared with `MessageDigest.isEqual`. */
+    private fun leafDigestMatches(
+        chain: Array<out Certificate>?,
+        pin: ByteArray,
+    ): Boolean {
+        val digest =
+            chain?.firstOrNull()?.let { leaf ->
+                runCatching { MessageDigest.getInstance("SHA-256").digest(leaf.encoded) }.getOrNull()
+            }
+        return digest != null && MessageDigest.isEqual(digest, pin)
     }
 
     private enum class BindTakeoverOutcome {
