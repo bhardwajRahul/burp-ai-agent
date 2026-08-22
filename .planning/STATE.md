@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
-current_phase: 25
-current_phase_name: Secondary Hardening
-status: executing
-stopped_at: Phase 24 complete, ready to plan Phase 25
-last_updated: "2026-08-22T09:26:35.596Z"
+current_phase: 26
+current_phase_name: Coverage, Static-Analysis Debt & Docs
+status: planning
+stopped_at: Phase 25 complete, ready to plan Phase 26
+last_updated: "2026-08-22T11:09:01.615Z"
 last_activity: 2026-08-22
-last_activity_desc: Phase 25 execution started
-state_head: dcd9cca01d2963d2f7d0d75ff9477cc3ffd74111
+last_activity_desc: Phase 25 complete, transitioned to Phase 26
+state_head: f00d39b9c6065f550d867d071e73a6b5ed80919f
 progress:
   total_phases: 7
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 54
-  completed_plans: 51
-  percent: 43
+  completed_plans: 54
+  percent: 57
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 25 (Secondary Hardening) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 25
+Phase: 26 — Coverage, Static-Analysis Debt & Docs
+Plan: Not started
+Status: Ready to plan
 Resume file: None
-Last activity: 2026-08-22 — Phase 25 execution started
+Last activity: 2026-08-22 — Phase 25 complete, transitioned to Phase 26
 
 ## Milestone Origin
 
@@ -79,7 +79,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 
 **Velocity:**
 
-- Total plans completed: 83
+- Total plans completed: 86
 - Average duration: —
 - Total execution time: 0 hours
 
@@ -102,6 +102,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | 22 | 9 | - | - |
 | 23 | 8 | - | - |
 | 24 | 5 | - | - |
+| 25 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -276,5 +277,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-08-21T13:34:19.433Z
-Stopped at: Phase 24 complete, ready to plan Phase 25
+Stopped at: Phase 25 complete, ready to plan Phase 26
 Resume file: None

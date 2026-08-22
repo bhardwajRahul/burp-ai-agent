@@ -44,7 +44,7 @@ Everything else in this milestone is real but was found by reading: an agent loo
 - [x] **Phase 22: Agent Tool-Call Trust Boundary** — User decision gate for model-emitted tool calls, plus the ADR that records the threat model (completed 2026-08-14)
 - [x] **Phase 23: EDT Confinement & UI Responsiveness** — Tool execution, backend HTTP and MCP stop() off the Swing EDT (completed 2026-08-21)
 - [x] **Phase 24: Scheduler & Process Robustness** — Guard recurring tasks against death-by-exception; fix the CLI output race and unbounded resource use (completed 2026-08-22)
-- [ ] **Phase 25: Secondary Hardening** — Stop leaking the MCP token to unverified port holders; teach SsrfGuard the alternate IP notations
+- [x] **Phase 25: Secondary Hardening** — Stop leaking the MCP token to unverified port holders; teach SsrfGuard the alternate IP notations (completed 2026-08-22)
 - [ ] **Phase 26: Coverage, Static-Analysis Debt & Docs** — Allowlist shell escaping, raise coverage on security paths, shrink the detekt baseline, publish the advisory
 
 ## Phase Details
@@ -381,7 +381,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 22. Agent Tool-Call Trust Boundary | 9/9 | Complete    | 2026-08-20 |
 | 23. EDT Confinement & UI Responsiveness | 8/8 | Complete    | 2026-08-21 |
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
-| 25. Secondary Hardening | 3/3 | In Progress|  |
+| 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
 | 26. Coverage, Static-Analysis Debt & Docs | 0/? | Not started | — |
 
 ## Backlog
