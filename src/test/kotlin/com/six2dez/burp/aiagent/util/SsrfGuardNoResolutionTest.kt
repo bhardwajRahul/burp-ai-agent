@@ -52,6 +52,15 @@ class SsrfGuardNoResolutionTest {
     fun classifyingEveryNotationResolvesNothing() {
         CountingInetAddressResolverProvider.reset()
 
+        // A shrinking corpus is the other way this gate can quietly stop proving anything: deleting
+        // the awkward inputs makes "zero lookups" trivially true. Pin the floor.
+        assertTrue(
+            CORPUS.size >= MIN_CORPUS_SIZE,
+            "The no-resolution corpus shrank to ${CORPUS.size} entries (floor: $MIN_CORPUS_SIZE). " +
+                "Entries are added here when a classification path widens; removing them narrows " +
+                "what SC4 proves rather than fixing anything.",
+        )
+
         CORPUS.forEach { SsrfGuard.isPrivateOrLinkLocal(it) }
 
         assertEquals(
@@ -65,6 +74,9 @@ class SsrfGuardNoResolutionTest {
     }
 
     private companion object {
+        /** Floor on [CORPUS]'s size, so the gate cannot be made green by deleting inputs. */
+        const val MIN_CORPUS_SIZE = 19
+
         /**
          * Every notation, every rejected form, hostnames and IPv6 — plus the two inputs measured to
          * behave interestingly on the pre-SEC-07 tree: `256.0.0.1`, which resolved as a name, and
@@ -90,6 +102,18 @@ class SsrfGuardNoResolutionTest {
                 "http://192.168.1.10/",
                 "http://[fc00::1]",
                 "http://fe80::1",
+                // WR-02: the IPv4-mapped IPv6 forms. These now pass the widened literal gate and so
+                // reach the one resolving call for the first time — which is exactly why they belong
+                // here. A mapped literal is parsed as a literal and must move the counter by zero.
+                "http://[::ffff:169.254.169.254]/",
+                "http://[::ffff:192.168.1.10]/",
+                "http://[0:0:0:0:0:ffff:192.168.1.10]/",
+                "http://::ffff:192.168.1.10/",
+                "http://[::ffff:127.0.0.1]/",
+                // Colon-and-dot strings that match the widened class but are NOT valid literals: the
+                // gate must turn them away as a rejection, never as a lookup.
+                "http://1.2:3/",
+                "http://[a.b:c]/",
             )
     }
 }

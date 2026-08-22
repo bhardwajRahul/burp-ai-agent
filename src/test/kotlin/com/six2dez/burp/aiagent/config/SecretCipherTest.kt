@@ -124,6 +124,40 @@ class SecretCipherTest {
         assertEquals("", cipher.decrypt(corrupted), "unknown envelope version must fail soft to empty string")
     }
 
+    /**
+     * The empty envelope: `"ENC1:"` with nothing after it. Base64-decodes to a zero-length array, so
+     * the version-byte read would be an index-out-of-bounds if the emptiness check were removed.
+     * Fail-soft to "" is the contract, and this is the arm that proves the check is load-bearing.
+     */
+    @Test
+    fun decrypt_ofEnc1ValueWithEmptyEnvelope_returnsEmptyStringFailSoft() {
+        val cipher = SecretCipher(InMemoryPrefs().mock)
+        assertEquals("", cipher.decrypt("ENC1:"), "an empty envelope must fail soft to empty string")
+    }
+
+    @Test
+    fun decrypt_ofEnc1ValueThatIsNotValidBase64_returnsEmptyStringFailSoft() {
+        val cipher = SecretCipher(InMemoryPrefs().mock)
+        assertEquals(
+            "",
+            cipher.decrypt("ENC1:!!!not-base64!!!"),
+            "an undecodable payload must fail soft to empty string, never throw to the caller",
+        )
+    }
+
+    /**
+     * The master key is resolved lazily and once. Two encrypts on the SAME instance must both round
+     * trip, which is the observable form of "the lazy bootstrap did not re-key between calls".
+     */
+    @Test
+    fun twoEncryptsOnOneInstance_bothRoundTrip() {
+        val cipher = SecretCipher(InMemoryPrefs().mock)
+        val first = cipher.encrypt("first-secret")
+        val second = cipher.encrypt("second-secret")
+        assertEquals("first-secret", cipher.decrypt(first))
+        assertEquals("second-secret", cipher.decrypt(second))
+    }
+
     @Test
     fun decrypt_failure_logsOnlyPrefKeyName_neverRawValue() {
         val logger = Logger.getLogger(SecretCipher::class.java.name)

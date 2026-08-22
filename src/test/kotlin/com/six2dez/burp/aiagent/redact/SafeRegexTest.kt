@@ -269,4 +269,46 @@ class SafeRegexTest {
                 ).text
         assertEquals("id=[REDACTED]", result)
     }
+
+    // The third rejection arm, and the only one with no test until now: a pattern that does not
+    // COMPILE. The save path hands isPatternSafe raw user input, so a typo — an unclosed group, a
+    // dangling quantifier, an unterminated character class — is the most likely bad input of all,
+    // and it must be a quiet `false` rather than a PatternSyntaxException escaping onto the EDT.
+    @Test
+    fun syntacticallyInvalidPatternsAreRejectedWithoutThrowing() {
+        val invalid = listOf("(unclosed", "[a-", "a{2,1}", "*leading-quantifier", "(?<bad")
+        for (p in invalid) {
+            assertFalse(
+                SafeRegex.isPatternSafe(p),
+                "An uncompilable pattern must be rejected as false, never thrown: $p",
+            )
+        }
+    }
+
+    // A bounded literal pattern — the acceptance counter-assertion stated in its simplest form, so
+    // the three arms of isPatternSafe (reject-uncompilable, reject-zero-width, accept) each have a
+    // test that names which arm it is exercising.
+    @Test
+    fun boundedLiteralPatternIsAccepted() {
+        assertTrue(SafeRegex.isPatternSafe("INTERNAL-SECRET"), "a bounded literal must be accepted")
+        assertTrue(SafeRegex.isPatternSafe("SECRET-[0-9]{4}"), "a bounded literal with a counted class must be accepted")
+    }
+
+    // A replacement carrying a back-reference makes the matcher materialise the captured group,
+    // which slices the deadline-wrapped input rather than reading it character by character. The
+    // slice must stay deadline-aware — a plain String slice would silently drop the interruption
+    // guarantee for exactly the patterns most likely to backtrack. Asserted on the produced text;
+    // no wall-clock threshold is involved.
+    @Test
+    fun groupReferencingReplacementSlicesTheInputAndKeepsWorking() {
+        val result =
+            SafeRegex.replaceAllSafeReporting(
+                "token=abc123 and token=def456",
+                Pattern.compile("token=([a-z]+)([0-9]+)"),
+                "token=\$1[REDACTED]",
+            )
+
+        assertFalse(result.timedOut, "a benign group-referencing pattern must not report a timeout")
+        assertEquals("token=abc[REDACTED] and token=def[REDACTED]", result.text)
+    }
 }

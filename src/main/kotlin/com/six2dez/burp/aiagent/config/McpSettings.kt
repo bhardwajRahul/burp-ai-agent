@@ -48,6 +48,25 @@ data class McpSettings(
             return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
         }
 
+        /**
+         * True when [token] is too short to resist offline guessing (WR-01, 25-REVIEW).
+         *
+         * The bind-conflict takeover proof is `HMAC-SHA256(key = token, message = ...)` over a
+         * message every byte of which a squatting local process already knows — the host, the port
+         * and a 10-second window index. A captured proof is therefore an offline verifier for the
+         * token itself: one HMAC per guess, no interaction with the victim, no rate limit and no
+         * lockout. Against [generateToken]'s 32 random bytes that is infeasible; against a typed
+         * `burpmcp2026` it is seconds.
+         *
+         * Length is a proxy for entropy, and a deliberately crude one — it is the only property that
+         * can be judged without second-guessing the operator's password manager. The check is
+         * ADVISORY: callers surface a notice and carry on. Nothing here blocks a save, refuses to
+         * start the server, or rewrites the operator's credential.
+         *
+         * Pure, AWT-free and dependency-free, so the UI is not the only place it can be exercised.
+         */
+        fun isTokenWeak(token: String): Boolean = token.trim().length < Defaults.MCP_MIN_TOKEN_LENGTH
+
         fun generatePassword(): String {
             val bytes = ByteArray(24)
             SecureRandom().nextBytes(bytes)
