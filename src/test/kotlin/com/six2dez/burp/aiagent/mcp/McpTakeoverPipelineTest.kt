@@ -2,9 +2,12 @@ package com.six2dez.burp.aiagent.mcp
 
 import com.six2dez.burp.aiagent.config.McpSettings
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.nio.file.Files
 
 /**
  * SEC-07 / SC1 — the legitimate half of the bind-conflict takeover, proven end to end.
@@ -85,6 +88,80 @@ class McpTakeoverPipelineTest {
         }
     }
 
+    @Test
+    fun theProofCredentialAlsoTakesOverOurOwnExternalModeServer() {
+        // DISCOVERED DURING EXECUTION, not written into the plan. The plan's server-side change is
+        // route-level only, but in EXTERNAL mode the McpAccessControl gate runs in the Plugins phase —
+        // before routing — and `evaluateExternal` denies every non-health path that does not carry a
+        // valid bearer. A proof-only request would therefore have been 401'd before the shutdown route
+        // ever saw it, so removing the bearer from the client would have silently broken external-mode
+        // takeover: the MCP server would stay down after every bind conflict in the one configuration
+        // where the operator is least able to notice. The gate now recognises the proof form for the
+        // shutdown path, which is what makes the route's "401 only when both forms fail" true.
+        val keystoreDir = Files.createTempDirectory("mcp-takeover-ks")
+        val port = McpTestServerSupport.freePort()
+        val settings = McpTestServerSupport.externalTlsSettings(port, keystoreDir)
+        val manager = KtorMcpServerManager(McpTestServerSupport.deepStubApi())
+        try {
+            McpTestServerSupport.startAndAwaitRunning(manager, settings)
+
+            assertTrue(
+                requestRemoteShutdown(settings),
+                "External-mode takeover must still succeed through the proof credential alone. If this " +
+                    "is red, the access-control gate is rejecting the proof before the shutdown route " +
+                    "runs and the MCP server will stay down after every external-mode bind conflict.",
+            )
+            assertTrue(awaitServerStopped(port, tls = true), "The external-mode server must actually stop listening")
+        } finally {
+            manager.shutdown()
+        }
+    }
+
+    @Test
+    fun anExternalModeShutdownWithNoCredentialIsStillRejected() {
+        // The other half of the gate change: recognising the proof must not have opened the shutdown
+        // route to an unauthenticated caller. An attacker who does not hold the token gets 401 exactly
+        // as before, and a garbage proof is no better than none.
+        val keystoreDir = Files.createTempDirectory("mcp-takeover-ks")
+        val port = McpTestServerSupport.freePort()
+        val settings = McpTestServerSupport.externalTlsSettings(port, keystoreDir)
+        val manager = KtorMcpServerManager(McpTestServerSupport.deepStubApi())
+        try {
+            McpTestServerSupport.startAndAwaitRunning(manager, settings)
+            val client = McpTestServerSupport.trustAllClient()
+            val url = "${McpTestServerSupport.baseUrl(port, tls = true)}$SHUTDOWN_PATH"
+
+            val bare =
+                Request
+                    .Builder()
+                    .url(url)
+                    .post(EMPTY_BODY)
+                    .build()
+            client
+                .newCall(bare)
+                .execute()
+                .use { assertEquals(401, it.code, "An unauthenticated external shutdown must still be refused") }
+
+            client
+                .newCall(
+                    Request
+                        .Builder()
+                        .url(url)
+                        .post(EMPTY_BODY)
+                        .header(McpTakeoverProof.HEADER, "not-a-real-proof")
+                        .build(),
+                ).execute()
+                .use { assertEquals(401, it.code, "A forged proof must be refused just like no credential at all") }
+
+            assertTrue(
+                !awaitServerStopped(port, maxAttempts = SHORT_ATTEMPTS, tls = true),
+                "The server must still be listening after two refused shutdown attempts",
+            )
+        } finally {
+            manager.shutdown()
+        }
+    }
+
     /**
      * Reaches the private shutdown client by reflection, exactly as `McpSupervisorProbeTest.probe`
      * reaches `probeExistingServer`. The name is `requestRemoteShutdown` and not the Phase-22-era
@@ -103,12 +180,13 @@ class McpTakeoverPipelineTest {
     private fun awaitServerStopped(
         port: Int,
         maxAttempts: Int = DEFAULT_ATTEMPTS,
+        tls: Boolean = false,
     ): Boolean {
-        val client = McpTestServerSupport.plainClient()
+        val client = if (tls) McpTestServerSupport.trustAllClient() else McpTestServerSupport.plainClient()
         val request =
             Request
                 .Builder()
-                .url("${McpTestServerSupport.baseUrl(port, tls = false)}$HEALTH_PATH")
+                .url("${McpTestServerSupport.baseUrl(port, tls)}$HEALTH_PATH")
                 .get()
                 .build()
         repeat(maxAttempts) {
@@ -128,5 +206,6 @@ class McpTakeoverPipelineTest {
         private const val DEFAULT_ATTEMPTS = 200
         private const val SHORT_ATTEMPTS = 5
         private const val POLL_INTERVAL_MS = 50L
+        private val EMPTY_BODY = ByteArray(0).toRequestBody()
     }
 }
