@@ -4,16 +4,16 @@ milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
 current_phase: 25
 current_phase_name: Secondary Hardening
-status: planning
+status: executing
 stopped_at: Phase 24 complete, ready to plan Phase 25
-last_updated: "2026-08-22T08:39:15.722Z"
+last_updated: "2026-08-22T09:26:35.596Z"
 last_activity: 2026-08-22
-last_activity_desc: Phase 24 complete, transitioned to Phase 25
-state_head: 5c580a43333d3cf42eb1fd825eeb27cbeb0f70d4
+last_activity_desc: Phase 25 execution started
+state_head: dcd9cca01d2963d2f7d0d75ff9477cc3ffd74111
 progress:
   total_phases: 7
   completed_phases: 3
-  total_plans: 51
+  total_plans: 54
   completed_plans: 51
   percent: 43
 ---
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 25 — Secondary Hardening
-Plan: Not started
-Status: Ready to plan
+Phase: 25 (Secondary Hardening) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 25
 Resume file: None
-Last activity: 2026-08-22 — Phase 24 complete, transitioned to Phase 25
+Last activity: 2026-08-22 — Phase 25 execution started
 
 ## Milestone Origin
 
