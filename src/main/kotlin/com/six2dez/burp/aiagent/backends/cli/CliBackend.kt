@@ -815,30 +815,75 @@ class CliBackend(
                 .start()
         }
 
-        private fun buildPtyCommand(cmd: List<String>): List<String> {
-            val joined = cmd.joinToString(" ") { shellEscape(it) }
-            val os = System.getProperty("os.name").lowercase(Locale.ROOT)
-            return if (os.contains("mac")) {
-                // macOS: script -q /dev/null /bin/sh -c "command"
-                listOf("script", "-q", "/dev/null", "/bin/sh", "-c", joined)
-            } else {
-                // Linux: script -q -c "command" /dev/null
-                listOf("script", "-q", "-c", joined, "/dev/null")
-            }
-        }
-
-        private fun shellEscape(arg: String): String {
-            if (arg.isEmpty()) return "''"
-            if (arg.none { it.isWhitespace() || it == '"' || it == '\'' }) return arg
-            return "'" + arg.replace("'", "'\"'\"'") + "'"
-        }
-
         private fun isUnixLike(): Boolean {
             val os = System.getProperty("os.name").lowercase(Locale.ROOT)
             return os.contains("mac") || os.contains("nix") || os.contains("nux")
         }
     }
 }
+
+/**
+ * Build the argv that runs [cmd] under a pseudo-terminal via `script(1)`.
+ *
+ * The two platform shapes differ because macOS `script` takes the command as trailing argv while
+ * Linux `script` takes it behind `-c`. Both funnel the whole argv through ONE shell string, which
+ * is why every element is passed through [shellEscape] before the join — this is the only place in
+ * the file where argument boundaries are re-derived by `/bin/sh`.
+ *
+ * [osName] is a defaulted parameter purely so both platform shapes can be asserted on one machine;
+ * production calls it with no explicit argument and therefore behaves exactly as before.
+ *
+ * Visibility: `internal` so ShellEscapeTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun buildPtyCommand(
+    cmd: List<String>,
+    osName: String = System.getProperty("os.name"),
+): List<String> {
+    val joined = cmd.joinToString(" ") { shellEscape(it) }
+    val os = osName.lowercase(Locale.ROOT)
+    return if (os.contains("mac")) {
+        // macOS: script -q /dev/null /bin/sh -c "command"
+        listOf("script", "-q", "/dev/null", "/bin/sh", "-c", joined)
+    } else {
+        // Linux: script -q -c "command" /dev/null
+        listOf("script", "-q", "-c", joined, "/dev/null")
+    }
+}
+
+/**
+ * Phase 26 SC1 / QUAL-06 — the characters an argument may consist of and still reach `/bin/sh`
+ * unquoted: the ASCII letters, the ASCII digits, and dot / underscore / slash / hyphen.
+ *
+ * Every real CLI argument this extension builds — `--silent`, `/usr/local/bin/claude`,
+ * `claude-3.5`, `gemini_cli` — is drawn from this set, so the allowlist costs no working
+ * invocation. Everything outside it is quoted, including the shell metacharacters an earlier
+ * denylist missed.
+ */
+private const val SHELL_SAFE_CHARS =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-"
+
+/**
+ * Quote [arg] so a POSIX shell reads it back as exactly one word with no metacharacter meaning.
+ *
+ * Phase 26 SC1 / QUAL-06: the pass-through test is an ALLOWLIST, not a denylist. The previous
+ * denylist quoted only on whitespace / `"` / `'`, so `foo;id` and `$(cmd)` reached `sh -c` bare and
+ * the shell parsed them as syntax — a settings-import-to-command-execution path, because the CLI
+ * command and its extras are user- or import-supplied. An allowlist cannot be under-enumerated the
+ * way a metacharacter denylist can.
+ *
+ * The membership test is a per-character scan over a constant rather than a [Regex]: this runs once
+ * per CLI argument, and a constant scan adds no backtracking surface.
+ *
+ * Visibility: `internal` so ShellEscapeTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun shellEscape(arg: String): String =
+    when {
+        arg.isEmpty() -> "''"
+        arg.all { it in SHELL_SAFE_CHARS } -> arg
+        else -> "'" + arg.replace("'", "'\"'\"'") + "'"
+    }
 
 /**
  * Issue #71 — Build an actionable timeout message for the CLI process watchdog (REL-04).
@@ -900,48 +945,100 @@ internal fun buildCopilotCommand(
     return args
 }
 
-private fun normalizeWindowsCommand(cmd: List<String>): List<String> {
-    if (!isWindows() || cmd.isEmpty()) return cmd
+/**
+ * Windows launch fix-ups: strip a redundant `.exe`, resolve a non-executable npm shim next to an
+ * absolute path, or find the `.cmd` shim npm installed for a bare command name.
+ *
+ * [windows] is a defaulted parameter purely so both branches can be asserted on one machine, exactly
+ * as [buildPtyCommand] takes its OS name; production calls this with no explicit argument, so its
+ * behaviour is unchanged. The alternative — mutating the global `os.name` system property from a
+ * test — would leak into every other test sharing the JVM.
+ *
+ * Visibility: `internal` so CliCommandHelpersTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun normalizeWindowsCommand(
+    cmd: List<String>,
+    windows: Boolean = isWindowsOs,
+): List<String> {
+    if (!windows || cmd.isEmpty()) return cmd
     val first = cmd.first()
     val lower = first.lowercase(Locale.ROOT)
-
-    // Strip redundant .exe suffix
-    if (lower.endsWith(".exe")) {
-        return listOf(first.dropLast(4)) + cmd.drop(1)
-    }
-
-    // For absolute paths: check if it's a non-executable npm shim
-    if (first.contains("\\") || first.contains("/")) {
-        val file = java.io.File(first)
-        if (file.isAbsolute && file.exists() && !hasWindowsExeExtension(lower)) {
-            val cmdSibling = java.io.File(first + ".cmd")
-            if (cmdSibling.exists()) return listOf(cmdSibling.absolutePath) + cmd.drop(1)
-            // Fallback: wrap with cmd /c for shell script shims
-            return listOf("cmd", "/c", first) + cmd.drop(1)
+    val rest = cmd.drop(1)
+    return when {
+        // Strip redundant .exe suffix
+        lower.endsWith(".exe") -> listOf(first.dropLast(WINDOWS_EXTENSION_LENGTH)) + rest
+        // For absolute paths: check if it's a non-executable npm shim
+        first.contains("\\") || first.contains("/") -> {
+            val file = java.io.File(first)
+            if (file.isAbsolute && file.exists() && !hasWindowsExeExtension(lower)) {
+                val cmdSibling = java.io.File(first + ".cmd")
+                // Fallback when there is no .cmd sibling: wrap with cmd /c for shell script shims
+                if (cmdSibling.exists()) {
+                    listOf(cmdSibling.absolutePath) + rest
+                } else {
+                    listOf("cmd", "/c", first) + rest
+                }
+            } else {
+                cmd
+            }
         }
-        return cmd
+        // For bare command names: resolve npm .cmd shim
+        else -> {
+            val baseName = if (lower.endsWith(".cmd")) lower.dropLast(WINDOWS_EXTENSION_LENGTH) else lower
+            windowsNpmShimDirs
+                .map { java.io.File(it, "$baseName.cmd") }
+                .firstOrNull { it.exists() }
+                ?.let { listOf(it.absolutePath) + rest }
+                ?: cmd
+        }
     }
-
-    // For bare command names: resolve npm .cmd shim
-    val baseName = if (lower.endsWith(".cmd")) lower.dropLast(4) else lower
-    val resolved = resolveWindowsNpmShim("$baseName.cmd")
-    if (resolved != null) return listOf(resolved) + cmd.drop(1)
-
-    return cmd
 }
 
-private fun hasWindowsExeExtension(path: String): Boolean {
+/** Length of the `.exe` / `.cmd` / `.bat` suffixes [normalizeWindowsCommand] strips. */
+private const val WINDOWS_EXTENSION_LENGTH = 4
+
+/**
+ * Whether [path] already names a directly executable Windows file, i.e. one that needs no `cmd /c`
+ * wrapper or `.cmd` shim lookup.
+ *
+ * Visibility: `internal` so CliCommandHelpersTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun hasWindowsExeExtension(path: String): Boolean {
     val l = path.lowercase(Locale.ROOT)
     return l.endsWith(".exe") || l.endsWith(".cmd") || l.endsWith(".bat")
 }
 
-private fun buildCliHistory(history: List<ChatMessage>?): String {
+/** Most recent turns of chat history a CLI prompt carries. */
+internal const val CLI_HISTORY_MAX_MESSAGES = 10
+
+/** Total characters of chat history a CLI prompt carries, counted role-prefix included. */
+internal const val CLI_HISTORY_MAX_CHARS = 20_000
+
+/**
+ * Render [history] as the `role: content` preamble prepended to a CLI prompt, bounded by
+ * [CLI_HISTORY_MAX_MESSAGES] and [CLI_HISTORY_MAX_CHARS]. Returns the empty string — not a stray
+ * blank line — when there is no history to carry.
+ *
+ * Visibility: `internal` so CliCommandHelpersTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun buildCliHistory(history: List<ChatMessage>?): String {
     if (history.isNullOrEmpty()) return ""
-    val limited = limitCliHistory(history, maxMessages = 10, maxChars = 20_000)
+    val limited = limitCliHistory(history, maxMessages = CLI_HISTORY_MAX_MESSAGES, maxChars = CLI_HISTORY_MAX_CHARS)
     return limited.joinToString("\n") { "${it.role}: ${it.content}" } + "\n\n"
 }
 
-private fun limitCliHistory(
+/**
+ * Trim [history] to the most recent [maxMessages] turns, then drop the oldest of those until the
+ * total fits [maxChars]. A single turn that alone exceeds [maxChars] is truncated rather than
+ * dropped, so the newest message is never lost entirely.
+ *
+ * Visibility: `internal` so CliCommandHelpersTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun limitCliHistory(
     history: List<ChatMessage>,
     maxMessages: Int,
     maxChars: Int,
@@ -986,7 +1083,7 @@ private fun resolveCommand(
     // 2. Manual PATH search to avoid dependency on 'which' / 'where'
     val path = env["PATH"] ?: System.getenv("PATH") ?: ""
     val sep = java.io.File.pathSeparator
-    val isWin = isWindows()
+    val isWin = isWindowsOs
     val extensions = if (isWin) listOf("", ".exe", ".bat", ".cmd") else listOf("")
 
     for (dir in path.split(sep)) {
@@ -1006,29 +1103,38 @@ private fun resolveCommand(
     return emptyList()
 }
 
-private fun isWindows(): Boolean {
-    val os = System.getProperty("os.name").lowercase(Locale.ROOT)
-    return os.contains("win")
-}
+/**
+ * Whether this JVM is running on Windows.
+ *
+ * Read once rather than per call: `os.name` is fixed for the lifetime of a JVM, and no test in this
+ * module mutates it (the one test that consults it, CliSupervisionTest, only reads it to skip). A
+ * property rather than a function also keeps this file inside detekt's per-file top-level function
+ * budget, which the extracted [shellEscape] / [buildPtyCommand] helpers would otherwise exceed.
+ */
+private val isWindowsOs: Boolean = System.getProperty("os.name").lowercase(Locale.ROOT).contains("win")
 
-private fun resolveWindowsNpmShim(executable: String): String? {
-    val candidates = mutableListOf<java.io.File>()
-    val appData = System.getenv("APPDATA")?.takeIf { it.isNotBlank() }
-    val localAppData = System.getenv("LOCALAPPDATA")?.takeIf { it.isNotBlank() }
-    val userProfile = System.getenv("USERPROFILE")?.takeIf { it.isNotBlank() }
-    if (appData != null) {
-        candidates.add(java.io.File(appData, "npm\\$executable"))
-    }
-    if (localAppData != null) {
-        candidates.add(java.io.File(localAppData, "npm\\$executable"))
-    }
-    if (userProfile != null) {
-        candidates.add(java.io.File(userProfile, "AppData\\Roaming\\npm\\$executable"))
-    }
-    return candidates.firstOrNull { it.exists() }?.absolutePath
-}
+/**
+ * The directories npm installs its `.cmd` shims into on Windows, in resolution order.
+ *
+ * Previously computed inside a `resolveWindowsNpmShim(executable)` function on every call. The
+ * directories derive from environment variables, which a JVM cannot see change after start, so the
+ * list is built once and the per-call work is reduced to the `.cmd` lookup at the call site. Empty
+ * on every non-Windows machine, where none of the three variables is set.
+ */
+private val windowsNpmShimDirs: List<java.io.File> =
+    listOfNotNull(
+        System.getenv("APPDATA")?.takeIf { it.isNotBlank() }?.let { java.io.File(it, "npm") },
+        System.getenv("LOCALAPPDATA")?.takeIf { it.isNotBlank() }?.let { java.io.File(it, "npm") },
+        System.getenv("USERPROFILE")?.takeIf { it.isNotBlank() }?.let { java.io.File(it, "AppData\\Roaming\\npm") },
+    )
 
-private fun stripAnsiCodes(text: String): String {
+/**
+ * Remove terminal control sequences from CLI output so the rendered answer carries no escape bytes.
+ *
+ * Visibility: `internal` so CliCommandHelpersTest can call it directly (same pattern as
+ * buildTimeoutMessage / buildCopilotCommand). Not part of the public API.
+ */
+internal fun stripAnsiCodes(text: String): String {
     if (text.isEmpty()) return text
 
     var result = text
