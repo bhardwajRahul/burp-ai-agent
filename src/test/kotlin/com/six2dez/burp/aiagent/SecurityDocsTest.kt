@@ -6,6 +6,29 @@ import org.junit.jupiter.api.Test
 import java.io.File
 
 private const val SECURITY_FILE = "SECURITY.md"
+private const val README_FILE = "README.md"
+private const val SPEC_FILE = "SPEC.md"
+private const val UI_SAFETY_FILE = "docs/ui-safety-guide.md"
+private const val ANTHROPIC_DOC = "docs/anthropic-backend.md"
+private const val EXTERNAL_MCP_DOC = "docs/external-mcp-servers.md"
+
+/**
+ * The preference the AES master key is written to — `SecretCipher.MASTER_KEY_PREF_KEY`.
+ *
+ * Naming the literal preference key, rather than accepting a vague "stored locally", is what makes
+ * the at-rest caveat checkable by a reader: they can look for this string in their own preferences
+ * and see the key sitting beside the ciphertext it protects.
+ */
+private const val MASTER_KEY_PREF = "secret.master.key.v1"
+
+/**
+ * The absolute claim `README.md` shipped from v0.9.0 until this phase. It was false the day it was
+ * written: the master key is in preferences, Base64-encoded.
+ */
+private const val STALE_ABSOLUTE_CLAIM = "no plaintext in preferences"
+
+/** Every document required to carry the at-rest caveat, not just the encryption claim. */
+private val AT_REST_DOCS = listOf(README_FILE, SPEC_FILE, SECURITY_FILE, ANTHROPIC_DOC, EXTERNAL_MCP_DOC)
 
 /** The three published releases SEC-04 and PRIV-05 are live in. */
 private val AFFECTED_VERSIONS = listOf("0.9.0", "0.9.1", "0.9.2")
@@ -196,6 +219,203 @@ class SecurityDocsTest {
             "$SECURITY_FILE's Security Model must state what the at-rest encryption does NOT do. A " +
                 "user who believes preference-file access is survivable will store a credential " +
                 "there that they would otherwise have kept elsewhere.",
+        )
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // SC6 — the at-rest guarantee, stated accurately rather than absolutely.
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun readmeNoLongerCarriesTheAbsoluteAtRestClaim() {
+        val readme = readProjectFile(README_FILE)
+
+        assertFalse(
+            readme.contains(STALE_ABSOLUTE_CLAIM),
+            "$README_FILE still claims `$STALE_ABSOLUTE_CLAIM`. The AES master key is stored in " +
+                "preferences Base64-encoded, so the claim is false. It must be REPLACED with what is " +
+                "true — deleting the bullet instead reads to a returning user as though the property " +
+                "still holds and merely went undocumented.",
+        )
+    }
+
+    @Test
+    fun everyDocumentThatClaimsEncryptionAtRestAlsoStatesTheCaveat() {
+        AT_REST_DOCS.forEach { path ->
+            val text = readProjectFile(path)
+
+            assertTrue(
+                text.contains(MASTER_KEY_PREF),
+                "`$path` claims secrets are encrypted at rest but does not name `$MASTER_KEY_PREF` " +
+                    "— the preference the master key itself is stored in. All five documents are " +
+                    "corrected in one pass on purpose: shipping a corrected README beside " +
+                    "uncorrected pages leaves the overstated claim reachable, which is the same " +
+                    "outcome as not correcting it.",
+            )
+            assertTrue(
+                text.contains("Burp Preferences", ignoreCase = true),
+                "`$path` does not say that the master key lives in Burp Preferences. `Encrypted at " +
+                    "rest` without that clause is the claim a user builds a wrong threat model on.",
+            )
+        }
+    }
+
+    @Test
+    fun theFullAtRestStatementSaysWhatTheEncryptionDoesNotDo() {
+        listOf(README_FILE, SPEC_FILE).forEach { path ->
+            val text = readProjectFile(path)
+
+            assertTrue(
+                text.contains("not** protect") || text.contains("not protect"),
+                "`$path` must carry the full at-rest statement, including what the encryption does " +
+                    "NOT protect against. `$README_FILE` Privacy and Security Notes and `$SPEC_FILE` " +
+                    "§9 are the two places that statement is made in full; the shorter mentions " +
+                    "point here.",
+            )
+            assertTrue(
+                text.contains("casual inspection"),
+                "`$path` must name the threat the encryption actually addresses — casual inspection " +
+                    "of a preferences file or an export. Stating only the negative leaves a reader " +
+                    "wondering why the encryption is there at all.",
+            )
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // SC6 — the SEC-06 tool-call confirmation flow, which shipped in Phase 22 and was documented
+    // only in DECISIONS.md ADR-15, a design record rather than user documentation.
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun theConfirmationFlowIsDocumentedForUsers() {
+        listOf(README_FILE, SPEC_FILE, UI_SAFETY_FILE).forEach { path ->
+            val text = readProjectFile(path)
+
+            assertTrue(
+                text.contains("confirm", ignoreCase = true),
+                "`$path` does not mention the tool-call confirmation flow. It shipped in Phase 22 " +
+                    "and was documented only in `DECISIONS.md` ADR-15 — a design record, not " +
+                    "something a user reads. A control nobody knows about is one they cannot use.",
+            )
+        }
+    }
+
+    @Test
+    fun theDocumentedFlowStatesThatAModelEmittedCallNeedsADecision() {
+        listOf(README_FILE, SPEC_FILE).forEach { path ->
+            val text = readProjectFile(path)
+
+            assertTrue(
+                text.contains("model output") || text.contains("model-emitted"),
+                "`$path` must say that the gate applies to a tool call parsed out of MODEL OUTPUT. " +
+                    "That is the whole trust boundary: the call originates with the model, not with " +
+                    "the user, which is why a decision is required at all.",
+            )
+        }
+    }
+
+    @Test
+    fun theDocumentedFlowNamesAllThreeTiers() {
+        listOf(README_FILE, SPEC_FILE, UI_SAFETY_FILE).forEach { path ->
+            val text = readProjectFile(path).lowercase()
+
+            assertTrue(
+                text.contains("session"),
+                "`$path` must describe the middle tier — confirm, with an approve-for-this-session " +
+                    "option. Documenting only `it asks you` collapses three tiers into one and " +
+                    "leaves a user unable to predict when they will be asked again.",
+            )
+            assertTrue(
+                text.contains("every call") || text.contains("every single call"),
+                "`$path` must describe the confirm-every-time tier explicitly. It is the tier an " +
+                    "unrecognised tool name falls into, so a user who does not know it exists " +
+                    "cannot tell a fail-closed prompt from a malfunction.",
+            )
+        }
+    }
+
+    @Test
+    fun theDocumentedFlowStatesThatAnUnrecognisedToolFailsClosed() {
+        listOf(README_FILE, SPEC_FILE, UI_SAFETY_FILE).forEach { path ->
+            val text = readProjectFile(path).lowercase()
+
+            assertTrue(
+                text.contains("does not recognise") || text.contains("unrecognised"),
+                "`$path` must state that a tool name the catalog does not recognise resolves to " +
+                    "confirm-every-time rather than to automatic. `ToolApprovalGate.tierFor` returns " +
+                    "`descriptor?.secTier ?: SecTier.CONFIRM_EACH` precisely so this is true; a user " +
+                    "who assumes the opposite has the failure mode backwards.",
+            )
+            assertTrue(
+                text.contains("ext:"),
+                "`$path` must state that external `ext:`-namespaced tools always confirm every " +
+                    "call. `tierFor` short-circuits on that prefix before the catalog lookup, so an " +
+                    "external tool can never inherit a built-in's AUTO tier.",
+            )
+        }
+    }
+
+    @Test
+    fun theDocumentedFlowStatesThatDecisionsAreRecorded() {
+        listOf(README_FILE, SPEC_FILE, UI_SAFETY_FILE).forEach { path ->
+            val text = readProjectFile(path).lowercase()
+
+            assertTrue(
+                text.contains("audit"),
+                "`$path` must state that the decision is audit-logged. `ToolDecisionReporter` emits " +
+                    "one audit event and one Burp Output line from a single payload construction; " +
+                    "without documenting it, a user cannot answer `what did I approve last week?`",
+            )
+        }
+    }
+
+    @Test
+    fun theDocumentedFlowDistinguishesTheTierFromUnsafeMode() {
+        listOf(README_FILE, SPEC_FILE, UI_SAFETY_FILE).forEach { path ->
+            val text = readProjectFile(path).lowercase()
+
+            assertTrue(
+                text.contains("unsafe mode") || text.contains("unsafeonly"),
+                "`$path` must state that the confirmation tier is INDEPENDENT of the Unsafe Mode " +
+                    "switch (ADR-15 D-01): Unsafe Mode governs whether a tool may ever run, the tier " +
+                    "governs whether the model may run it without asking. Naming one axis where two " +
+                    "exist is how a user concludes that leaving Unsafe Mode off makes the cards " +
+                    "unnecessary.",
+            )
+        }
+    }
+
+    @Test
+    fun theOperatorRunbookExplainsTheCardAndItsActions() {
+        val guide = readProjectFile(UI_SAFETY_FILE)
+
+        assertTrue(
+            guide.lineSequence().any { it.trim() == "## Tool-Call Confirmation" },
+            "`$UI_SAFETY_FILE` must carry a `## Tool-Call Confirmation` section. This runbook is " +
+                "where an operator looks when the extension asks them to approve something; if the " +
+                "answer is not here they will approve without knowing what they approved.",
+        )
+        listOf("Approve once", "Approve for session", "Deny for session")
+            .forEach { label ->
+                assertTrue(
+                    guide.contains(label),
+                    "`$UI_SAFETY_FILE` does not explain the `$label` action. The four labels are " +
+                        "declared in `ToolApprovalCard`; a runbook that omits one leaves the " +
+                        "operator guessing at the button with the widest blast radius.",
+                )
+            }
+        assertTrue(
+            guide.contains("Clear Chat"),
+            "`$UI_SAFETY_FILE` must state that Clear Chat discards session approvals. " +
+                "`ChatPanel.clearChatState` assigns a fresh `ToolApprovalMemory` for exactly this " +
+                "reason — an approval granted while reviewing target A must not run silently " +
+                "against target B.",
+        )
+        assertTrue(
+            guide.contains("not authorised"),
+            "`$UI_SAFETY_FILE` must state that a denial returns a neutral result to the model " +
+                "rather than an error. `ToolApprovalGate.DENIAL_RESULT` says `not authorised … do " +
+                "not retry`; an operator who believes denial throws will hesitate to use it.",
         )
     }
 

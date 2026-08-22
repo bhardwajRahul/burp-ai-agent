@@ -177,11 +177,35 @@ tasks.test {
         .file("src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpToolCatalog.kt")
         .withPropertyName("secTierKdocSource")
         .withPathSensitivity(PathSensitivity.RELATIVE)
-    // DOC-03 / SC5: SecurityDocsTest reads SECURITY.md from disk — same stale-cache defect as the
-    // DECISIONS.md declaration above, and a documentation-only edit is the purest form of it.
+    // DOC-03 / SC5 / SC6: SecurityDocsTest reads these six markdown files from disk — the same
+    // stale-cache defect as the DECISIONS.md declaration above, in its purest form. A
+    // documentation-only edit produces BYTE-IDENTICAL compiled output, so without these declarations
+    // the cache key is unchanged and the guard is served from cache in exactly the commit that breaks
+    // it. Measured for this build: with `securityPolicy` declared, mutating one asserted word in
+    // SECURITY.md re-executed `:test` (11 tests, 1 failed) instead of reporting UP-TO-DATE.
     inputs
         .file("SECURITY.md")
         .withPropertyName("securityPolicy")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs
+        .file("README.md")
+        .withPropertyName("readmeClaims")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs
+        .file("SPEC.md")
+        .withPropertyName("specClaims")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs
+        .file("docs/ui-safety-guide.md")
+        .withPropertyName("uiSafetyRunbook")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs
+        .file("docs/anthropic-backend.md")
+        .withPropertyName("anthropicBackendDoc")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs
+        .file("docs/external-mcp-servers.md")
+        .withPropertyName("externalMcpDoc")
         .withPathSensitivity(PathSensitivity.RELATIVE)
     // SEC-06 / SC5 / CR-02: ToolApprovalGateVisibilityTest reads this file from disk to pin
     // `approvedOrigin` as private and `ModelApproved` as file-private, for the same reason and with the

@@ -12,7 +12,7 @@ Custom AI Agent is an extension for Burp Suite that integrates AI into your secu
 ## What's new in v0.9.0
 
 - **Native [Anthropic](docs/anthropic-backend.md) backend** (CAP-01) — direct Anthropic Messages API via Burp's HTTP transport; all traffic appears in Proxy history.
-- **AES-256-GCM secrets at rest** (SEC-01) — all stored API keys and tokens are encrypted with a per-install key using `javax.crypto`; no plaintext in preferences.
+- **AES-256-GCM secrets at rest** (SEC-01) — all stored API keys and tokens are encrypted with a per-install key using `javax.crypto`. The master key lives in Burp Preferences alongside the ciphertext, so this defends against casual inspection of a preferences file, not against a local attacker — see [Privacy and Security Notes](#privacy-and-security-notes).
 - **Real HKDF host anonymization** (PRIV-01) — STRICT mode now uses genuine HMAC-SHA256 extract/expand (not salted SHA-256) for host anonymization.
 - **Request/response body redaction + custom patterns** (PRIV-02) — redaction pipeline covers body fields and user-configurable regex patterns validated against ReDoS.
 - **Pre-send secret tripwire** (PRIV-03) — warns before high-entropy values leave Burp; allowlist actions are audit-logged.
@@ -132,7 +132,7 @@ Enable the MCP server in **Settings > MCP Server** and add this to your Claude D
 
 > Requires Node.js 18+. If you enable **External Access**, the MCP client must send `Authorization: Bearer <token>` on every request.
 
-You can also register external or custom MCP servers in **Settings > MCP > External Servers** (SSE or stdio transports). External server auth tokens are stored encrypted at rest. See [docs/external-mcp-servers.md](docs/external-mcp-servers.md) for setup details and security notes.
+You can also register external or custom MCP servers in **Settings > MCP > External Servers** (SSE or stdio transports). External server auth tokens are stored encrypted at rest, with the caveat described in [Privacy and Security Notes](#privacy-and-security-notes). See [docs/external-mcp-servers.md](docs/external-mcp-servers.md) for setup details and security notes.
 
 ## Burp Scan Skill (Terminal AI Scanning)
 
@@ -208,7 +208,8 @@ Full documentation is available at **[burp-ai-agent.six2dez.com](https://burp-ai
 
 ### Privacy and Security Notes
 
-- All stored API keys and tokens (Anthropic, MCP bearer token, TLS keystore password, etc.) are encrypted at rest with AES-256-GCM using a per-install master key.
+- **Secrets at rest — what the encryption does and does not do.** All stored API keys and tokens (Anthropic, MCP bearer token, TLS keystore password, etc.) are encrypted with AES-256-GCM using a per-install random master key (`SecretCipher`). **That master key is itself stored in Burp Preferences, Base64-encoded, beside the ciphertext it protects** (preference `secret.master.key.v1`). Anyone who can read your Burp Preferences can therefore also read the key and decrypt the secrets. It does **not** protect against a local attacker or a malicious process running as your user; treat it as obfuscation against casual inspection of a preferences file or an exported project. If a credential must survive that threat model, keep it in a dedicated secret store and paste it per session.
+- **Model-emitted tool calls need your approval.** A tool call that the extension parses out of *model output* does not execute against Burp until you decide. Every tool carries a required security tier: run automatically (read-only and bounded output), confirm with an **Approve for session** option, or confirm on every single call. A tool name the catalog does not recognise resolves to confirm-every-time, never to automatic, and external `ext:`-namespaced tools always confirm every call. The decision appears as a card inline in the chat transcript rather than as a modal dialog, and each decision is recorded — an audit event plus a line in Burp's Output tab, since audit logging is off by default. Denying returns a neutral "not authorised, do not retry" result to the model rather than an error. This tier is independent of the **Unsafe Mode** switch: Unsafe Mode governs whether a tool may *ever* run, the tier governs whether the model may run it *without asking*. Design rationale: [`DECISIONS.md`](DECISIONS.md) ADR-15. Operator runbook: [docs/ui-safety-guide.md](docs/ui-safety-guide.md).
 - STRICT privacy mode anonymizes hosts using real HKDF (HMAC-SHA256 extract/expand). BALANCED mode redacts cookies, tokens, and auth headers. OFF mode sends traffic as-is.
 - External MCP server outputs are wrapped in a trust-boundary marker before entering the AI prompt, preventing prompt injection from untrusted server responses.
 

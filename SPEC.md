@@ -61,7 +61,7 @@ Backends supported out of the box:
 
 Backends implement `AgentBackend` and are discovered via `ServiceLoader`. External JARs dropped into `~/.burp-ai-agent/backends/` are loaded on startup.
 
-All stored API keys and tokens are encrypted at rest with AES-256-GCM via `javax.crypto` (per-install random master key). No secret is written to logs or exports in plaintext.
+All stored API keys and tokens are encrypted at rest with AES-256-GCM via `javax.crypto` (per-install random master key), with the caveat that the master key is stored in Burp Preferences beside the ciphertext — see §9 for the full statement. No secret is written to logs or exports in plaintext.
 
 ### 4.5 Agent lifecycle supervision
 
@@ -120,7 +120,8 @@ A pre-send secret tripwire (PRIV-03) scans the final redacted payload for high-e
 
 - Built-in MCP server over SSE on `127.0.0.1:9876` by default.
 - Optional stdio bridge for MCP clients that cannot speak SSE.
-- 59 tools (full build), split into safe read-only (`status`, `proxy_http_history`, `site_map`, `scope_check`, `params_extract`, `find_reflected`, `scanner_issues`, `collaborator_status`, …) and unsafe mutating (`http1_request`, `http2_request`, `repeater_tab`, `intruder`, `collaborator_*`, `issue_create`), gated behind an Unsafe Mode master switch.
+- 59 tools (full build), split into safe read-only (`status`, `proxy_http_history`, `site_map`, `scope_check`, `params_extract`, `find_reflected`, `scanner_issues`, `collaborator_status`, …) and unsafe mutating (`http1_request`, `http2_request`, `repeater_tab`, `intruder`, `collaborator_*`, `issue_create`). Two independent axes govern a tool, not one: the **Unsafe Mode** master switch (`McpToolDescriptor.unsafeOnly`) decides whether an unsafe tool may *ever* run, and the SEC-06 security tier (`SecTier`) decides whether a *model-emitted* invocation may run without asking the user. Neither is derivable from the other — `ai_analyze` and `ai_passive_scan` require confirmation on every call without being `unsafeOnly` at all.
+- **Tool-call confirmation gate (SEC-06)**: a tool call parsed out of model output does not reach Burp until the user decides. `ToolApprovalGate.tierFor` resolves every tool to one of three tiers — `AUTO` (runs with no user decision; read-only *and* bounded output), `CONFIRM` (prompts, with an **Approve for session** option scoped to the current chat), `CONFIRM_EACH` (prompts on every call, no session memory in either direction). Resolution fails closed: an unrecognised tool name and any `ext:`-namespaced external tool both resolve to `CONFIRM_EACH`, never to `AUTO`. The prompt is a `ToolApprovalCard` rendered inline in the chat transcript, not a modal. Every resolved decision goes through `ToolDecisionReporter`, which emits an audit event and a Burp Output line from one payload construction. A denial returns `ToolApprovalGate.DENIAL_RESULT` — a neutral "not authorised, do not retry" string — to the model rather than an error. Threat model: [`DECISIONS.md`](DECISIONS.md) ADR-15.
 - External access requires an explicit opt-in, a bearer token on every request, and (optionally) TLS using a keystore whose password is stored in Burp preferences (see `docs/mcp-hardening.md`).
 - **External MCP client (CAP-02)**: register external or custom MCP servers in **Settings > MCP > External Servers** over SSE or stdio transports. External server auth tokens are stored encrypted. Tool outputs from external servers are wrapped in a trust-boundary marker before entering the AI prompt to prevent prompt injection. See [docs/external-mcp-servers.md](docs/external-mcp-servers.md).
 
@@ -149,7 +150,8 @@ When enabled:
 - No background exfiltration: the extension never sends traffic to any LLM unless a user action or an enabled scanner triggers it.
 - Context preview dialog shows the exact redacted JSON before any auto-captured context leaves the plugin.
 - MCP server protected by bearer token + optional TLS; unsafe tools gated by a separate master switch.
-- All stored secrets (API keys, MCP bearer token, TLS keystore password) encrypted at rest with AES-256-GCM.
+- Model-emitted tool calls are gated on a second, independent axis (SEC-06, §6): the user decides before the call reaches Burp, unrecognised and `ext:` tool names fail closed to confirm-every-time, and every decision is reported to the audit log and to Burp's Output tab.
+- All stored secrets (API keys, MCP bearer token, TLS keystore password) are encrypted at rest with AES-256-GCM under a per-install random master key (`SecretCipher`). **That master key is itself stored in Burp Preferences, Base64-encoded, beside the ciphertext it protects** (`SecretCipher.MASTER_KEY_PREF_KEY` = `secret.master.key.v1`). The encryption therefore raises the cost of casual inspection of a preferences file or an exported project; it does **not** protect against an attacker or a process able to read those preferences, because such a reader obtains the key along with the ciphertext. Preference-file access is equivalent to credential access, and the threat model in `SECURITY.md` assumes preferences are readable only by the local user for exactly this reason.
 - Privacy defaults and enforcement documented in `SECURITY.md` and `docs/mcp-hardening.md`.
 
 ## 10. Acceptance tests
@@ -161,6 +163,7 @@ When enabled:
 - Privacy preview dialog appears for auto-captured context in both `BALANCED` and `OFF` modes.
 - Audit log writes JSONL without crashing Burp.
 - MCP `health` endpoint returns `200` and rejects requests missing the bearer token.
+- A model-emitted call to a `CONFIRM` or `CONFIRM_EACH` tool does not execute until the user resolves the approval card; an unrecognised tool name and an `ext:`-namespaced name both resolve to `CONFIRM_EACH`; a denial returns the neutral `DENIAL_RESULT` string to the model and is recorded by `ToolDecisionReporter`.
 - Passive scanner skips AI analysis for JS responses, extracts endpoints instead.
 
 ## 11. Historical milestones
