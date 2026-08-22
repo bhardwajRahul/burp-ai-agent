@@ -340,7 +340,13 @@ Plans:
 4. `SsrfGuard` still returns false for loopback (Ollama / LM Studio local use must not start warning) and still performs no DNS resolution.
 5. The `openConnection` loopback trust-all path is either scoped to exactly the certificate the extension generated, or its residual risk is documented — a blanket trust-all on loopback is what makes finding 7 exploitable.
 
-**Plans**: TBD
+**Plans**: 3 plans in 2 waves. 25-01 and 25-02 are fully independent (disjoint files, disjoint success criteria) and run in parallel in wave 1. 25-03 is forced into wave 2 twice over: it modifies `McpSupervisor.kt`, which 25-01 also modifies, and its ADR-16 clause copies the SC1 decision verbatim out of `25-01-SUMMARY.md`, which does not exist until 25-01's blocking checkpoint has been answered by a human.
+
+Plans:
+
+- [ ] 25-01-PLAN.md — SC1 + SC2: `McpTakeoverProof` proof-of-possession replaces the bearer token on the takeover path; fake-listener test proves a squatter receives nothing. Carries the phase's one blocking `checkpoint:decision` (wave 1, `autonomous: false`)
+- [ ] 25-02-PLAN.md — SC3 + SC4: `Ipv4Literal` parses decimal/octal/hex IPv4 literals so `SsrfGuard` classifies them identically to their dotted-quad equivalent, and a JVM-wide resolver counter proves the classifier resolves nothing (wave 1)
+- [ ] 25-03-PLAN.md — SC5: the loopback trust-all path is scoped to the extension's own certificate via `McpTls.pinnedLeafSha256` and fails closed when no pin can be read; ADR-16 and the operator runbook record the phase (wave 2)
 
 ---
 

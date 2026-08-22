@@ -1,0 +1,3 @@
+No external API integration: Phase 25 hardens three internal surfaces — the MCP bind-conflict takeover credential, the `SsrfGuard` IPv4-literal classifier and the loopback TLS trust decision — and consumes no external API, SDK or service.
+
+The `api-coverage` detector fires on this phase's scope because its noun vocabulary contains `mcp`, and all three plans discuss the MCP server **this extension itself hosts**. That is the opposite of an integration: nothing here calls out to a third party, no new dependency is added (`build.gradle.kts`'s `dependencies` block is asserted unchanged in every plan), and the only network traffic in scope is the extension talking to its own loopback listener during a bind conflict.
