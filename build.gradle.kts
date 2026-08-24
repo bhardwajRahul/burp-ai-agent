@@ -1,6 +1,7 @@
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import javax.xml.parsers.DocumentBuilderFactory
 
 plugins {
     kotlin("jvm") version "2.1.21"
@@ -176,6 +177,15 @@ tasks.test {
     inputs
         .file("src/main/kotlin/com/six2dez/burp/aiagent/mcp/McpToolCatalog.kt")
         .withPropertyName("secTierKdocSource")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+    // QUAL-07 / SC3: DetektBaselineBoundTest counts `<ID>` entries in detekt-baseline.xml from disk to
+    // enforce ADR-17 clause 1 (the baseline shrinks and is never appended to). Same stale-cache defect
+    // as the two declarations above, and in its most dangerous form: a commit that ONLY appends a
+    // baseline entry produces byte-identical compiled output, so without this declaration the cache key
+    // is unchanged and the guard is served from cache in exactly the commit that violates the rule.
+    inputs
+        .file("detekt-baseline.xml")
+        .withPropertyName("detektBaseline")
         .withPathSensitivity(PathSensitivity.RELATIVE)
     // DOC-03 / SC5 / SC6: SecurityDocsTest reads these six markdown files from disk — the same
     // stale-cache defect as the DECISIONS.md declaration above, in its purest form. A
@@ -369,6 +379,187 @@ tasks.named<JacocoReport>("jacocoTestReport") {
         xml.required.set(true)
         html.required.set(true)
     }
+}
+
+// QUAL-06 / SC2: the fourteen coverage floors sealed in
+// `.planning/phases/26-coverage-static-analysis-debt-docs/26-COVERAGE.md` were RECORDED there and
+// enforced by nothing — a regression below any of them was invisible to `./gradlew check`. The floors
+// below are the sealed "Floor" column verbatim, NOT the "Measured" column: pinning measured values
+// would turn every future refactor red for no reason, and pinning below the floor would silently move
+// the seal. Twelve of the fourteen map onto JaCoCo's element model (BUNDLE / PACKAGE / SOURCEFILE);
+// floor 3, the `mcp` tree aggregate across four packages, is not a JaCoCo element and is enforced
+// separately by `jacocoMcpTreeCoverageVerification` below.
+val jacocoLineFloors =
+    mapOf(
+        // floor 1 - package backends/cli, line >= 36.0%
+        "com.six2dez.burp.aiagent.backends.cli" to "0.360",
+        // floor 4 - package mcp/tools, line >= 49.0%
+        "com.six2dez.burp.aiagent.mcp.tools" to "0.490",
+        // floor 5 - package mcp/schema, line >= 70.0%
+        "com.six2dez.burp.aiagent.mcp.schema" to "0.700",
+        // floor 9 - package config, line >= 96.2%
+        "com.six2dez.burp.aiagent.config" to "0.962",
+        // floor 11 - package redact, line >= 97.5%
+        "com.six2dez.burp.aiagent.redact" to "0.975",
+    )
+
+val jacocoBranchFloors =
+    mapOf(
+        // floor 10 - package config, branch >= 91.0%
+        "com.six2dez.burp.aiagent.config" to "0.910",
+        // floor 12 - package redact, branch >= 93.0%
+        "com.six2dez.burp.aiagent.redact" to "0.930",
+    )
+
+val jacocoSourceFileLineFloors =
+    mapOf(
+        // floor 2 - CliBackend.kt, line >= 26.0%
+        "com/six2dez/burp/aiagent/backends/cli/CliBackend.kt" to "0.260",
+        // floor 6 - McpToolHelpers.kt, line >= 58.0%
+        "com/six2dez/burp/aiagent/mcp/tools/McpToolHelpers.kt" to "0.580",
+        // floor 7 - McpToolModels.kt, line >= 50.0%
+        "com/six2dez/burp/aiagent/mcp/tools/McpToolModels.kt" to "0.500",
+        // floor 8 - Serialization.kt, line >= 70.0%
+        "com/six2dez/burp/aiagent/mcp/schema/Serialization.kt" to "0.700",
+    )
+
+// The PACKAGE floors above are written in DOTTED form and the SOURCEFILE floors below in SLASHED
+// form. That is not an inconsistency: JaCoCo names PACKAGE elements with dots and SOURCEFILE elements
+// with the slashed package path plus the file name, and an include pattern that does not match ANY
+// element makes its rule pass VACUOUSLY with no output at all. Measured while wiring this: with the
+// packages written in slashed form, all seven package rules were silently skipped and the build was
+// green with the floors set to 99.9%. Verify any change here by raising a floor above the measured
+// value and confirming the rule actually reports a violation.
+
+// floor 3 - the `mcp` tree (mcp, mcp/tools, mcp/schema, mcp/external), line >= 65.0%.
+val jacocoMcpTreePackages =
+    listOf(
+        "com/six2dez/burp/aiagent/mcp",
+        "com/six2dez/burp/aiagent/mcp/tools",
+        "com/six2dez/burp/aiagent/mcp/schema",
+        "com/six2dez/burp/aiagent/mcp/external",
+    )
+val jacocoMcpTreeLineFloor = 0.650
+
+tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
+    // `tasks.withType<Test>` already finalises the test task with jacocoTestReport, but relying on that
+    // ordering would leave this task reading whatever exec data happened to be on disk. Depend on the
+    // report explicitly so the verification cannot run against a stale or absent one.
+    dependsOn(tasks.named<JacocoReport>("jacocoTestReport"))
+    violationRules {
+        rule {
+            // floor 13 - project-wide line >= 57.0%
+            element = "BUNDLE"
+            limit {
+                counter = "LINE"
+                value = "COVEREDRATIO"
+                minimum = "0.570".toBigDecimal()
+            }
+            // floor 14 - project-wide branch >= 34.8%
+            limit {
+                counter = "BRANCH"
+                value = "COVEREDRATIO"
+                minimum = "0.348".toBigDecimal()
+            }
+        }
+        jacocoLineFloors.forEach { (pkg, floor) ->
+            rule {
+                element = "PACKAGE"
+                includes = listOf(pkg)
+                limit {
+                    counter = "LINE"
+                    value = "COVEREDRATIO"
+                    minimum = floor.toBigDecimal()
+                }
+            }
+        }
+        jacocoBranchFloors.forEach { (pkg, floor) ->
+            rule {
+                element = "PACKAGE"
+                includes = listOf(pkg)
+                limit {
+                    counter = "BRANCH"
+                    value = "COVEREDRATIO"
+                    minimum = floor.toBigDecimal()
+                }
+            }
+        }
+        jacocoSourceFileLineFloors.forEach { (sourceFile, floor) ->
+            rule {
+                element = "SOURCEFILE"
+                includes = listOf(sourceFile)
+                limit {
+                    counter = "LINE"
+                    value = "COVEREDRATIO"
+                    minimum = floor.toBigDecimal()
+                }
+            }
+        }
+    }
+}
+
+// Floor 3 has no JaCoCo element to attach to: `mcp` tree is an aggregate over four sibling packages,
+// and JaCoCo offers BUNDLE, PACKAGE, SOURCEFILE, CLASS and METHOD but nothing between BUNDLE and
+// PACKAGE. Decomposing it into four per-package floors would NOT be the same assertion - two of the
+// four packages sit below 65% individually while the aggregate is above it - so the aggregate is
+// computed here from the same XML report the other twelve floors are verified against.
+val jacocoMcpTreeCoverageVerification =
+    tasks.register("jacocoMcpTreeCoverageVerification") {
+        group = "verification"
+        description = "Verifies the sealed mcp-tree line coverage floor (phase 26 SC2 floor 3)."
+        val reportFile = layout.buildDirectory.file("reports/jacoco/test/jacocoTestReport.xml")
+        val packages = jacocoMcpTreePackages
+        val floor = jacocoMcpTreeLineFloor
+        dependsOn(tasks.named<JacocoReport>("jacocoTestReport"))
+        inputs.file(reportFile).withPathSensitivity(PathSensitivity.RELATIVE)
+        outputs.upToDateWhen { false }
+        doLast {
+            val xml = reportFile.get().asFile
+            check(xml.isFile) { "Jacoco XML report not found at ${xml.absolutePath}." }
+            val factory = DocumentBuilderFactory.newInstance()
+            factory.isNamespaceAware = false
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+            val document = factory.newDocumentBuilder().parse(xml)
+            var covered = 0L
+            var missed = 0L
+            val packageNodes = document.getElementsByTagName("package")
+            for (index in 0 until packageNodes.length) {
+                val node = packageNodes.item(index) as org.w3c.dom.Element
+                if (node.getAttribute("name") !in packages) continue
+                var child = node.firstChild
+                while (child != null) {
+                    val element = child as? org.w3c.dom.Element
+                    if (element != null &&
+                        element.tagName == "counter" &&
+                        element.getAttribute("type") == "LINE"
+                    ) {
+                        covered += element.getAttribute("covered").toLong()
+                        missed += element.getAttribute("missed").toLong()
+                    }
+                    child = child.nextSibling
+                }
+            }
+            val total = covered + missed
+            check(total > 0L) {
+                "No LINE counters found for the mcp tree packages $packages in ${xml.absolutePath}. " +
+                    "A floor that measures nothing passes vacuously - fix the package names here."
+            }
+            val ratio = covered.toDouble() / total.toDouble()
+            check(ratio >= floor) {
+                "mcp tree line coverage is %.2f%% (%d/%d), below the sealed floor of %.1f%% "
+                    .format(ratio * 100, covered, total, floor * 100) +
+                    "(phase 26 SC2 floor 3, 26-COVERAGE.md). Add tests - do NOT lower the floor."
+            }
+            logger.lifecycle(
+                "mcp tree line coverage: %.2f%% (%d/%d), floor %.1f%% - MET"
+                    .format(ratio * 100, covered, total, floor * 100),
+            )
+        }
+    }
+
+tasks.named("check") {
+    dependsOn(tasks.named("jacocoTestCoverageVerification"))
+    dependsOn(jacocoMcpTreeCoverageVerification)
 }
 
 tasks.named<org.cyclonedx.gradle.CycloneDxTask>("cyclonedxBom") {
