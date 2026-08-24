@@ -397,6 +397,114 @@ class McpToolHelpersTest {
             assertEquals(stripped, sanitized["Set-Cookie"])
         }
 
+        /**
+         * (PRIV-05) Phase 27 plan 27-02, the `ordering` edge — FIRST HALF, satisfied as written.
+         *
+         * `preservesOriginalHeaderNameCasingAndInputOrder` above already covers four DISTINCT names;
+         * this extends it to the case that matters for cookies, where several of the names differ
+         * only in CASE. `Set-Cookie` and `set-cookie` do NOT collapse into one another, because the
+         * map key is the ORIGINAL-cased name (`McpToolHelpers.kt:345`) rather than the lowered one
+         * the predicate matches on — so the case-preserving key is exactly what keeps them separate.
+         * `X-Request-Id` is the negative control: it must come back byte-identical, which is what
+         * distinguishes redaction from blanket header loss.
+         */
+        @Test
+        fun inputOrderIsPreservedAcrossDistinctCookieHeaderNames() {
+            val headers =
+                listOf(
+                    stubHeader("Set-Cookie", "sentineldistinctalpha"),
+                    stubHeader("X-Request-Id", "benignidcontrolvalue"),
+                    stubHeader("X-Cookie", "sentineldistinctbravo"),
+                    stubHeader("set-cookie", "sentineldistinctcharlie"),
+                    stubHeader("Cookie2", "sentineldistinctdelta"),
+                )
+
+            val sanitized = sanitizeHeaders(headers, contextWith(PrivacyMode.STRICT, "distinct-order-salt"))
+
+            assertEquals(
+                listOf("Set-Cookie", "X-Request-Id", "X-Cookie", "set-cookie", "Cookie2"),
+                sanitized.keys.toList(),
+                "five distinct names must yield five entries in input order, with case-only variants kept apart",
+            )
+            listOf("Set-Cookie", "X-Cookie", "set-cookie", "Cookie2").forEach { name ->
+                assertEquals(stripped, sanitized[name], "$name must be stripped")
+            }
+            assertEquals(
+                "benignidcontrolvalue",
+                sanitized["X-Request-Id"],
+                "a header with no 'cookie' in its name must survive byte-identical",
+            )
+        }
+
+        /**
+         * (PRIV-05) Phase 27 plan 27-02, the `ordering` edge — SECOND HALF, carried as accepted
+         * residual **AR-27-03** under decision **CP-27-02-01**.
+         *
+         * READ THIS BEFORE "FIXING" IT. This test asserts the CURRENT, PRE-EXISTING behaviour of a
+         * `Map`-returning function; it is not an aspiration and it is not a defect introduced by
+         * plan 27-01. `sanitizeHeaders` builds a `LinkedHashMap<String, String>`
+         * (`McpToolHelpers.kt:317`) and writes `sanitized[name] = value` (`McpToolHelpers.kt:345`)
+         * keyed on the original-cased name, so N headers whose names are BYTE-IDENTICAL collapse to
+         * ONE entry — last value wins, held at the first one's position. Measured, not inferred: a
+         * probe asserting the edge as literally written reported `expected: <3> but was: <1>`.
+         *
+         * The clause that matters for PRIV-05 is the LAST one. Every entry that collapses was
+         * already destined for the placeholder, so no cookie value escapes through the collapse —
+         * what is lost is analysis SIGNAL (the analyst sees one `Set-Cookie` where the response
+         * carried three), which is orthogonal to the gap this phase closes.
+         *
+         * Changing this behaviour means changing `ParsedRequest.headers` / `ParsedResponse.headers`
+         * (`McpToolModels.kt:144` and `:153`) and therefore the `request_parse` / `response_parse`
+         * MCP tool-result JSON schema in a shipped 1.0.0 release. CP-27-02-01 decided
+         * `keep-map-plus-backlog`: keep the map here, carry the entry-list change as a backlog item.
+         */
+        @Test
+        fun identicallyNamedHeadersCollapseToOneEntry() {
+            val values = listOf("sentineldupealpha", "sentineldupebravo", "sentineldupecharlie")
+            val headers =
+                listOf(stubHeader("X-Trace", "leadingcontrolvalue")) +
+                    values.map { stubHeader("Set-Cookie", it) }
+
+            val sanitized = sanitizeHeaders(headers, contextWith(PrivacyMode.STRICT, "dupe-salt"))
+
+            assertEquals(
+                listOf("X-Trace", "Set-Cookie"),
+                sanitized.keys.toList(),
+                "three byte-identically named headers collapse to ONE entry, at the position of the FIRST of them",
+            )
+            assertEquals(stripped, sanitized["Set-Cookie"])
+            // The privacy-safety clause: the collapse is lossy for ANALYSIS, never for redaction.
+            values.forEach { value ->
+                assertFalse(
+                    sanitized.values.any { it.contains(value) },
+                    "no original cookie value may survive the collapse (leaked: $value in ${sanitized.values})",
+                )
+            }
+        }
+
+        /**
+         * (PRIV-05) Phase 27 plan 27-02, the `ordering` edge — the stability clause. The edge asks
+         * that the output order be stable, not merely correct once, so the same input is run twice
+         * and the key lists compared.
+         */
+        @Test
+        fun orderIsStableAcrossRepeatedInvocations() {
+            val headers =
+                listOf(
+                    stubHeader("Set-Cookie", "sentinelstablealpha"),
+                    stubHeader("X-Request-Id", "benignidcontrolvalue"),
+                    stubHeader("X-Cookie", "sentinelstablebravo"),
+                    stubHeader("Host", "api.example.com"),
+                )
+            val context = contextWith(PrivacyMode.STRICT, "stability-salt")
+
+            val first = sanitizeHeaders(headers, context).keys.toList()
+            val second = sanitizeHeaders(headers, context).keys.toList()
+
+            assertEquals(first, second, "the key order must be stable across repeated invocations")
+            assertEquals(listOf("Set-Cookie", "X-Request-Id", "X-Cookie", "Host"), first)
+        }
+
         // The five measured variant names plus the two canonical ones, each with its OWN sentinel.
         // Same seven names as RedactionTest.cookieHeaderNameVariantsAreStripped, and the sentinel
         // scheme continues that test's (sentinelalphaone … sentinelechofive).
