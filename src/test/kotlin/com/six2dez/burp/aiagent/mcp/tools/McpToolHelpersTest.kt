@@ -7,6 +7,7 @@ import burp.api.montoya.http.message.HttpHeader
 import burp.api.montoya.scanner.BuiltInAuditConfiguration
 import com.six2dez.burp.aiagent.mcp.McpRequestLimiter
 import com.six2dez.burp.aiagent.mcp.McpToolContext
+import com.six2dez.burp.aiagent.mcp.schema.HttpRequestResponse
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
@@ -200,35 +201,90 @@ class McpToolHelpersTest {
                 "negative control: this must be stripping, not blanket header loss (got: $finalText)",
             )
 
-            // AR-27-01 / AR-27-02, measured rather than assumed. The SAME STRICT context, handed the
-            // RAW header list that never passed through sanitizeHeaders, CANNOT recover the cookie:
-            // cookieHeaderRegex/setCookieHeaderRegex are line-anchored `(?im)^...$` while toolJson
-            // emits single-line JSON, and `cookie` is absent from SENSITIVE_WORDS so jsonSecretKeyRegex
-            // never fires on the key either. That is what makes sanitizeHeaders the LAST line of
-            // defence on this path rather than the first of two.
+            // (PRIV-05) 27-04 — WHAT THIS BLOCK PINS NOW, and what it deliberately no longer claims.
+            //
+            // AR-27-01 said redactIfNeeded could never recover a header sanitizeHeaders missed, which
+            // made sanitizeHeaders the LAST line of defence rather than the first of two. Plan 27-04
+            // taught the two cookie rules to recognise a JSON-ESCAPED newline as a logical line
+            // boundary, so that is now SHAPE-DEPENDENT, and the two shapes are measured separately
+            // below rather than generalised into one sentence.
+            //
+            // Shape 1, the RAW MESSAGE embedded in JSON — what proxy_http_history, site_map and
+            // scanner_issues emit via Serialization.kt. Its CRLFs encode to the two literal
+            // characters backslash-r / backslash-n, which the new branch keys on, so redactIfNeeded IS
+            // now a genuine second control for the COOKIE-HEADER class on this shape: sanitizeHeaders
+            // is defence in depth here rather than the only control. The recovery holds for the
+            // cookie-header class ONLY.
+            //
+            // What is still NOT recoverable on this shape, stated so a reader cannot mistake the line
+            // above for a general claim: the HOST header, because hostHeaderRegex still recognises
+            // only the real-line boundary — recorded as open finding AR-27-04 in plan 27-06 — and any
+            // VENDOR auth header outside authHeaderRegex's 16-name alternation, which no rule names at
+            // all. (Names INSIDE that alternation are not listed here: plan 27-05 closes exactly those
+            // one wave later using the same composer, so calling them unrecoverable would be a
+            // sentence that goes false in wave 5 with nothing instructed to correct it.)
+            val rawMessage =
+                "GET / HTTP/1.1\r\n" +
+                    rawHeaders.joinToString("") { "${it.name()}: ${it.value()}\r\n" } +
+                    "\r\n"
+            val rawMessageJson = toolJson.encodeToString(HttpRequestResponse(request = rawMessage, response = null, notes = null))
+            val rawMessageFinalText = context.redactIfNeeded(rawMessageJson)
+
+            assertFalse(
+                rawMessageFinalText.contains("sentinelxrayninezulu"),
+                "redactIfNeeded must now recover a cookie header sanitizeHeaders missed, on the " +
+                    "serialized raw-message shape (got: $rawMessageFinalText)",
+            )
+            // Non-vacuity guard, PRESERVED from the original pin: the very same call must really have
+            // transformed its input, so an absence assertion cannot be passing because redactIfNeeded
+            // silently no-opped on a wrong policy or a wrong context. bearerRegex is NOT line-anchored,
+            // so it is the transformation that fires regardless of which line boundary the payload has.
+            assertFalse(
+                rawMessageFinalText.contains("sentineltokenoscarwhisky"),
+                "redactIfNeeded must really have run under a redacting policy (got: $rawMessageFinalText)",
+            )
+            // Measured, and the reason the guard above does NOT use the host: hostHeaderRegex is still
+            // line-anchored, so STRICT host anonymisation cannot fire on this shape. AR-27-04.
+            assertTrue(
+                rawMessageFinalText.contains("api.example.com"),
+                "measured AR-27-04: the line-anchored host rule cannot fire on the serialized " +
+                    "raw-message shape (got: $rawMessageFinalText)",
+            )
+
+            // Shape 2, the HEADER-MAP shape — what parsedRequestOf/ParsedRequest emits for
+            // request_parse and response_parse, and the shape sanitizeHeaders actually guards.
+            //
+            // MEASURED CORRECTION to plan 27-04's own premise, which expected this assertion to invert
+            // too: it does not, and inverting it would have committed a FALSE test. This payload
+            // carries NO line boundary of ANY kind — the headers are JSON object members, not lines,
+            // so there is neither a real newline for the shipped `^` anchor nor an ESCAPED one for the
+            // new branch. The root cause is gated directly below instead of via its cookie
+            // consequence, so this block contains no green assertion that a cookie value survives a
+            // redacting policy — such an assertion is exactly what a later audit misreads as intent.
+            //
+            // The consequence, stated because it is real and bounded: for the COOKIE-HEADER class on
+            // THIS shape, sanitizeHeaders remains the only control. The first half of this same test
+            // is what gates that control end to end.
             val rawJson = toolJson.encodeToString(parsedRequestOf(rawHeaders.associate { it.name() to it.value() }))
+
+            assertFalse(
+                rawJson.contains("\\r") || rawJson.contains("\\n"),
+                "the header-map shape must carry no line boundary at all — that, and not anything " +
+                    "cookie-specific, is why neither branch of the cookie rules can fire here (got: $rawJson)",
+            )
+
             val rawFinalText = context.redactIfNeeded(rawJson)
 
-            assertTrue(
-                rawFinalText.contains("sentinelxrayninezulu"),
-                "pinned: redactIfNeeded under the strongest privacy mode cannot recover a header " +
-                    "sanitizeHeaders missed (got: $rawFinalText)",
-            )
-            // Non-vacuity guard on the pin above: the very same call DID transform its input, so the
-            // pin cannot be passing because redactIfNeeded silently no-opped on a wrong policy or a
-            // wrong context. bearerRegex is NOT line-anchored, so it is the transformation that
-            // actually fires on single-line JSON under a token-redacting policy.
+            // Non-vacuity on this shape too: redactIfNeeded really ran under a redacting policy here
+            // as well, so the boundary assertion above is not standing in for a call that no-opped.
             assertFalse(
                 rawFinalText.contains("sentineltokenoscarwhisky"),
                 "redactIfNeeded must really have run under a redacting policy (got: $rawFinalText)",
             )
-            // Measured, and the reason the guard above does NOT use the host: hostHeaderRegex is
-            // line-anchored too, so STRICT host anonymisation cannot fire on single-line JSON either.
-            // This is AR-27-01 shown a second time, on a second rule.
             assertTrue(
                 rawFinalText.contains("api.example.com"),
-                "measured AR-27-01: the line-anchored host rule cannot fire on single-line JSON " +
-                    "(got: $rawFinalText)",
+                "measured AR-27-04: the line-anchored host rule cannot fire on the header-map shape " +
+                    "either (got: $rawFinalText)",
             )
         }
 

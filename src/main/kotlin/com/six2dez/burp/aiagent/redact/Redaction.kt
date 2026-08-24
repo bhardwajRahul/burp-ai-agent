@@ -104,13 +104,102 @@ object Redaction {
     // The two regexes stay mutually exclusive rather than merely ordered: the negative lookahead
     // keeps "*set-cookie*" names out of cookieHeaderRegex, so a response header is still reported by
     // the set-cookie rule and never by the request-cookie one, whatever order apply() runs them in.
-    private val cookieHeaderRegex =
+    //
+    // ── (PRIV-05) 27-04 / D-27-06 · D-27-07 · D-27-08 · D-27-15: WHAT COUNTS AS A LINE START ──
+    //
+    // Both rules recognise TWO logical line boundaries, because the MCP tool-RESULT path emits a raw
+    // HTTP message with no real newline in it. `mcp/schema/Serialization.kt` puts the whole raw
+    // message into a JSON string (`request = request()?.toString()`), and `toolJson.encodeToString`
+    // then escapes every CR and LF into the two literal characters backslash-r / backslash-n. The
+    // shipped `(?im)^` anchor therefore never landed, and canonical `Cookie:` / `Set-Cookie:` values
+    // reached the configured AI backend VERBATIM under STRICT and BALANCED through
+    // `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and
+    // `scanner_issues`. Measured on the shipped compiled class: 1 match on multi-line input, 0 on the
+    // JSON-encoded form of the same bytes.
+    //
+    // WHY TWO BRANCHES AND NOT ONE. The REAL-LINE branch is the pattern that shipped, character for
+    // character (see REAL_LINE_HEADER_VALUE), so multi-line behaviour is unchanged BY CONSTRUCTION
+    // rather than by hope; the anchor is not removed, which is what AR-27-01 / AR-27-02 were deferred
+    // to avoid. The double-quote value terminator the JSON shape needs lives on the ESCAPED branch
+    // ONLY, because that branch's start boundary has already proved the match is inside a JSON
+    // string. Hoisting the quote into a single shared tail is an UNDER-REDACTION regression on the
+    // primary path: measured, `Cookie: a="q"; session=<value>` — a DQUOTE-wrapped value RFC 6265
+    // permits — stops at the first quote and leaks the tail. No shipped RedactionTest fixture puts a
+    // quote in a cookie value, so that regression would ship green.
+    //
+    // WHY THE ESCAPED TAIL CONSUMES ESCAPE PAIRS. Terminating on "a quote not preceded by a
+    // backslash" emits INVALID JSON whenever the value ends in a backslash and the header is the last
+    // content in the string: JSON encoding doubles backslashes, so the character before the closing
+    // quote is a backslash for a value ending in ONE backslash and for one ending in TWO, the
+    // lookbehind suppresses the terminator in both, and the match runs to end-of-input. Parity over a
+    // backslash run is the real predicate and a one-character look-back cannot count it. Consuming
+    // `\\.` as one atomic unit enforces parity by tokenization instead, so the tail can never come to
+    // rest between a backslash and the character it escapes.
+    //
+    // STATED BOUND (D-27-15), which is a real cost and not a caveat: the escaped-newline boundary is
+    // a fixed-width two-character lookbehind and cannot tell a JSON-encoded newline from a raw
+    // message that literally contained a backslash followed by `r` or `n` — a Windows path, a regex
+    // in a body. A `cookie:` run immediately after such a sequence is treated as a logical line start
+    // and its value is stripped. That is OVER-redaction, fail-safe in direction, and cheaper to state
+    // than to fix, since fixing it needs the same backslash-parity look-back declined above.
+    //
+    // SCOPE OF THIS CHANGE, deliberately: THIS plan applies the composer to the TWO COOKIE RULES
+    // ONLY. `hostHeaderRegex` still recognises only the real-line boundary and therefore still does
+    // not anonymise a `Host:` header on the serialized emission shape — recorded as open finding
+    // AR-27-04 in plan 27-06, not silently fixed here, because it rewrites through `anonymizeHost`
+    // and would record a de-anonymisation mapping for every raw message in every tool result.
+    // `authHeaderRegex` is closed one wave later by plan 27-05 (D-27-12), reusing this same composer.
+    // Nothing here makes redaction complete: the claim is bounded to the serialized emission path and
+    // to the cookie-header class.
+
+    // The two literal characters kotlinx.serialization emits for a real CR or LF. FIXED-WIDTH on
+    // purpose: an encoded CRLF is four characters ENDING in the encoded LF, so a two-character
+    // look-back already covers CR, LF and CRLF. Measured output-identical to a variable-width
+    // alternation over all nine fixtures and 2.4x cheaper, because Java need not try two look-back
+    // widths at every position.
+    private const val JSON_ESCAPED_NEWLINE = "\\\\[rn]"
+
+    // The SHIPPED value tail, character for character. Named rather than inlined so the byte-identity
+    // claim is visible in source as "this branch uses the pattern that shipped".
+    private const val REAL_LINE_HEADER_VALUE = ":\\s*.+$"
+
+    // The value tail for the JSON-escaped branch: a reluctant run of either ONE atomic JSON escape
+    // pair or any character that is neither a double quote nor a backslash, terminated by the next
+    // escaped newline, end-of-input, or the closing double quote of the JSON string. The two
+    // alternatives are disjoint on their first character, so the repetition is deterministic — no
+    // nested quantifier and no backtracking surface on a rule that runs in the header stage with no
+    // per-pattern deadline. There is deliberately NO negative lookbehind on the quote.
+    private const val JSON_ESCAPED_HEADER_VALUE =
+        ":\\s*(?:\\\\.|[^\"\\\\])+?(?=" + JSON_ESCAPED_NEWLINE + "|\$|\")"
+
+    /**
+     * Builds the two-branch header rule described above for one header-NAME pattern.
+     *
+     * The name fragment appears on BOTH branches; that duplication is the design, not an oversight —
+     * a single shared start boundary forces a single shared tail, and the measured consequence is the
+     * quoted-cookie-value leak recorded in the comment above.
+     *
+     * The escaped branch's boundary is a LOOKBEHIND rather than a consuming group because [apply]'s
+     * replacement lambdas call `substringBefore(":")` on the match value: the match must still BEGIN
+     * at the header name.
+     *
+     * This is a member of the `Redaction` object called from property initializers in that same
+     * object. It is safe only because it reads `const val` compile-time constants and no other
+     * property — keep it that way, or the object's initialization order becomes load-bearing.
+     */
+    private fun logicalLineHeaderRule(namePattern: String): Regex =
         Regex(
-            "(?im)^(?!" + COOKIE_NAME_PART + "set-" + COOKIE_NAME_TOKEN + ")" +
-                COOKIE_NAME_PART + COOKIE_NAME_TOKEN + COOKIE_NAME_PART + ":\\s*.+$",
+            "(?im)(?:^" + namePattern + REAL_LINE_HEADER_VALUE +
+                "|(?<=" + JSON_ESCAPED_NEWLINE + ")" + namePattern + JSON_ESCAPED_HEADER_VALUE + ")",
+        )
+
+    private val cookieHeaderRegex =
+        logicalLineHeaderRule(
+            "(?!" + COOKIE_NAME_PART + "set-" + COOKIE_NAME_TOKEN + ")" +
+                COOKIE_NAME_PART + COOKIE_NAME_TOKEN + COOKIE_NAME_PART,
         )
     private val setCookieHeaderRegex =
-        Regex("(?im)^" + COOKIE_NAME_PART + "set-" + COOKIE_NAME_TOKEN + COOKIE_NAME_PART + ":\\s*.+$")
+        logicalLineHeaderRule(COOKIE_NAME_PART + "set-" + COOKIE_NAME_TOKEN + COOKIE_NAME_PART)
 
     /**
      * The single cookie-header-name rule shared by the two redaction paths and the passive-scan
