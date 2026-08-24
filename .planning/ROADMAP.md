@@ -393,12 +393,12 @@ Reachable via the `request_parse` / `response_parse` MCP tools; confirmed by liv
 reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Requirements**: PRIV-05 (re-opened by `v0.10.0-MILESTONE-AUDIT.md`, gap F1, blocker)
 **Depends on:** Phase 26
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 27-01-PLAN.md — Shared `Redaction.isCookieHeaderName` predicate, `Locale.ROOT` compare, and the full variant matrix on the MCP tool-result path (wave 1)
+- [x] 27-01-PLAN.md — Shared `Redaction.isCookieHeaderName` predicate, `Locale.ROOT` compare, and the full variant matrix on the MCP tool-result path (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -425,7 +425,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
 | 26. Coverage, Static-Analysis Debt & Docs | 7/7 | In Progress|  |
-| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 0/3 | Not Started |  |
+| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 1/3 | In Progress|  |
 
 ## Backlog
 
