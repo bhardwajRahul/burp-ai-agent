@@ -9,15 +9,47 @@
 
 Custom AI Agent is an extension for Burp Suite that integrates AI into your security workflow. Use local models or cloud providers, connect external AI agents via MCP, and let passive/active scanners find vulnerabilities while you focus on manual testing.
 
-## What's new in v0.9.0
+> [!IMPORTANT]
+> **If you are running 0.9.0, 0.9.1 or 0.9.2, read [the security advisories](SECURITY.md#security-advisories) before upgrading.**
+> Two defects confirmed by running the shipped code affect every published `0.9.x` release, and one of
+> them requires rotating credentials that may already have been disclosed to a third party. Both are
+> fixed in 1.0.0. No CVE or GHSA identifier has been issued for either — do not go looking for one.
 
-- **Native [Anthropic](docs/anthropic-backend.md) backend** (CAP-01) — direct Anthropic Messages API via Burp's HTTP transport; all traffic appears in Proxy history.
-- **AES-256-GCM secrets at rest** (SEC-01) — all stored API keys and tokens are encrypted with a per-install key using `javax.crypto`. The master key lives in Burp Preferences alongside the ciphertext, so this defends against casual inspection of a preferences file, not against a local attacker — see [Privacy and Security Notes](#privacy-and-security-notes).
-- **Real HKDF host anonymization** (PRIV-01) — STRICT mode now uses genuine HMAC-SHA256 extract/expand (not salted SHA-256) for host anonymization.
-- **Request/response body redaction + custom patterns** (PRIV-02) — redaction pipeline covers body fields and user-configurable regex patterns validated against ReDoS.
-- **Pre-send secret tripwire** (PRIV-03) — warns before high-entropy values leave Burp; allowlist actions are audit-logged.
-- **[External MCP servers](docs/external-mcp-servers.md)** (CAP-02) — connect to external/custom MCP servers (SSE or stdio) so AI agents can call their tools alongside Burp's built-in tools.
-- **Per-session token-budget guardrails** (CAP-04) — `BudgetGuard` caps passive-scanner spend with WARN/CAP/OFF states; passive scanner pauses automatically at the hard cap.
+## What's new in v1.0.0
+
+First stable release, and a security-correctness milestone. An external review of `0.9.2` on
+2026-08-05 confirmed two exploitable defects by **running** the shipped code; this release fixes both
+plus the wider class of issues the same review surfaced. Full detail in [CHANGELOG.md](CHANGELOG.md).
+
+**Fixed, and disclosed:**
+
+- **SEC-04 (critical)** — MCP access-control checks did not run on resolved routes. With external
+  access enabled the listener accepted **unauthenticated** tool calls; in local mode the
+  Origin/Host/User-Agent checks and the security response headers were inert on matched routes. The
+  decision now runs ahead of routing. → [rotate your MCP token](SECURITY.md#security-advisories)
+- **PRIV-05 (high)** — session cookies reached AI backends **unredacted in STRICT and BALANCED**. The
+  passive scanner emitted cookies as bare `name=value`, dropping the prefix redaction keyed on, and
+  only a cookie literally named `session` was caught. → [rotate affected cookies](SECURITY.md#security-advisories)
+
+**Hardened:**
+
+- **Model-emitted tool calls now need your approval** (SEC-06) — a tool call parsed out of *model
+  output* does not reach Burp until you decide. Tiers fail closed: an unrecognised tool name confirms
+  every time, never runs silently. See [Privacy and Security Notes](#privacy-and-security-notes).
+- **The MCP token is no longer disclosed during a port takeover** (SEC-07) — a local process squatting
+  the MCP port and echoing the identity header could previously harvest a token granting full MCP tool
+  access. The takeover client now presents an HMAC proof of possession instead, and under TLS it pins
+  the server certificate to its own keystore.
+- **`SsrfGuard` classifies alternate IP notations** (SEC-07) — `http://2852039166/` (decimal for
+  `169.254.169.254`) no longer sidesteps the private/link-local warning by notation alone, and
+  classification now performs no name resolution at all.
+- **Shell arguments are quoted by allowlist** (QUAL-06) — closing a settings-import-to-command-execution
+  path for values carrying metacharacters without whitespace (`foo;id`, `$(cmd)`).
+- **EDT confinement and scheduler robustness** — tool execution, backend HTTP and MCP `stop()` moved
+  off the Swing event dispatch thread; recurring tasks guarded against death-by-exception.
+
+**Verified:** test suite grown from 660 to **1131 tests across 158 classes**, project line coverage
+34% → **58%**, and the detekt baseline shrunk 1096 → 1040 rather than grown.
 
 ## Highlights
 
@@ -28,6 +60,7 @@ Custom AI Agent is an extension for Burp Suite that integrates AI into your secu
 - **Install from Releases** — Download the JAR from [Releases](https://github.com/six2dez/burp-ai-agent/releases). Not on the BApp Store: the [submission](https://github.com/PortSwigger/extension-portal/issues/231) has been open since January 2026.
 - **Theme-Aware UI** — An internal design system styles the settings panel and re-themes automatically with Burp's light/dark switch.
 - **Burp Scan Skill** — Use your preferred AI coding assistant (Claude Code, Gemini CLI, Codex, etc.) as a scanner via MCP.
+- **Tool-Call Confirmation** — Tool calls the AI emits are gated: read-only bounded tools run silently, everything else asks first with an approval card in the chat. Unknown tools fail closed.
 - **3 Privacy Modes** — STRICT / BALANCED / OFF. Redact sensitive data before it leaves Burp.
 - **Custom Prompt Library** — Save free-form prompts per context (HTTP request or scanner issue); launch them from the right-click menu or type ad-hoc ones via `Custom…`.
 - **Audit Logging** — JSONL with SHA-256 integrity hashing for compliance; every launch stamped with `promptSource` / `contextKind` for reproducibility.
@@ -195,6 +228,7 @@ Full documentation is available at **[burp-ai-agent.six2dez.com](https://burp-ai
 - [MCP Overview](https://burp-ai-agent.six2dez.com/mcp/overview)
 - [Privacy Modes](https://burp-ai-agent.six2dez.com/privacy/privacy-modes)
 - [Settings Reference](https://burp-ai-agent.six2dez.com/reference/settings-reference)
+- [Security Advisories](https://burp-ai-agent.six2dez.com/security/advisories)
 - [Troubleshooting](https://burp-ai-agent.six2dez.com/reference/troubleshooting)
 - [Burp Scan Skill](https://burp-ai-agent.six2dez.com/user-guide/burp-scan-skill)
 
