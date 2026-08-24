@@ -1,9 +1,9 @@
 ---
 phase: 26
 slug: coverage-static-analysis-debt-docs
-status: gaps_found
+status: verified
 # threats_open = count of OPEN threats at or above workflow.security_block_on severity (the blocking gate)
-threats_open: 1
+threats_open: 0
 asvs_level: 1
 created: 2026-08-24
 ---
@@ -57,7 +57,7 @@ the workflow declares sufficient when `threats_open: 0` and the register is plan
 | T-26-01-03 | Denial of Service | `shellEscape` fast path | low | mitigate | The pass-through test is `arg.all { it in SHELL_SAFE_CHARS }` — a per-character scan over a `const val`, not a `Regex`. No backtracking surface on a path that runs per CLI argument. **Verified in source.** | closed |
 | T-26-01-04 | Information Disclosure | widened `internal` helpers | low | **accept** | `internal` is module-scoped, single-module Gradle build, no published Kotlin API; the five widened helpers are pure transforms over data the caller already holds. Same trade-off `buildTimeoutMessage` and `buildCopilotCommand` already made. See Accepted Risks. | closed |
 | T-26-01-05 | Tampering | over-quoting regression | medium | mitigate | Positive assertions that `--silent`, `/usr/local/bin/claude`, `claude-3.5` and `gemini_cli` return byte-identical, guarding against a fix that quotes everything and silently breaks working CLI backends. **Verified:** `plainFlagIsPassedThroughUnquoted`, `absolutePathIsPassedThroughUnquoted`, `versionSuffixAndUnderscoreNameArePassedThroughUnquoted`, `ptyArgvLeavesAllowlistedArgumentsByteIdentical`. | closed |
-| T-26-02-01 | Information Disclosure | `sanitizeHeaders` | high | mitigate | **REOPENED 2026-08-24 by the v0.10.0 milestone audit — this row previously read `closed` and overstated.** The narrow claim holds: case-insensitive matching of `Cookie`, `Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-API-Key`, `Api-Key` and `Host` is asserted per privacy mode (`McpToolHelpers.kt:310-332`; `McpToolHelpersTest.SanitizeHeaders`). The broad claim does not: the matcher is `lowered == "cookie" || lowered == "set-cookie"` (`:321`), an EXACT-name test, while Phase 21 closed this same class on the prompt path by widening to name-contains-`cookie` (`Redaction.kt:100-106`). `X-Cookie`, `Cookie2`, `Set-Cookie2`, `X-Original-Cookie` and `X-Forwarded-Cookie` therefore pass through `sanitizeHeaders` unstripped, and `McpToolContext.redactIfNeeded` cannot recover them: its output is single-line JSON and both cookie regexes are line-anchored `(?im)^...$`, while `cookie` is absent from `SENSITIVE_WORDS`. Reachable via `request_parse` / `response_parse`. | **open** |
+| T-26-02-01 | Information Disclosure | `sanitizeHeaders` | high | mitigate | **Three-part history — read top to bottom; none of it replaces what came before.** **(1) The original narrow claim, which holds.** Case-insensitive matching of `Cookie`, `Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-API-Key`, `Api-Key` and `Host` is asserted per privacy mode (`McpToolHelpersTest.SanitizeHeaders`). **(2) REOPENED 2026-08-24 by the v0.10.0 milestone audit**, because the broad claim did not hold: the matcher was `lowered == "cookie" \|\| lowered == "set-cookie"`, an EXACT-name test, while Phase 21 had already widened the prompt path to name-contains-`cookie`, so `X-Cookie`, `Cookie2`, `Set-Cookie2`, `X-Original-Cookie` and `X-Forwarded-Cookie` passed through unstripped via `request_parse` / `response_parse` — see the unedited reopening section dated 2026-08-24 at the foot of this file for the full narrative. **(3) CLOSED again 2026-08-24 by Phase 27 (plans 27-01, 27-02, 27-03), on source re-read in the closing task rather than on any SUMMARY's assertion.** The rule is now one symbol: `fun isCookieHeaderName(name: String): Boolean = name.lowercase(Locale.ROOT).contains(COOKIE_NAME_TOKEN)` (`Redaction.kt:158`; `COOKIE_NAME_TOKEN = "cookie"` at `:91`), and both prompt-path regexes are composed from that same token (`:107-113`), so predicate and regexes cannot drift apart by construction. `sanitizeHeaders` now carries exactly one cookie test and it is a call to that predicate: `if (policy.stripCookies && Redaction.isCookieHeaderName(name))` (`McpToolHelpers.kt:336`). **Scope of the singularity claim, stated positively so it cannot silently widen:** `isCookieHeaderName` is the single cookie-header-name rule across **the two redaction paths and the passive-scan admitter** — `Redaction.apply`'s two regexes, `McpToolHelpers.sanitizeHeaders` (`:336`) and `PassiveAiScannerFilters.sanitizeHeadersForPrompt` (`:186`) — and at no wider scope than those three sites. Four cookie-header-name matchers survive elsewhere in `src/main/kotlin`, each classified non-redacting by plan 27-01 against its consumer chain: the **passive-scan cookie-section extractor** (`PassiveAiScannerAnalysis.kt:267`) — its output reaches the prompt only through `redactScanMetadata`, which calls `Redaction.apply` unconditionally; the **local-only scanner heuristics** (`PassiveAiScannerHeuristics.kt:102` and `:117`, `ActiveAiScanner.kt:936`) — each reduces a cookie value to a boolean that never crosses the process boundary; the **bounty-prompt extractor** (`BountyPromptTagResolver.kt:144,150`) — it filters text `Redaction.apply` has already processed; and the **active-scanner request mutator** (`ActiveAiScanner.kt:1411`) — it writes an attack payload to the TARGET, not to an AI backend. **Both sweeps were run in the closing task; output quoted as observed.** Narrow: `grep -rn 'contains("cookie")' src/main/kotlin --include=*.kt \| grep -v 'isCookieHeaderName' \| wc -l` → `0`. WIDENED, over five spelling classes (exact-name `equals`, `ignoreCase` equality, `startsWith` line-prefix, Montoya `headerValue`, substring `contains`), excluding the four classified files and the owner `Redaction.kt` → `0`. The widened sweep is the one that supports the sentence above; the narrow one alone could not see the four survivors. **Guarded by three tests, each named with the narrowing it actually covers:** `McpToolHelpersTest.cookieHeaderNameVariantsAreStrippedOnTheToolResultPath` (the tool-result outcome); `CookieHeaderNameParityTest.everyNameThePromptPathStripsIsMatchedByTheSharedPredicate` (guards a narrowing of the PREDICATE — per plan 27-02's measured red probe 2 it does NOT guard a narrowing of the prompt-path REGEXES, which `RedactionTest.cookieHeaderNameVariantsAreStripped` guards instead); and `CookieHeaderRuleOwnershipTest` (3 tests, green in the closing task — a TRIPWIRE bounded to those five measured spelling classes and stated as such in its own file header, not a proof of exhaustive coverage: a matcher spelled outside them stays invisible to it). **Commits:** `02d71c2` (the fix), `fe379e5` (predicate shared with the admitter, ownership tripwire), `33b3c33` and `b7519c5` (parity test, tool-result order and collapse assertions). **What is NOT closed, named so this row cannot be read as more than it is:** **AR-27-01** — `McpToolContext.redactIfNeeded` still cannot recover a header `sanitizeHeaders` misses, because its output is single-line JSON while both cookie regexes are line-anchored `(?im)^…$`; **AR-27-02** — `cookie` remains absent from `SENSITIVE_WORDS`, so `jsonSecretKeyRegex` is not a backstop either; **AR-27-03** — byte-identically-named headers collapse to one entry in the tool-result header map (CP-27-02-01, human-decided: privacy-safe and asserted to leak no original value, but it costs analysis signal). **Locale scope, stated narrowly on purpose:** the explicit `Locale.ROOT` argument is present only at the two header-name functions this phase changed (`Redaction.isCookieHeaderName`, `McpToolHelpers.sanitizeHeaders`), and per plan 27-01's MEASURED backlog observation it is defensive documentation rather than a defect fix — Kotlin's no-argument `lowercase()` already compiles to `toLowerCase(Locale.ROOT)`, so `src/main/kotlin` holds **zero** locale-sensitive lowering call sites today (the 5 `toLowerCase(` and 1 `lowercase(Locale.getDefault())` hits are all inside comments this phase added). What ships is a guard against introducing the hazardous Java spelling, NOT the closure of an active hazard; the backlog item 27-01 records is that guard, not a migration. | closed |
 | T-26-02-02 | Information Disclosure | `maybeAnonymizeUrl` | medium | mitigate | STRICT replaces the host and only the host; a malformed URL falls back to returning the input rather than throwing into the tool result. **Verified:** `McpToolHelpers.kt:335-356` (`catch (_: Exception) { rawUrl }`); `McpToolHelpersTest.MaybeAnonymizeUrl`. | closed |
 | T-26-02-03 | Tampering | `resolveReportPath` | high | mitigate | Path containment above `user.home` asserted as a REJECTION for both the relative-with-parent-segments and absolute-outside-home forms, proven falsifiable by a recorded red probe that deleted the containment check. **Verified:** `McpToolHelpers.kt:374` — `require(resolved.startsWith(home))` after `normalize()`; `McpToolHelpersTest.ResolveReportPath` (7 tests). | closed |
 | T-26-02-04 | Spoofing | `toMontoyaServiceOrNull` | medium | mitigate | Blank hostname and non-positive port return null, so a partially-specified model-supplied target cannot become an outbound request destination. **Verified:** `McpToolModels.kt:17-20`; `McpToolModelsTest`. | closed |
@@ -122,6 +122,7 @@ the workflow declares sufficient when `threats_open: 0` and the register is plan
 |------------|---------------|--------|------|--------|
 | 2026-08-24 | 46 | 46 | 0 | `/gsd-secure-phase 26` (orchestrator, ASVS L1 source verification) |
 | 2026-08-24 | 46 | 45 | **1** | `/gsd-audit-milestone` — T-26-02-01 reopened (see below) |
+| 2026-08-24 | 46 | 46 | 0 | Phase 27 (27-03) — source re-verification |
 
 **Note on the count.** 46 register rows across 46 distinct threat IDs. The seven PLAN files declare
 52 rows in total, but `T-26-0N-SC` is the same supply-chain threat declared identically in all seven
@@ -133,10 +134,15 @@ and is counted once as `T-26-SC`.
 
 - [x] All threats have a disposition (mitigate / accept / transfer)
 - [x] Accepted risks documented in Accepted Risks Log
-- [ ] `threats_open: 0` confirmed — **1 open (T-26-02-01)**
-- [ ] `status: verified` set in frontmatter — reverted to `gaps_found`
+- [x] `threats_open: 0` confirmed — T-26-02-01 re-closed 2026-08-24 by Phase 27 (27-03)
+- [x] `status: verified` set in frontmatter — restored after the Phase 27 closure
 
-**Approval:** WITHDRAWN 2026-08-24 — see the reopening note below.
+**Approval:** RE-APPROVED 2026-08-24 by Phase 27 (plan 27-03), after the 2026-08-24 withdrawal
+recorded in the reopening note below. The re-approval rests on source read in the closing task —
+`Redaction.kt:158`, `McpToolHelpers.kt:336`, `PassiveAiScannerFilters.kt:186` — plus both ownership
+sweeps returning `0` and a green `CookieHeaderRuleOwnershipTest`, and it is scoped to the two
+redaction paths and the passive-scan admitter. It is NOT a re-approval of the L1 pass that produced
+the original false close; the standing rule below is what that pass was missing.
 
 ### What this audit did and did not do
 
@@ -166,6 +172,33 @@ correct under every input. The behavioural proof for these threats lives in the 
 (`ShellEscapeTest`, `McpToolHelpersTest`, `SsrfGuardNoResolutionTest`, `McpTokenStrengthTest`,
 `SecurityDocsTest`, `ChatPanelEdtGuardTest`) and in `26-VERIFICATION.md`, which executed the full
 suite — 1131 tests, 0 failures.
+
+### Standing rule added 2026-08-24 (Phase 27)
+
+Two clauses, both learned in this file. They bind every future audit pass in this repository, not
+only ASVS L1 ones.
+
+**(i) Width, not only presence.** Verifying that a control is PRESENT is not sufficient to close a
+threat about that control's COVERAGE. Where one rule has more than one implementation, an L1 pass
+must compare the WIDTH of each implementation against the requirement's wording *and* against every
+sibling implementation, and must NAME the siblings it compared. **Worked example: T-26-02-01.** The
+original pass verified that `sanitizeHeaders` lowercases before comparing — true, and asserted by
+tests — and closed the threat on that. It never compared the matcher against its sibling on the
+prompt path, which is the entire reason the threat was written: a second, independent redaction path
+narrower than the first leaves the milestone's "by ANY path" claim stronger than what ships. An
+audit that cannot name the siblings it compared has not answered the width question.
+
+**(ii) No verification narrower than its claim.** A closing note may not be verified by a search
+narrower than the claim it makes. If the note says "across X", the sweep must cover every spelling a
+reasonable implementer would use inside X, and the note must state the scope the sweep actually
+covered. **Worked example: this phase's own first draft.** It was about to certify a claim covering
+the entire source tree on the strength of a single-spelling `grep -rn 'contains("cookie")'`, while
+four hand-written cookie-header-name matchers survived in other spellings that grep could not see.
+Once the sweep was widened to five spelling classes, the claim was scoped down to the two redaction
+paths and the passive-scan admitter, and the four survivors were named and classified. The lesson is
+NOT that the code was wrong — every survivor was non-redacting and the code was fine. The lesson is
+that the VERIFICATION was narrower than the SENTENCE, and that gap is precisely how a register drifts
+wider than the control it describes. That drift is what produced the false close this file records.
 
 
 ---
