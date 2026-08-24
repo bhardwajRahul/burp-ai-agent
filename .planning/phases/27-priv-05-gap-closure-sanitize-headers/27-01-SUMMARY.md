@@ -424,6 +424,14 @@ None — no new network endpoint, auth path, file access pattern or schema chang
 - Ready for **27-02** (`CookieHeaderNameParityTest`, the `ordering` edge). `Redaction.isCookieHeaderName` is public and is the symbol 27-02's parity test asserts against.
 - **Input that 27-03 must not skip:** the locale finding above narrows what a security-register amendment may claim about `T-27-01-02`, and the "114 surviving hazards" framing the plan anticipated is measurably wrong. 27-03 should cite the measured zero, not the grep count.
 
+## Self-Check: PASSED
+
+- Created files exist on disk: `CookieHeaderRuleOwnershipTest.kt`, `PassiveAiScannerHeaderAdmissionTest.kt`, `27-01-SUMMARY.md`.
+- All four commits exist: `02d71c2`, `984c296`, `fe379e5`, `96d633f`.
+- `git diff HEAD~4 HEAD --name-only` lists exactly the 6 source files plus the SUMMARY. **No `STATE.md` or `ROADMAP.md`** — the orchestrator owns those writes.
+- Working tree clean; both red-probe restorations verified with `git diff --quiet src/main/kotlin`.
+- Every task-level `<acceptance_criteria>` was executed and passed; the four that could not be satisfied as literally written are recorded above as deviations with their measurements, not silently skipped.
+
 ---
 *Phase: 27-priv-05-gap-closure-sanitize-headers*
 *Completed: 2026-08-24*
