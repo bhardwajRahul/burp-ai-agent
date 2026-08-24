@@ -393,7 +393,7 @@ Reachable via the `request_parse` / `response_parse` MCP tools; confirmed by liv
 reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Requirements**: PRIV-05 (re-opened by `v0.10.0-MILESTONE-AUDIT.md`, gap F1, blocker)
 **Depends on:** Phase 26
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 **Wave 1**
@@ -402,7 +402,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 27-02-PLAN.md — `CookieHeaderNameParityTest` structural coupling, plus CP-27-02-01 on the tool-result header map shape and the ordering/duplicate edges (wave 2)
+- [x] 27-02-PLAN.md — `CookieHeaderNameParityTest` structural coupling, plus CP-27-02-01 on the tool-result header map shape and the ordering/duplicate edges (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -425,7 +425,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
 | 26. Coverage, Static-Analysis Debt & Docs | 7/7 | In Progress|  |
-| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 1/3 | In Progress|  |
+| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 2/3 | In Progress|  |
 
 ## Backlog
 
@@ -433,3 +433,4 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 - Anthropic native tool-use and prompt-caching (deferred from CAP-01, v0.9.0).
 - Interactive custom-pattern sample tester (deferred from PRIV-04, v0.9.0).
 - BApp Store submission #231 — stalled; revisit when it moves.
+- MCP tool-result header entry-list: `sanitizeHeaders` returns `Map<String, String>`, so byte-identically-named headers collapse to one entry (three `Set-Cookie` headers surface as one). Privacy-safe — every collapsed entry was already `[STRIPPED]` — but it costs analysis signal on a normal HTTP response. Deferred from Phase 27 as accepted residual `AR-27-03` via `CP-27-02-01` (one-way: changing it breaks the `request_parse` / `response_parse` result schema of the shipped 1.0.0, across 4 call sites and 2 models).
