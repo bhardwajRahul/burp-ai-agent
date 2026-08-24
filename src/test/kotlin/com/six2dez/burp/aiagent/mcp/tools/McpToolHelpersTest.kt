@@ -10,11 +10,14 @@ import com.six2dez.burp.aiagent.mcp.McpToolContext
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
+import kotlinx.serialization.encodeToString
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.mockito.Answers
@@ -41,6 +44,15 @@ import java.nio.file.Path
  * `InjectionPointExtractorTest`.
  */
 class McpToolHelpersTest {
+    @BeforeEach
+    fun clearCustomPatterns() {
+        // Redaction is a singleton object: custom patterns left behind by another test class in the
+        // same JVM would bleed in here and could remove a sentinel for the wrong reason, letting an
+        // absence assertion pass without the cookie rule doing anything. The precedent (and the same
+        // reasoning) is PassiveAiScannerPromptRedactionTest.
+        Redaction.setCustomPatterns(emptyList())
+    }
+
     // ── sanitizeHeaders ──────────────────────────────────────────────────────────────────
 
     @Nested
@@ -125,6 +137,92 @@ class McpToolHelpersTest {
 
             assertTrue(sanitized.isEmpty())
         }
+
+        /**
+         * (PRIV-05) Phase 27 Task 1 — the requirement stated as an OUTCOME on the real flow:
+         * `sanitizeHeaders` -> `toolJson.encodeToString(ParsedRequest)` -> `McpToolContext.redactIfNeeded`.
+         *
+         * Asserting on the FINAL string locks the result independently of which layer strips it, so a
+         * future narrowing of `sanitizeHeaders` turns this red without the test caring which layer was
+         * supposed to catch it.
+         *
+         * FIXTURE REACHABILITY, mirroring `RedactionTest.cookieHeaderNameVariantsAreStripped`: the
+         * sentinel is a bare lowercase alphabetic word with no '=', no quotes, no `Bearer`/`Basic`/`eyJ`
+         * prefix and no dotted segment, and its JSON key `X-Cookie` carries no word from
+         * `SENSITIVE_WORDS` — so a cookie header rule is the only thing in the pipeline that can
+         * remove it, and an absence assertion here cannot pass for some other rule's reason.
+         */
+        @Test
+        fun cookieVariantsAreStrippedEndToEndThroughRedactIfNeeded() {
+            val context = contextWith(PrivacyMode.STRICT, "end-to-end-salt")
+            val rawHeaders =
+                listOf(
+                    stubHeader("X-Cookie", "sentinelxrayninezulu"),
+                    stubHeader("Authorization", "Bearer sentineltokenoscarwhisky"),
+                    stubHeader("Host", "api.example.com"),
+                    stubHeader("X-Request-Id", "benignidcontrolvalue"),
+                )
+
+            val sanitizedJson = toolJson.encodeToString(parsedRequestOf(sanitizeHeaders(rawHeaders, context)))
+            val finalText = context.redactIfNeeded(sanitizedJson)
+
+            assertFalse(
+                finalText.contains("sentinelxrayninezulu"),
+                "the X-Cookie value must not survive the tool-result flow (got: $finalText)",
+            )
+            assertTrue(
+                finalText.contains("X-Cookie"),
+                "the header NAME must survive — only the VALUE is replaced (T-21-WA2) (got: $finalText)",
+            )
+            assertTrue(
+                finalText.contains("benignidcontrolvalue"),
+                "negative control: this must be stripping, not blanket header loss (got: $finalText)",
+            )
+
+            // AR-27-01 / AR-27-02, measured rather than assumed. The SAME STRICT context, handed the
+            // RAW header list that never passed through sanitizeHeaders, CANNOT recover the cookie:
+            // cookieHeaderRegex/setCookieHeaderRegex are line-anchored `(?im)^...$` while toolJson
+            // emits single-line JSON, and `cookie` is absent from SENSITIVE_WORDS so jsonSecretKeyRegex
+            // never fires on the key either. That is what makes sanitizeHeaders the LAST line of
+            // defence on this path rather than the first of two.
+            val rawJson = toolJson.encodeToString(parsedRequestOf(rawHeaders.associate { it.name() to it.value() }))
+            val rawFinalText = context.redactIfNeeded(rawJson)
+
+            assertTrue(
+                rawFinalText.contains("sentinelxrayninezulu"),
+                "pinned: redactIfNeeded under the strongest privacy mode cannot recover a header " +
+                    "sanitizeHeaders missed (got: $rawFinalText)",
+            )
+            // Non-vacuity guard on the pin above: the very same call DID transform its input, so the
+            // pin cannot be passing because redactIfNeeded silently no-opped on a wrong policy or a
+            // wrong context. bearerRegex is NOT line-anchored, so it is the transformation that
+            // actually fires on single-line JSON under a token-redacting policy.
+            assertFalse(
+                rawFinalText.contains("sentineltokenoscarwhisky"),
+                "redactIfNeeded must really have run under a redacting policy (got: $rawFinalText)",
+            )
+            // Measured, and the reason the guard above does NOT use the host: hostHeaderRegex is
+            // line-anchored too, so STRICT host anonymisation cannot fire on single-line JSON either.
+            // This is AR-27-01 shown a second time, on a second rule.
+            assertTrue(
+                rawFinalText.contains("api.example.com"),
+                "measured AR-27-01: the line-anchored host rule cannot fire on single-line JSON " +
+                    "(got: $rawFinalText)",
+            )
+        }
+
+        // Minimal ParsedRequest envelope for the end-to-end assertions: only `headers` varies, so
+        // every other field is fixed here instead of being repeated at each call site.
+        private fun parsedRequestOf(headers: Map<String, String>): ParsedRequest =
+            ParsedRequest(
+                method = "GET",
+                path = "/",
+                url = "https://api.example.com/",
+                headers = headers,
+                parameters = emptyList(),
+                body = null,
+                bodyLength = 0,
+            )
 
         /**
          * Derives the expectation from `RedactionPolicy.fromMode` rather than re-encoding the

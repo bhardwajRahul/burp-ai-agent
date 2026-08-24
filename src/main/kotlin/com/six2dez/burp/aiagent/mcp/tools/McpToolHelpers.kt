@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 import java.awt.KeyboardFocusManager
 import java.net.URI
 import java.util.Base64
+import java.util.Locale
 import javax.swing.JTextArea
 
 internal val toolJson = Json { encodeDefaults = true }
@@ -316,9 +317,19 @@ internal fun sanitizeHeaders(
     val sanitized = LinkedHashMap<String, String>()
     headers.forEach { header ->
         val name = header.name()
-        val lowered = name.lowercase()
+        // (PRIV-05) D-27-04: Locale.ROOT is load-bearing for ALL THREE comparisons below, not only
+        // the cookie one — they all read this single lowered value. Under a Turkish default locale a
+        // no-argument lowercase() turns "COOKIE"/"HOST"/"AUTHORIZATION" into dotless-i spellings that
+        // no longer match, silently disabling the control on that host.
+        val lowered = name.lowercase(Locale.ROOT)
         var value = header.value()
-        if (policy.stripCookies && (lowered == "cookie" || lowered == "set-cookie")) {
+        // (PRIV-05) D-27-01: the cookie-header-name rule lives in Redaction and is shared with the
+        // prompt path's two regexes and the passive-scan admitter. This site used to compare against
+        // the two canonical spellings while the prompt path matched name-contains-"cookie", so
+        // X-Cookie / Cookie2 / Set-Cookie2 / X-Original-Cookie / X-Forwarded-Cookie reached the model
+        // verbatim through request_parse / response_parse — the gap the v0.10.0 milestone audit found.
+        // The ORIGINAL name is passed: the predicate does its own locale-safe lowering.
+        if (policy.stripCookies && Redaction.isCookieHeaderName(name)) {
             value = "[STRIPPED]"
         }
         if (policy.redactTokens && tokenHeaders.contains(lowered)) {
