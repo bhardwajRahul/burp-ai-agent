@@ -19,7 +19,7 @@ affects: [security-register, codebase-concerns, milestone-audit, privacy]
 actuals:
   tokens: 5087
   tasks: 2
-  commits: 2
+  commits: 4
 
 tech-stack:
   added: []
@@ -41,6 +41,7 @@ key-decisions:
   - "T-27-01-02 (locale) is NOT certified as an active hazard now closed. Independently re-measured here: 5 `toLowerCase(` hits and 1 `lowercase(Locale.getDefault())` hit in src/main/kotlin, ALL inside comments. Zero real locale-sensitive lowering call sites. The records say `guard`, not `fix`."
   - "Two of Task 1's acceptance criteria are unsatisfiable as literally written (`grep -c 'threats_open: 0'` = 1, `grep -c 'status: verified'` = 1) because the file's own pre-existing sign-off and audit-scope prose already contain both strings. Recorded as falsified; the INTENT was verified directly against the frontmatter rather than manufactured into a pass by rewording the sign-off."
   - "The plan's `hostHeaderRegex` and locale premises inherited from waves 1-2 were re-checked, not restated. Nothing in this plan rests on either."
+  - "Task 3 resolved `approved` by the human user. The scope was put to them explicitly and certified at the stated width — the two redaction paths and the passive-scan admitter — with the option to narrow it further offered and declined. No clause of the T-26-02-01 row was judged unsupported."
 
 patterns-established:
   - "Before editing a security record, re-run the widened sweep AND the narrow one, and quote both in the record — a closure note verified by the narrower of two available sweeps is the defect being repaired, not the repair"
@@ -114,7 +115,7 @@ coverage:
     requirement: PRIV-05
     verification: []
     human_judgment: true
-    rationale: "A grep can prove the forbidden phrasings are absent (verified: 0 in all three files, unchanged from a 0 baseline) but cannot prove a prose scope is the RIGHT scope, nor that the four classifications are convincing. That judgment is exactly what Task 3's blocking-human checkpoint exists for, and it has NOT yet been made — see the checkpoint section below."
+    rationale: "A grep can prove the forbidden phrasings are absent (verified: 0 in all three files, unchanged from a 0 baseline) but cannot prove a prose scope is the RIGHT scope, nor that the four classifications are convincing. That judgment was made at Task 3's blocking-human checkpoint: the human user certified the scope as stated and declined the option to narrow it further, and spot-checked two classifications at source. Verdict recorded verbatim in the checkpoint section below."
   - id: D8
     description: "T-27-01-02 is recorded as a guard against introducing a locale-sensitive spelling rather than as an active hazard now closed"
     requirement: PRIV-05
@@ -147,12 +148,13 @@ status: complete
 - **The scope was narrowed, not widened, in all three records.** Each states the singularity claim as covering the two redaction paths and the passive-scan admitter, and each names the four surviving non-redacting matchers with a reason. The forbidden phrasings appear 0 times in all three files, against a 0 baseline.
 - **The locale claim was NOT laundered into a closure.** Re-measured here rather than inherited: zero real locale-sensitive lowering call sites. The records say the `Locale.ROOT` work is a guard against introducing the hazardous Java spelling, not the closure of an active hazard.
 - **The milestone audit was not graded by the phase it graded.** One insertion hunk, frontmatter byte-identical, `REQUIREMENTS.md` untouched.
+- **A human, not an agent, certified the re-close.** The scope question was put to the user explicitly and certified at the stated width with the narrower option declined, and two classifications were spot-checked at source and both confirmed — one of them yielding a *stronger* property than the classification had claimed.
 
 ## Task Commits
 
 1. **Task 1: re-close T-26-02-01 on source, with the standing width rule** — `ef8baf0` (docs)
 2. **Task 2: amend the W-A over-claim and note the PRIV-05 closure** — `e5539f5` (docs)
-3. **Task 3: human confirmation** — `blocking-human` checkpoint, **NOT resolved**. See below.
+3. **Task 3: human confirmation** — `blocking-human` checkpoint, **RESOLVED `approved`** by the human user. No commit (verification only); the verdict is recorded below and in the amend commit for this SUMMARY.
 
 ## The five source commands, with literal output as observed
 
@@ -234,7 +236,7 @@ Run with the file exclusions and the predicate filter DROPPED, so the full list 
 
 `Redaction.kt` itself produces no sweep hit in this spelling set — its two regexes are composed from `COOKIE_NAME_TOKEN` rather than written as literal name comparisons. The three consumer sites (`McpToolHelpers.kt:336`, `PassiveAiScannerFilters.kt:186`, and the regexes) are filtered out by `grep -v 'isCookieHeaderName'` because they call the predicate — which is the point.
 
-**This table is the input to step 3 of the Task 3 checkpoint.** The human is asked to spot-check at least two of these classifications at source; that has not happened yet.
+**This table was the input to step 3 of the Task 3 checkpoint.** Two of its rows — `PassiveAiScannerAnalysis.kt:267` and `ActiveAiScanner.kt:1411` — were spot-checked at source by the human and both confirmed; the orchestrator independently re-ran the unfiltered sweep and matched this table row-for-row. See the checkpoint section below.
 
 ## Which clauses of the old T-26-02-01 claim were kept, and which were corrected
 
@@ -300,7 +302,7 @@ All 6 locale-sensitive spellings are inside comments this phase added. **Zero re
 
 ### Falsified plan premises, recorded rather than manufactured into a pass
 
-**1. [Falsified criterion] Two of Task 1's acceptance criteria are unsatisfiable as literally written**
+**1. [Plan defect — falsified criterion] Two of Task 1's acceptance criteria are unsatisfiable as literally written**
 
 - **Found during:** Task 1, acceptance-criteria loop
 - **Issue:** The plan asserts `grep -c 'threats_open: 0' 26-SECURITY.md` returns `1` and `grep -c 'status: verified' 26-SECURITY.md` returns `1`. Both count LINES, and both strings already appear in the file's own pre-existing prose independently of the frontmatter:
@@ -365,28 +367,85 @@ Record-level checks:
 | `T-27-03-03` (a phase editing the verdict that graded it) | mitigate | **Closed.** One insertion hunk; frontmatter byte-identical; `REQUIREMENTS.md` untouched. |
 | `T-27-03-04` (closure note overclaiming) | mitigate | **Closed.** AR-27-01/02/03 named in the row and in the audit note. |
 | `T-27-03-05` (the width lesson staying a one-row post-mortem) | mitigate | **Closed.** Promoted to a standing rule in the audit-scope section. |
-| `T-27-03-06` (certifying a wide claim on a narrow sweep) | mitigate | **Mitigated, pending Task 3.** Widened sweep run and quoted; scope stated positively in all three records; survivors named; ownership test green. The fourth mitigation — the human running the widened sweep and spot-checking two classifications — is NOT yet done. |
+| `T-27-03-06` (certifying a wide claim on a narrow sweep) | mitigate | **Closed.** All four mitigations landed: widened sweep run and quoted; scope stated positively in all three records; the four survivors named; and the human ran the widened and unfiltered sweeps and spot-checked two classifications at source, with the scope put to them explicitly and certified at the stated width. |
 | `T-27-03-SC` (package installs) | accept | Markdown only; no package installed, no dependency added. |
 
 ## Threat Flags
 
 None — no new network endpoint, auth path, file access pattern or schema change at a trust boundary. This plan changed three markdown records and no code.
 
-## Task 3 — `blocking-human` checkpoint, NOT resolved
+## Task 3 — `blocking-human` checkpoint, RESOLVED
 
-The human verdict is **not yet recorded**, and this plan does not seal without it. The phase is deliberately halted here, after every other task was completed and committed, so the halt is as late as possible.
+**Verdict: `approved`.** Given by the **human user**, not by the orchestrator and not self-approved
+by this executor. The phase halted here after every other task was executed and committed, so the
+halt landed as late as it could.
 
-Still owed by the human, per the plan's acceptance criteria:
+### The human's answer to the SCOPE question (step 7)
 
-1. Their verdict, verbatim, including any clause they judge unsupported and the source line they judged it against.
-2. Their answer to the SCOPE question (step 7): does the row claim the rule is singular at a width the evidence does not support, and does it confine the locale statement to the two header-name functions?
-3. The two classifications they spot-checked from the unfiltered-sweep table above, named, with what they found.
+Certified as stated, at the stated width and no wider:
 
-This SUMMARY will be amended with those three items once the checkpoint is resolved. Until then deliverable D7 stays `human_judgment: true` and `T-27-03-06`'s fourth mitigation stays open.
+> `isCookieHeaderName` is the single cookie-header-name rule across **the two redaction paths and the
+> passive-scan admitter** — `Redaction.apply`'s two regexes, `McpToolHelpers.sanitizeHeaders:336`,
+> and `PassiveAiScannerFilters.sanitizeHeadersForPrompt:186` — and at no wider scope. The four
+> survivors stand as classified non-redacting.
+
+The scope was put to the user **explicitly**, with the option to narrow it further offered and
+**declined**. That matters for a later reader: the width in the record is the width a human chose
+after seeing the alternative, not a width nobody questioned.
+
+### The two classifications the human spot-checked, and what they found
+
+Both were traced to their consumer by reading source in the worktree — not from this executor's
+report, which is the entire point of the second pair of eyes.
+
+**`PassiveAiScannerAnalysis.kt:267` — EXTRACTOR, non-leaking. Classification confirmed.**
+`cookieHeaderValues` → `cookieSectionLines` → the scan-metadata blob → `redactScanMetadata`, which
+calls `Redaction.apply` **unconditionally** at `PassiveAiScannerPrompts.kt:49`. The comment at `:41`
+states there is deliberately no `if (mode == PrivacyMode.OFF)` bypass. This also confirms 27-01's
+directional argument: narrowing this filter puts *fewer* cookie values into the prompt, so the site
+is fail-safe **by direction** rather than by a downstream step happening to stay correct — a
+stronger property than the one the classification claimed.
+
+**`ActiveAiScanner.kt:1411` — REQUEST MUTATOR, non-leaking. Classification confirmed.**
+Inside the `InjectionType.COOKIE` branch it substitutes an attack payload into the `Cookie` value and
+calls `withRemovedHeader("Cookie").withAddedHeader("Cookie", newCookies)`. The mutated request goes
+to the **target**. Nothing on this path reaches an AI backend.
+
+### Orchestrator-side verification, run independently before the gate reached the user
+
+All eight `how-to-verify` steps were re-run on this branch, independently of this executor's report:
+
+| Check | Result |
+|---|---|
+| Narrow sweep | `0` |
+| Widened filtered sweep | `0` |
+| Widened **unfiltered** sweep | exactly **7 lines**, all inside the four classified files, matching the classification table above **row-for-row** |
+| `Reopening — 2026-08-24` | `1` — the heading survived |
+| The literal `whole codebase` | `0` in all three records |
+| Fork base | exactly `8e2a5ad` |
+| Diff scope | **four planning files, zero source files** |
+| Locale finding | reproduced — the 5 `toLowerCase(` and 1 `lowercase(Locale.getDefault())` hits are all inside comments this phase added (`McpToolHelpers.kt:323,325`, `Redaction.kt:144,147,152`); **zero** real locale-sensitive lowering call sites |
+
+### On the two unsatisfiable acceptance criteria
+
+The handling was reviewed and confirmed correct, and is to stay recorded as a **plan defect rather
+than an execution shortfall**. `grep -c 'threats_open: 0'` → `3` and `grep -c 'status: verified'` →
+`2` are counts of pre-existing Sign-Off and audit-scope prose that the same plan requires be
+preserved and ticked; driving either to `1` would mean deleting content the plan protects. Reporting
+the counts and verifying the intent directly — frontmatter `status: verified` / `threats_open: 0`,
+with `threats_open: 1` and `status: gaps_found` both `0` — is the correct resolution. The next reader
+should see that the criteria were **wrong**, not that they were skipped.
+
+The self-caught near-miss in Deviation 2 — my own cross-reference defeating the
+reopening-preservation guard, fixed by rewording my text rather than touching the history — was
+likewise kept in the record deliberately.
+
+**No clause of the T-26-02-01 row was judged unsupported.** Nothing was named as over-claimed, in
+either direction.
 
 ## Next Phase Readiness
 
-- **Blocked on the Task 3 human confirmation.** Everything else in the plan is complete and committed.
+- **Complete.** The Task 3 human confirmation is resolved `approved`; every task is executed and committed. Ready for phase-level verification.
 - **For the next `/gsd-audit-milestone` run:** the v0.10.0 verdict is deliberately unedited. Re-derive it; do not inherit the closure note's conclusion.
 - **For the next security audit in this repo:** the standing rule in `26-SECURITY.md` is binding. An L1 pass that closes a coverage threat must name the sibling implementations it compared, and a closing note must state the scope its sweep actually covered.
 
@@ -398,8 +457,8 @@ This SUMMARY will be amended with those three items once the checkpoint is resol
 - `git diff HEAD~2 HEAD --numstat` lists exactly the three records. **No `STATE.md`, no `ROADMAP.md`, no `REQUIREMENTS.md`, no source or test file.**
 - Working tree clean apart from this SUMMARY at the moment of writing.
 - Every task-level `<acceptance_criteria>` was executed. The two that could not be satisfied as literally written are recorded above as Deviation 1 with their measured counts and the reason, not silently skipped.
-- Task 3 is recorded as UNRESOLVED rather than assumed approved.
+- Task 3 was resolved by the human user, not self-approved by this executor. Their verdict, their answer to the scope question and their two source-level spot-checks are recorded verbatim below.
 
 ---
 *Phase: 27-priv-05-gap-closure-sanitize-headers*
-*Completed: 2026-08-24 (pending Task 3 human confirmation)*
+*Completed: 2026-08-24 — Task 3 confirmed `approved` by the human user*
