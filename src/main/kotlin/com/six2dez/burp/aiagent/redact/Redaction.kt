@@ -139,10 +139,18 @@ object Redaction {
      * `Cookie2`, `Set-Cookie2`, `X-Original-Cookie` and `X-Forwarded-Cookie` reached the model
      * verbatim through the MCP `request_parse` / `response_parse` tools.
      *
-     * The `Locale.ROOT` argument is load-bearing, not decoration. The JVM default locale is ambient
-     * host-controlled input: under a Turkish default locale a no-argument `"COOKIE".lowercase()`
-     * yields `cookıe` (dotless i), the token stops matching, and this security control silently
-     * stops working on that host with no error anywhere.
+     * The `Locale.ROOT` argument is explicit for a MEASURED reason, and the measurement is not the
+     * one the folklore gives. Kotlin's no-argument `String.lowercase()` is ALREADY locale-agnostic —
+     * it compiles to `toLowerCase(Locale.ROOT)` — so with the JVM default locale set to `tr-TR`,
+     * `"COOKIE".lowercase()` was measured on this toolchain to yield `cookie`, not the dotless-i
+     * `cookıe`. The dotless-i hazard is real, but it belongs to the JAVA spelling: under that same
+     * default, `"COOKIE".toLowerCase()` and `toLowerCase(Locale.getDefault())` were both measured to
+     * yield `cookıe`, which would silently stop this control matching on such a host.
+     *
+     * So `Locale.ROOT` is stated rather than left implied, and the honest bound is worth writing
+     * down: removing this argument does NOT change behaviour today, whereas replacing it with
+     * `Locale.getDefault()`, or switching to Java's `toLowerCase()`, would break the control without
+     * an error anywhere. The argument's job is to make that future edit read as the change it is.
      *
      * Cost is one `lowercase` plus one `contains` — no `Regex`, no compilation, no backtracking
      * surface — because this runs once per header on the MCP tool path.

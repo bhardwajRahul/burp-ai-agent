@@ -11,6 +11,7 @@ import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import kotlinx.serialization.encodeToString
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
@@ -20,10 +21,13 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.parallel.ResourceLock
+import org.junit.jupiter.api.parallel.Resources
 import org.mockito.Answers
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import java.nio.file.Path
+import java.util.Locale
 
 /**
  * Behavioural tests for the pure helpers in `McpToolHelpers.kt`.
@@ -44,6 +48,23 @@ import java.nio.file.Path
  * `InjectionPointExtractorTest`.
  */
 class McpToolHelpersTest {
+    private var localeAtStart: Locale = Locale.getDefault()
+
+    @BeforeEach
+    fun captureDefaultLocale() {
+        localeAtStart = Locale.getDefault()
+    }
+
+    @AfterEach
+    fun defaultLocaleIsRestored() {
+        // cookieNameMatchingSurvivesATurkishDefaultLocale swaps the JVM-wide default. Asserting the
+        // restore here — rather than trusting the `finally` inside that one test — is what stops a
+        // Turkish default leaking into every later test class in the shared JVM if that test is ever
+        // edited carelessly. JUnit parallel execution is not enabled in this project, so the swap is
+        // safe; @ResourceLock(Resources.LOCALE) on that test is insurance against that changing.
+        assertEquals(localeAtStart, Locale.getDefault(), "the JVM default locale must be restored")
+    }
+
     @BeforeEach
     fun clearCustomPatterns() {
         // Redaction is a singleton object: custom patterns left behind by another test class in the
@@ -210,6 +231,189 @@ class McpToolHelpersTest {
                     "(got: $rawFinalText)",
             )
         }
+
+        /**
+         * (PRIV-05) The full variant matrix on the tool-result path, using the SAME seven names as
+         * `RedactionTest.cookieHeaderNameVariantsAreStripped` so the two suites are comparable by eye.
+         *
+         * Each fixture carries its OWN sentinel. That is what makes a partial fix visible: with one
+         * shared value a matcher that catches six of seven still passes, which is the exact class of
+         * miss this phase exists to repair.
+         */
+        @Test
+        fun cookieHeaderNameVariantsAreStrippedOnTheToolResultPath() {
+            listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED).forEach { mode ->
+                val sanitized =
+                    sanitizeHeaders(cookieVariantHeaders(), contextWith(mode, "variant-salt-$mode"))
+
+                cookieVariants.forEach { (name, _) ->
+                    assertEquals(
+                        stripped,
+                        sanitized[name],
+                        "$mode: $name must be stripped under its OWN name, not renamed (T-21-WA2)",
+                    )
+                }
+                assertEquals(
+                    "benignidcontrolvalue",
+                    sanitized["X-Request-Id"],
+                    "$mode: a header with no cookie token must survive byte-identical",
+                )
+            }
+        }
+
+        @Test
+        fun offModePassesEveryCookieNameVariantThrough() {
+            // OFF is the user's explicit, pre-flight choice to see raw traffic. Overriding it with
+            // "extra safety" would be a betrayal of the privacy UI, not a hardening.
+            val sanitized =
+                sanitizeHeaders(cookieVariantHeaders(), contextWith(PrivacyMode.OFF, "off-salt"))
+
+            cookieVariants.forEach { (name, sentinel) ->
+                assertEquals(sentinel, sanitized[name], "OFF must pass $name through unchanged")
+            }
+            assertEquals("benignidcontrolvalue", sanitized["X-Request-Id"])
+        }
+
+        /**
+         * The ACCEPTED cost of D-27-02, asserted by name so it is a recorded decision in the suite
+         * rather than a surprise in the field.
+         *
+         * `Cookie-Consent` and `X-Cookie-Policy` carry no cookie, and their values are stripped
+         * anyway. This is the same cost the prompt path already accepts (T-21-WA3): any `*cookie*`
+         * header is cookie-bearing by convention, and only the VALUE is removed. A tighter rule was
+         * rejected because it would have to change on BOTH paths at once or the divergence reopens
+         * immediately — which is precisely the failure being repaired here.
+         */
+        @Test
+        fun headersMerelyContainingCookieAreStrippedByDesign() {
+            val sanitized =
+                sanitizeHeaders(
+                    listOf(
+                        stubHeader("Cookie-Consent", "analytics-declined"),
+                        stubHeader("X-Cookie-Policy", "strictly-necessary"),
+                    ),
+                    contextWith(PrivacyMode.STRICT, "over-match-salt"),
+                )
+
+            assertEquals(stripped, sanitized["Cookie-Consent"])
+            assertEquals(stripped, sanitized["X-Cookie-Policy"])
+        }
+
+        @Test
+        fun benignHeaderNamesWithoutTheTokenSurvive() {
+            // The predicate is a substring test on the WHOLE token, so a name that merely shares
+            // letters with it is not caught. This is the boundary of the accepted over-match above.
+            val sanitized =
+                sanitizeHeaders(
+                    listOf(
+                        stubHeader("X-Cook", "roast"),
+                        stubHeader("Cook-ie", "split-token"),
+                        stubHeader("Accept", "application/json"),
+                        stubHeader("X-Request-Id", "benignidcontrolvalue"),
+                    ),
+                    contextWith(PrivacyMode.STRICT, "benign-salt"),
+                )
+
+            assertEquals("roast", sanitized["X-Cook"])
+            assertEquals("split-token", sanitized["Cook-ie"])
+            assertEquals("application/json", sanitized["Accept"])
+            assertEquals("benignidcontrolvalue", sanitized["X-Request-Id"])
+        }
+
+        /**
+         * (PRIV-05) The `encoding` edge: header-name matching lowercases ASCII and must not depend on
+         * the ambient JVM default locale.
+         *
+         * MEASURED BOUND, recorded so this test is not read as proving more than it does. Kotlin's
+         * no-argument `String.lowercase()` is ALREADY locale-agnostic — it compiles to
+         * `toLowerCase(Locale.ROOT)` — so under a `tr-TR` default `"COOKIE".lowercase()` yields
+         * `cookie`, and this test would pass even with the explicit `Locale.ROOT` argument removed.
+         * The dotless-i hazard belongs to the JAVA spelling: under the same default,
+         * `"COOKIE".toLowerCase()` yields `cookıe`. So what this test actually guards is a future
+         * switch to a locale-SENSITIVE spelling, and the first assertion below states the JVM's
+         * behaviour explicitly so a reader can see which of the two cases they are in.
+         *
+         * All three comparisons are asserted, not only the cookie one: `sanitizeHeaders` computes a
+         * single lowered name and feeds it to the cookie test, the token-header lookup and the host
+         * compare, so the locale question cannot be answered for one of them alone (D-27-04).
+         */
+        @Test
+        @ResourceLock(Resources.LOCALE)
+        fun cookieNameMatchingSurvivesATurkishDefaultLocale() {
+            val previous = Locale.getDefault()
+            val salt = "turkish-salt"
+            val host = "api.example.com"
+            try {
+                Locale.setDefault(Locale.forLanguageTag("tr-TR"))
+
+                // Non-vacuity probe, asserted rather than assumed. This records WHICH hazard this JVM
+                // exhibits: Kotlin's lowercase() is locale-agnostic, Java's toLowerCase() is not.
+                assertTrue(
+                    "COOKIE".lowercase().contains("cookie"),
+                    "measured: Kotlin lowercase() is locale-agnostic, so the tr-TR assertions below " +
+                        "are a guard against a future locale-sensitive spelling, not proof of a " +
+                        "hazard this spelling exhibits",
+                )
+                assertFalse(
+                    ("COOKIE" as java.lang.String).toLowerCase().contains("cookie"),
+                    "measured: the dotless-i hazard is real for the JAVA spelling under tr-TR — that " +
+                        "is the edit this test exists to catch",
+                )
+
+                val sanitized =
+                    sanitizeHeaders(
+                        listOf(
+                            stubHeader("X-COOKIE", "sentinelturkishcookie"),
+                            stubHeader("SET-COOKIE", "sentinelturkishsetcookie"),
+                            stubHeader("AUTHORIZATION", "Bearer sentinelturkishtoken"),
+                            stubHeader("HOST", host),
+                        ),
+                        contextWith(PrivacyMode.STRICT, salt),
+                    )
+
+                assertEquals(stripped, sanitized["X-COOKIE"])
+                assertEquals(stripped, sanitized["SET-COOKIE"])
+                assertEquals(redacted, sanitized["AUTHORIZATION"])
+                assertEquals(Redaction.anonymizeHost(host, salt), sanitized["HOST"])
+            } finally {
+                // Restored in `finally`, not at the end of the happy path: a failed assertion above
+                // must not leave a Turkish default locale behind for every later test class in the
+                // shared JVM.
+                Locale.setDefault(previous)
+            }
+        }
+
+        @Test
+        fun emptyValuedCookieHeaderIsStillRedacted() {
+            // The `empty` edge. An empty-but-PRESENT value is never passed through as-is: the header
+            // is reported as stripped, so the analyst sees that a cookie header was there at all.
+            // `emptyHeaderListYieldsEmptyMap` above covers the other half of the same edge.
+            val sanitized =
+                sanitizeHeaders(
+                    listOf(stubHeader("Set-Cookie", "")),
+                    contextWith(PrivacyMode.STRICT, "empty-value-salt"),
+                )
+
+            assertEquals(stripped, sanitized["Set-Cookie"])
+        }
+
+        // The five measured variant names plus the two canonical ones, each with its OWN sentinel.
+        // Same seven names as RedactionTest.cookieHeaderNameVariantsAreStripped, and the sentinel
+        // scheme continues that test's (sentinelalphaone … sentinelechofive).
+        private val cookieVariants =
+            listOf(
+                "Cookie" to "sentinelfoxtrotsix",
+                "Set-Cookie" to "sentinelgolfseven",
+                "Cookie2" to "sentinelalphaone",
+                "X-Cookie" to "sentinelbravotwo",
+                "Set-Cookie2" to "sentinelcharliethree",
+                "X-Original-Cookie" to "sentineldeltafour",
+                "X-Forwarded-Cookie" to "sentinelechofive",
+            )
+
+        private fun cookieVariantHeaders(): List<HttpHeader> =
+            cookieVariants.map { (name, sentinel) -> stubHeader(name, sentinel) } +
+                stubHeader("X-Request-Id", "benignidcontrolvalue")
 
         // Minimal ParsedRequest envelope for the end-to-end assertions: only `headers` varies, so
         // every other field is fixed here instead of being repeated at each call site.

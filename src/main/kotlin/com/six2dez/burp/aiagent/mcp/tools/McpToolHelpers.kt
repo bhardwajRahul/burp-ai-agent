@@ -317,10 +317,14 @@ internal fun sanitizeHeaders(
     val sanitized = LinkedHashMap<String, String>()
     headers.forEach { header ->
         val name = header.name()
-        // (PRIV-05) D-27-04: Locale.ROOT is load-bearing for ALL THREE comparisons below, not only
-        // the cookie one — they all read this single lowered value. Under a Turkish default locale a
-        // no-argument lowercase() turns "COOKIE"/"HOST"/"AUTHORIZATION" into dotless-i spellings that
-        // no longer match, silently disabling the control on that host.
+        // (PRIV-05) D-27-04: this single lowered value feeds ALL THREE comparisons below — the
+        // cookie test, the tokenHeaders lookup and the host compare — so the locale question cannot
+        // be answered for one of them alone. Measured, rather than assumed: Kotlin's no-argument
+        // lowercase() is already locale-agnostic (it compiles to toLowerCase(Locale.ROOT)), so this
+        // argument does not change behaviour today. It is stated so that a later switch to a
+        // locale-SENSITIVE spelling — Java's toLowerCase(), or lowercase(Locale.getDefault()), both
+        // measured to yield the dotless-i "cookıe" under a tr-TR default — reads as the security
+        // change it would be instead of slipping through as a formatting tidy-up.
         val lowered = name.lowercase(Locale.ROOT)
         var value = header.value()
         // (PRIV-05) D-27-01: the cookie-header-name rule lives in Redaction and is shared with the
