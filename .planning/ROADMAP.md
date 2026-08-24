@@ -395,7 +395,7 @@ reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Depends on:** Phase 26
 **Gap closure (2026-08-24):** `27-VERIFICATION.md` scored 7/9 and failed the two truths the goal rests on. `Serialization.kt` embeds a RAW HTTP message in a JSON string, `toolJson.encodeToString` escapes every CRLF to a literal two-character sequence, and both cookie rules are line-anchored `(?im)^…$` — so the CANONICAL `Cookie:` and `Set-Cookie:` headers leak verbatim in STRICT and BALANCED through `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`, across 14 measured emission sites with no `sanitizeHeaders` in front. Strictly broader than the variant-spelling defect that created the phase. `AR-27-01` is reclassified from accepted residual to live finding. Plans 27-04 to 27-06 close it; the maintainer chose to fix rather than to scope PRIV-05 down.
 
-**Plans:** 4/6 plans executed (3/6 executed)
+**Plans:** 5/6 plans executed (3/6 executed)
 
 Plans:
 **Wave 1**
@@ -416,7 +416,7 @@ Plans:
 
 **Wave 5** *(gap closure — blocked on Wave 4 completion)*
 
-- [ ] 27-05-PLAN.md — Pin the 14-site emission inventory and the single redacting choke point; close the measured credential-bearing auth-header leak on the same shape; pin which rules carry the new boundary and measure the one deliberately excluded (wave 5)
+- [x] 27-05-PLAN.md — Pin the 14-site emission inventory and the single redacting choke point; close the measured credential-bearing auth-header leak on the same shape; pin which rules carry the new boundary and measure the one deliberately excluded (wave 5)
 
 **Wave 6** *(gap closure — blocked on Wave 5 completion)*
 
@@ -439,7 +439,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
 | 26. Coverage, Static-Analysis Debt & Docs | 7/7 | In Progress|  |
-| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 4/6 | In Progress|  |
+| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 5/6 | In Progress|  |
 
 ## Backlog
 
