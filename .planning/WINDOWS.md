@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 15
+open_count: 18
 waived_count: 0
 fixed_count: 0
-total_count: 15
-last_updated: 2026-08-24T20:31:52.926Z
+total_count: 18
+last_updated: 2026-08-24T20:54:48.137Z
 ---
 
 # Broken Windows Ledger
@@ -30,6 +30,9 @@ last_updated: 2026-08-24T20:31:52.926Z
 | 13 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-05-PLAN.md |  | Plan 27-05 task 1 red-probe criterion falsified as written: removing a tool name from RAW_HTTP_EMISSION_TOOL_NAMES fails theMeasuredEmissionSiteCountIsPinned (via the names-vs-count cross-check), NOT everyEmissionToolNameAppearsInBothExecutors — a smaller set simply checks fewer names and stays green. The intended probe for the presence test is a name IN the set that is ABSENT from an executor; run as a rename and observed RED. Both probes recorded. | open |  | 2026-08-24T20:31:37.830Z |  |
 | 14 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/mcp/McpSupervisorProbeTest.kt |  | Plan 27-05 task 3 acceptance criterion 'no path containing Probe appears anywhere under src/' is unsatisfiable as written: McpSupervisorProbeTest.kt has existed since phase 20 (08e8ff8) and is unrelated to redaction measurement. The intended invariant — this plan's throwaway residual probe is not committed — was verified directly (git status --porcelain src/ clean, probe lives only in the scratchpad, its full source quoted in the SUMMARY). | open |  | 2026-08-24T20:31:45.459Z |  |
 | 15 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/SerializedEmissionSiteInventoryTest.kt |  | Plan 27-05 pins the three addTool registration sites by PATH and COUNT rather than by file:line as the plan's must_haves wording implies. Line-number pins rot on any edit above line 34 and contradict CookieHeaderRuleOwnershipTest's stated path-keyed discipline. Measured line numbers (McpTool.kt:34, McpTool.kt:72, McpToolHandlers.kt:122) are recorded in the SUMMARY and in the test's own constant comment instead. Red probe confirms the path+count pin still fails when a path is dropped. | open |  | 2026-08-24T20:31:52.926Z |  |
+| 16 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-06-PLAN.md |  | Plan 27-06 premise falsified: AR-27-02 is NOT simply 'SUPERSEDED, not still-deferred'. Measured in 27-06 against the compiled classes: on the header-map shape {"X-API-Key":"..."} is redacted by the JSON-key rule while {"Cookie":"..."} and {"X-Cookie":"..."} are not, because cookie is absent from SENSITIVE_WORDS (Redaction.kt:663-664). AR-27-02 is superseded on the raw-message-in-JSON shape only and remains load-bearing on the header-map shape. Recorded at that scope rather than at the plan's wider wording. | open |  | 2026-08-24T20:54:31.180Z |  |
+| 17 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-06-PLAN.md |  | Plan 27-06 task 1 acceptance criteria 1-2 are unsatisfiable as written: 'no removed line falls inside clauses (1),(2),(3) of T-26-02-01'. The whole T-26-02-01 register row is ONE physical markdown line, so appending clause (4) necessarily rewrites it and it appears as a removed line. Intent verified directly instead: the splice asserted the OLD row body is an exact BYTE PREFIX of the new row (5633 -> 11320 chars, prefix check PASS), so no clause text was altered. Recorded rather than worked around. | open |  | 2026-08-24T20:54:40.048Z |  |
+| 18 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-06-PLAN.md |  | GATE DEFECT, applies to any GSD plan reusing it: the append-only gate "git diff HEAD -- <file> \| grep -c '^-[^-]'" is a FALSE ZERO on markdown BULLET lines. A removed line beginning '- ' renders in the diff as '--', which the [^-] class excludes, so a real deletion is not counted. Observed in 27-06 on CONCERNS.md: the gate returned 0 while one line was genuinely replaced. Robust form used instead: git diff HEAD --unified=0 -- <file> \| grep '^-' \| grep -v '^--- '. Both 26-SECURITY.md and v0.10.0-MILESTONE-AUDIT.md were re-checked with the robust form; the milestone audit is genuinely append-only (zero removals). | open |  | 2026-08-24T20:54:48.137Z |  |
 
 ````json
 [
@@ -211,6 +214,42 @@ last_updated: 2026-08-24T20:31:52.926Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-24T20:31:52.926Z",
+    "resolved_at": null
+  },
+  {
+    "id": 16,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-06-PLAN.md",
+    "line": null,
+    "description": "Plan 27-06 premise falsified: AR-27-02 is NOT simply 'SUPERSEDED, not still-deferred'. Measured in 27-06 against the compiled classes: on the header-map shape {\"X-API-Key\":\"...\"} is redacted by the JSON-key rule while {\"Cookie\":\"...\"} and {\"X-Cookie\":\"...\"} are not, because cookie is absent from SENSITIVE_WORDS (Redaction.kt:663-664). AR-27-02 is superseded on the raw-message-in-JSON shape only and remains load-bearing on the header-map shape. Recorded at that scope rather than at the plan's wider wording.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-24T20:54:31.180Z",
+    "resolved_at": null
+  },
+  {
+    "id": 17,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-06-PLAN.md",
+    "line": null,
+    "description": "Plan 27-06 task 1 acceptance criteria 1-2 are unsatisfiable as written: 'no removed line falls inside clauses (1),(2),(3) of T-26-02-01'. The whole T-26-02-01 register row is ONE physical markdown line, so appending clause (4) necessarily rewrites it and it appears as a removed line. Intent verified directly instead: the splice asserted the OLD row body is an exact BYTE PREFIX of the new row (5633 -> 11320 chars, prefix check PASS), so no clause text was altered. Recorded rather than worked around.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-24T20:54:40.048Z",
+    "resolved_at": null
+  },
+  {
+    "id": 18,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-06-PLAN.md",
+    "line": null,
+    "description": "GATE DEFECT, applies to any GSD plan reusing it: the append-only gate \"git diff HEAD -- <file> | grep -c '^-[^-]'\" is a FALSE ZERO on markdown BULLET lines. A removed line beginning '- ' renders in the diff as '--', which the [^-] class excludes, so a real deletion is not counted. Observed in 27-06 on CONCERNS.md: the gate returned 0 while one line was genuinely replaced. Robust form used instead: git diff HEAD --unified=0 -- <file> | grep '^-' | grep -v '^--- '. Both 26-SECURITY.md and v0.10.0-MILESTONE-AUDIT.md were re-checked with the robust form; the milestone audit is genuinely append-only (zero removals).",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-24T20:54:48.137Z",
     "resolved_at": null
   }
 ]

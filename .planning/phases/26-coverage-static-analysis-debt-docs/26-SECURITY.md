@@ -3,6 +3,15 @@ phase: 26
 slug: coverage-static-analysis-debt-docs
 status: verified
 # threats_open = count of OPEN threats at or above workflow.security_block_on severity (the blocking gate)
+# COMPUTED, never hand-written (phase 27, plan 27-06). A hand-written counter is how the
+# 2026-08-24 overclaim survived review. Re-derive it from the register rows with:
+#   awk -F'|' '/^\| T-26-/ { sev=$5; st=$(NF-1); gsub(/[ *`]/,"",sev); gsub(/[ *`]/,"",st);
+#       if (st != "closed" && (sev == "high" || sev == "critical")) c++ } END { print c+0 }' \
+#     .planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md
+# Output on 2026-08-24 after the plan 27-06 amendment: 0  (46 rows scanned, 46 closed).
+# The value below is that output. AR-27-04 and AR-27-05 are OPEN findings at MEDIUM severity,
+# which is below the `high` blocking gate and therefore correctly outside this count — they are
+# recorded in the Accepted Risks Log and in the evidence section beneath it, not erased by it.
 threats_open: 0
 asvs_level: 1
 created: 2026-08-24
@@ -57,7 +66,7 @@ the workflow declares sufficient when `threats_open: 0` and the register is plan
 | T-26-01-03 | Denial of Service | `shellEscape` fast path | low | mitigate | The pass-through test is `arg.all { it in SHELL_SAFE_CHARS }` — a per-character scan over a `const val`, not a `Regex`. No backtracking surface on a path that runs per CLI argument. **Verified in source.** | closed |
 | T-26-01-04 | Information Disclosure | widened `internal` helpers | low | **accept** | `internal` is module-scoped, single-module Gradle build, no published Kotlin API; the five widened helpers are pure transforms over data the caller already holds. Same trade-off `buildTimeoutMessage` and `buildCopilotCommand` already made. See Accepted Risks. | closed |
 | T-26-01-05 | Tampering | over-quoting regression | medium | mitigate | Positive assertions that `--silent`, `/usr/local/bin/claude`, `claude-3.5` and `gemini_cli` return byte-identical, guarding against a fix that quotes everything and silently breaks working CLI backends. **Verified:** `plainFlagIsPassedThroughUnquoted`, `absolutePathIsPassedThroughUnquoted`, `versionSuffixAndUnderscoreNameArePassedThroughUnquoted`, `ptyArgvLeavesAllowlistedArgumentsByteIdentical`. | closed |
-| T-26-02-01 | Information Disclosure | `sanitizeHeaders` | high | mitigate | **Three-part history — read top to bottom; none of it replaces what came before.** **(1) The original narrow claim, which holds.** Case-insensitive matching of `Cookie`, `Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-API-Key`, `Api-Key` and `Host` is asserted per privacy mode (`McpToolHelpersTest.SanitizeHeaders`). **(2) REOPENED 2026-08-24 by the v0.10.0 milestone audit**, because the broad claim did not hold: the matcher was `lowered == "cookie" \|\| lowered == "set-cookie"`, an EXACT-name test, while Phase 21 had already widened the prompt path to name-contains-`cookie`, so `X-Cookie`, `Cookie2`, `Set-Cookie2`, `X-Original-Cookie` and `X-Forwarded-Cookie` passed through unstripped via `request_parse` / `response_parse` — see the unedited reopening section dated 2026-08-24 at the foot of this file for the full narrative. **(3) CLOSED again 2026-08-24 by Phase 27 (plans 27-01, 27-02, 27-03), on source re-read in the closing task rather than on any SUMMARY's assertion.** The rule is now one symbol: `fun isCookieHeaderName(name: String): Boolean = name.lowercase(Locale.ROOT).contains(COOKIE_NAME_TOKEN)` (`Redaction.kt:158`; `COOKIE_NAME_TOKEN = "cookie"` at `:91`), and both prompt-path regexes are composed from that same token (`:107-113`), so predicate and regexes cannot drift apart by construction. `sanitizeHeaders` now carries exactly one cookie test and it is a call to that predicate: `if (policy.stripCookies && Redaction.isCookieHeaderName(name))` (`McpToolHelpers.kt:336`). **Scope of the singularity claim, stated positively so it cannot silently widen:** `isCookieHeaderName` is the single cookie-header-name rule across **the two redaction paths and the passive-scan admitter** — `Redaction.apply`'s two regexes, `McpToolHelpers.sanitizeHeaders` (`:336`) and `PassiveAiScannerFilters.sanitizeHeadersForPrompt` (`:186`) — and at no wider scope than those three sites. Four cookie-header-name matchers survive elsewhere in `src/main/kotlin`, each classified non-redacting by plan 27-01 against its consumer chain: the **passive-scan cookie-section extractor** (`PassiveAiScannerAnalysis.kt:267`) — its output reaches the prompt only through `redactScanMetadata`, which calls `Redaction.apply` unconditionally; the **local-only scanner heuristics** (`PassiveAiScannerHeuristics.kt:102` and `:117`, `ActiveAiScanner.kt:936`) — each reduces a cookie value to a boolean that never crosses the process boundary; the **bounty-prompt extractor** (`BountyPromptTagResolver.kt:144,150`) — it filters text `Redaction.apply` has already processed; and the **active-scanner request mutator** (`ActiveAiScanner.kt:1411`) — it writes an attack payload to the TARGET, not to an AI backend. **Both sweeps were run in the closing task; output quoted as observed.** Narrow: `grep -rn 'contains("cookie")' src/main/kotlin --include=*.kt \| grep -v 'isCookieHeaderName' \| wc -l` → `0`. WIDENED, over five spelling classes (exact-name `equals`, `ignoreCase` equality, `startsWith` line-prefix, Montoya `headerValue`, substring `contains`), excluding the four classified files and the owner `Redaction.kt` → `0`. The widened sweep is the one that supports the sentence above; the narrow one alone could not see the four survivors. **Guarded by three tests, each named with the narrowing it actually covers:** `McpToolHelpersTest.cookieHeaderNameVariantsAreStrippedOnTheToolResultPath` (the tool-result outcome); `CookieHeaderNameParityTest.everyNameThePromptPathStripsIsMatchedByTheSharedPredicate` (guards a narrowing of the PREDICATE — per plan 27-02's measured red probe 2 it does NOT guard a narrowing of the prompt-path REGEXES, which `RedactionTest.cookieHeaderNameVariantsAreStripped` guards instead); and `CookieHeaderRuleOwnershipTest` (3 tests, green in the closing task — a TRIPWIRE bounded to those five measured spelling classes and stated as such in its own file header, not a proof of exhaustive coverage: a matcher spelled outside them stays invisible to it). **Commits:** `02d71c2` (the fix), `fe379e5` (predicate shared with the admitter, ownership tripwire), `33b3c33` and `b7519c5` (parity test, tool-result order and collapse assertions). **What is NOT closed, named so this row cannot be read as more than it is:** **AR-27-01** — `McpToolContext.redactIfNeeded` still cannot recover a header `sanitizeHeaders` misses, because its output is single-line JSON while both cookie regexes are line-anchored `(?im)^…$`; **AR-27-02** — `cookie` remains absent from `SENSITIVE_WORDS`, so `jsonSecretKeyRegex` is not a backstop either; **AR-27-03** — byte-identically-named headers collapse to one entry in the tool-result header map (CP-27-02-01, human-decided: privacy-safe and asserted to leak no original value, but it costs analysis signal). **Locale scope, stated narrowly on purpose:** the explicit `Locale.ROOT` argument is present only at the two header-name functions this phase changed (`Redaction.isCookieHeaderName`, `McpToolHelpers.sanitizeHeaders`), and per plan 27-01's MEASURED backlog observation it is defensive documentation rather than a defect fix — Kotlin's no-argument `lowercase()` already compiles to `toLowerCase(Locale.ROOT)`, so `src/main/kotlin` holds **zero** locale-sensitive lowering call sites today (the 5 `toLowerCase(` and 1 `lowercase(Locale.getDefault())` hits are all inside comments this phase added). What ships is a guard against introducing the hazardous Java spelling, NOT the closure of an active hazard; the backlog item 27-01 records is that guard, not a migration. | closed |
+| T-26-02-01 | Information Disclosure | `sanitizeHeaders` | high | mitigate | **Three-part history — read top to bottom; none of it replaces what came before.** **(1) The original narrow claim, which holds.** Case-insensitive matching of `Cookie`, `Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-API-Key`, `Api-Key` and `Host` is asserted per privacy mode (`McpToolHelpersTest.SanitizeHeaders`). **(2) REOPENED 2026-08-24 by the v0.10.0 milestone audit**, because the broad claim did not hold: the matcher was `lowered == "cookie" \|\| lowered == "set-cookie"`, an EXACT-name test, while Phase 21 had already widened the prompt path to name-contains-`cookie`, so `X-Cookie`, `Cookie2`, `Set-Cookie2`, `X-Original-Cookie` and `X-Forwarded-Cookie` passed through unstripped via `request_parse` / `response_parse` — see the unedited reopening section dated 2026-08-24 at the foot of this file for the full narrative. **(3) CLOSED again 2026-08-24 by Phase 27 (plans 27-01, 27-02, 27-03), on source re-read in the closing task rather than on any SUMMARY's assertion.** The rule is now one symbol: `fun isCookieHeaderName(name: String): Boolean = name.lowercase(Locale.ROOT).contains(COOKIE_NAME_TOKEN)` (`Redaction.kt:158`; `COOKIE_NAME_TOKEN = "cookie"` at `:91`), and both prompt-path regexes are composed from that same token (`:107-113`), so predicate and regexes cannot drift apart by construction. `sanitizeHeaders` now carries exactly one cookie test and it is a call to that predicate: `if (policy.stripCookies && Redaction.isCookieHeaderName(name))` (`McpToolHelpers.kt:336`). **Scope of the singularity claim, stated positively so it cannot silently widen:** `isCookieHeaderName` is the single cookie-header-name rule across **the two redaction paths and the passive-scan admitter** — `Redaction.apply`'s two regexes, `McpToolHelpers.sanitizeHeaders` (`:336`) and `PassiveAiScannerFilters.sanitizeHeadersForPrompt` (`:186`) — and at no wider scope than those three sites. Four cookie-header-name matchers survive elsewhere in `src/main/kotlin`, each classified non-redacting by plan 27-01 against its consumer chain: the **passive-scan cookie-section extractor** (`PassiveAiScannerAnalysis.kt:267`) — its output reaches the prompt only through `redactScanMetadata`, which calls `Redaction.apply` unconditionally; the **local-only scanner heuristics** (`PassiveAiScannerHeuristics.kt:102` and `:117`, `ActiveAiScanner.kt:936`) — each reduces a cookie value to a boolean that never crosses the process boundary; the **bounty-prompt extractor** (`BountyPromptTagResolver.kt:144,150`) — it filters text `Redaction.apply` has already processed; and the **active-scanner request mutator** (`ActiveAiScanner.kt:1411`) — it writes an attack payload to the TARGET, not to an AI backend. **Both sweeps were run in the closing task; output quoted as observed.** Narrow: `grep -rn 'contains("cookie")' src/main/kotlin --include=*.kt \| grep -v 'isCookieHeaderName' \| wc -l` → `0`. WIDENED, over five spelling classes (exact-name `equals`, `ignoreCase` equality, `startsWith` line-prefix, Montoya `headerValue`, substring `contains`), excluding the four classified files and the owner `Redaction.kt` → `0`. The widened sweep is the one that supports the sentence above; the narrow one alone could not see the four survivors. **Guarded by three tests, each named with the narrowing it actually covers:** `McpToolHelpersTest.cookieHeaderNameVariantsAreStrippedOnTheToolResultPath` (the tool-result outcome); `CookieHeaderNameParityTest.everyNameThePromptPathStripsIsMatchedByTheSharedPredicate` (guards a narrowing of the PREDICATE — per plan 27-02's measured red probe 2 it does NOT guard a narrowing of the prompt-path REGEXES, which `RedactionTest.cookieHeaderNameVariantsAreStripped` guards instead); and `CookieHeaderRuleOwnershipTest` (3 tests, green in the closing task — a TRIPWIRE bounded to those five measured spelling classes and stated as such in its own file header, not a proof of exhaustive coverage: a matcher spelled outside them stays invisible to it). **Commits:** `02d71c2` (the fix), `fe379e5` (predicate shared with the admitter, ownership tripwire), `33b3c33` and `b7519c5` (parity test, tool-result order and collapse assertions). **What is NOT closed, named so this row cannot be read as more than it is:** **AR-27-01** — `McpToolContext.redactIfNeeded` still cannot recover a header `sanitizeHeaders` misses, because its output is single-line JSON while both cookie regexes are line-anchored `(?im)^…$`; **AR-27-02** — `cookie` remains absent from `SENSITIVE_WORDS`, so `jsonSecretKeyRegex` is not a backstop either; **AR-27-03** — byte-identically-named headers collapse to one entry in the tool-result header map (CP-27-02-01, human-decided: privacy-safe and asserted to leak no original value, but it costs analysis signal). **Locale scope, stated narrowly on purpose:** the explicit `Locale.ROOT` argument is present only at the two header-name functions this phase changed (`Redaction.isCookieHeaderName`, `McpToolHelpers.sanitizeHeaders`), and per plan 27-01's MEASURED backlog observation it is defensive documentation rather than a defect fix — Kotlin's no-argument `lowercase()` already compiles to `toLowerCase(Locale.ROOT)`, so `src/main/kotlin` holds **zero** locale-sensitive lowering call sites today (the 5 `toLowerCase(` and 1 `lowercase(Locale.getDefault())` hits are all inside comments this phase added). What ships is a guard against introducing the hazardous Java spelling, NOT the closure of an active hazard; the backlog item 27-01 records is that guard, not a migration. **(4) REOPENED A SECOND TIME AND RE-CLOSED — 2026-08-24, by this phase's own verification (`27-VERIFICATION.md`, 7/9 truths), closed by plans 27-04 and 27-05, recorded by plan 27-06.** Clauses (1), (2) and (3) above are left exactly as they were written; this clause stands beside them because the history of this threat being closed wrongly TWICE is the most useful thing this row carries. **What was true when clause (3) was written.** The parent requirement PRIV-05 — "cookie values do not reach an AI backend in STRICT or BALANCED **by any path**" — was still REFUTED on a sibling path that clause (3) never compared itself against: the MCP tools that embed a RAW HTTP message inside a JSON string. Clause (3) is not false — it is scoped to `sanitizeHeaders` and never claims PRIV-05 — but the frontmatter consequence drawn from it (`threats_open: 0`, `status: verified`, both restored on 2026-08-24) was drawn while the parent requirement was still violated elsewhere. **The leak was strictly broader than the defect that created this phase.** It was not the five variant spellings; it was the CANONICAL `Cookie:` and `Set-Cookie:` names themselves, reaching an AI backend verbatim in STRICT **and** BALANCED through `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`, plus the legacy executor's copy of each. **Root cause, one sentence.** A raw HTTP message embedded in a JSON string carries no real newline — `toolJson.encodeToString` writes every CRLF as the two characters `\r` / `\n` — and both cookie rules were line-anchored `(?im)^…$`, so `^` never landed on a header name and neither rule fired; unlike the parsed-header path, nothing runs `sanitizeHeaders` in front of this one. **What closed it, re-read at source in the closing task rather than taken from any SUMMARY's assertion.** `Redaction.kt` now composes its logical-line header rules from three named fragments — `JSON_ESCAPED_NEWLINE` (`:206`), `REAL_LINE_HEADER_VALUE` (`:210`) and `JSON_ESCAPED_HEADER_VALUE` (`:218-219`) — through one private composer, `logicalLineHeaderRule(namePattern)` (`:236-240`), whose real-line branch is the tail that shipped character for character, so multi-line behaviour is unchanged BY CONSTRUCTION rather than by hope. `cookieHeaderRegex` (`:242-246`) and `setCookieHeaderRegex` (`:247-248`) are built from that composer by plan 27-04; `authHeaderRegex` (`:97-105`) by plan 27-05. `COOKIE_NAME_PART` (`:119`), `COOKIE_NAME_TOKEN` (`:125`) and `isCookieHeaderName` (`:293`) are untouched — the BOUNDARY changed and no NAME did, which is why clauses (1) and (3) still hold as written. **Scope of this closure, bounded by a pinned measurement rather than by prose, because an unenumerated set of paths is how the first close went wrong.** It covers the SERIALIZED EMISSION PATH: the **14** measured `encodeToString(it.toSerializableForm(…) / it.toSiteMapEntry(…))` sites — 7 in `McpToolExecutorImpl.kt`, 7 in `McpToolLegacy.kt`, of which 10 carry raw HTTP across 5 tool names — and on that path it covers the COOKIE-HEADER class and the EXACT-NAME AUTH-HEADER class, at no wider scope. That count is pinned by `SerializedEmissionSiteInventoryTest` (5 tests, re-run green in the closing task) rather than enumerated in a sentence that can drift, and `LogicalLineBoundaryScopeTest` (3 tests, re-run green) pins that exactly three rules carry the composer and that `hostHeaderRegex` deliberately does not. Behaviour is gated by `SerializedEmissionRedactionTest` (**24** tests — 17 from plan 27-04, 7 from plan 27-05 — re-run green), and `RedactionTest` stayed at a zero-line diff and 46/46 green throughout, which is what makes the byte-identity claim evidence rather than assertion. **The auth-header outcome belongs in this row, because it is the same path and the same fix, and a reader of this row must not have to reconstruct it.** Plan 27-05 rebuilt `authHeaderRegex` through the same composer with its 16-name alternation byte-identical. Measured against the compiled classes on JDK 21, a plain-token `X-API-Key` value moved `STRICT APIKEY SURVIVES` → `STRICT APIKEY STRIPPED` in both redacting modes. Before that change the header rule did not fire at all on this shape: `Authorization: Bearer …` survived as `Bearer [REDACTED]` only because the un-anchored `bearerRegex` happened to claim the token, and a plain token had no such luck. What is NOT closed there is unchanged and stays open in `CONCERNS.md`: every vendor auth header outside the 16-name alternation — `X-Shopify-Access-Token`, `X-Amz-Security-Token` and their kind — is matched by no rule at all. **THIS CLAUSE SUPERSEDES CLAUSE (3)'s "What is NOT closed" LIST ON TWO OF ITS THREE ITEMS.** Clause (3) is left standing verbatim on purpose. **AR-27-01** is no longer an accepted residual anywhere in this record set — it is RECLASSIFIED as a live finding for the interval between its acceptance and plan 27-04, closed on the raw-message-in-JSON shape and explicitly NOT on the header-map shape; see the Accepted Risks Log. **AR-27-02** is SUPERSEDED on the raw-message-in-JSON shape only, re-decided on evidence and still load-bearing elsewhere; see the Accepted Risks Log. **AR-27-03** is unchanged. **AR-27-04** and **AR-27-05** are NEW, OPEN and measured, with their probe output quoted beneath the Accepted Risks Log. **The frontmatter counter above was COMPUTED from the rows of this register by the command recorded in the frontmatter comment, not re-asserted** — a hand-written counter is how the 2026-08-24 overclaim survived review, and the fourth Security Audit Trail row below keeps the interval during which it overclaimed visible instead of erased. | closed |
 | T-26-02-02 | Information Disclosure | `maybeAnonymizeUrl` | medium | mitigate | STRICT replaces the host and only the host; a malformed URL falls back to returning the input rather than throwing into the tool result. **Verified:** `McpToolHelpers.kt:335-356` (`catch (_: Exception) { rawUrl }`); `McpToolHelpersTest.MaybeAnonymizeUrl`. | closed |
 | T-26-02-03 | Tampering | `resolveReportPath` | high | mitigate | Path containment above `user.home` asserted as a REJECTION for both the relative-with-parent-segments and absolute-outside-home forms, proven falsifiable by a recorded red probe that deleted the containment check. **Verified:** `McpToolHelpers.kt:374` — `require(resolved.startsWith(home))` after `normalize()`; `McpToolHelpersTest.ResolveReportPath` (7 tests). | closed |
 | T-26-02-04 | Spoofing | `toMontoyaServiceOrNull` | medium | mitigate | Blank hostname and non-positive port return null, so a partially-specified model-supplied target cannot become an outbound request destination. **Verified:** `McpToolModels.kt:17-20`; `McpToolModelsTest`. | closed |
@@ -113,6 +122,150 @@ the workflow declares sufficient when `threats_open: 0` and the register is plan
 | AR-26-02 | T-26-06-06 | The `McpSupervisor` takeover path keeps its loopback gate: certificate-pinned takeover is not extended to non-loopback hosts. Plausibly an improvement, but it changes when this extension shuts down a *remote* listener, on a path with no prior test coverage, inside a phase scoped to coverage and documentation. The operator now gets an honest diagnostic naming the bound host instead of a misleading "no compatible server found". | Plan 26-06 threat model; ADR-17 residual + backlog item | 2026-08-22 |
 | AR-26-03 | T-26-07-07 | Three `String.format` calls pinned to `Locale.ROOT`. This is a deliberate behaviour change, not a cosmetic edit: output differs under a Turkish or Arabic-digit locale — which is precisely the defect `ImplicitDefaultLocale` names. Accepted because stable machine-readable formatting is the correct property for these call sites. | Plan 26-07 threat model | 2026-08-22 |
 | AR-26-04 | T-26-03-04 | The MCP weak-token control is **advisory**, not enforcing: an operator who ignores the RISK notice and keeps a short token remains exposed to offline recovery of that token from a captured takeover proof. Enforcing a minimum would break existing configurations on upgrade and would mean the extension rewriting the operator's credential. Same residual as **AR-25-05**; recorded as ADR-16's seventh residual. | Plan 26-03 threat model; ADR-16 seventh residual | 2026-08-22 |
+| AR-27-01 | T-26-02-01 | **RECLASSIFIED 2026-08-24 (plan 27-06) — this was never a genuine accepted residual, and recording it as one WAS the miss.** As accepted by plan 27-01 it read: `McpToolContext.redactIfNeeded` cannot recover a header `sanitizeHeaders` misses, because its output is single-line JSON while both cookie regexes are line-anchored. That acceptance was **conditional on a sanitizer running in front of it**, and the condition was never enumerated. On the 14 pinned serialized-emission sites nothing runs `sanitizeHeaders` at all, so between its acceptance and plan 27-04 this was a **live leak of the CANONICAL `Cookie:` and `Set-Cookie:` header names** — strictly broader than the five variant spellings this phase was created to close. The repository's own GREEN test pinned the leaking behaviour as expected: `McpToolHelpersTest$SanitizeHeaders.cookieVariantsAreStrippedEndToEndThroughRedactIfNeeded` asserted under STRICT that `redactIfNeeded` returns the cookie sentinel intact. Plan 27-04 **inverted** that assertion on the raw-message-in-JSON shape, where the inversion is true, and gated the header-map shape's ROOT CAUSE instead, so no green test in this repository now asserts that a cookie value survives a redacting policy. **CLOSED on the raw-message-in-JSON shape by plan 27-04. Explicitly NOT closed on the header-map shape** — that remainder is **AR-27-05**, defined below, and any sentence about `redactIfNeeded` being a second control must name the shape it holds on. | Reclassified by plan 27-06 on re-measurement — NOT a maintainer acceptance | 2026-08-24 |
+| AR-27-02 | T-26-02-01 | **SUPERSEDED ON THE RAW-MESSAGE-IN-JSON SHAPE 2026-08-24, re-decided on evidence rather than inherited — and NOT superseded everywhere, which corrects plan 27-06's own premise.** `cookie` remains absent from `SENSITIVE_WORDS` (`Redaction.kt:663-664` — `access_token\|api_key\|apikey\|auth\|token\|secret\|password\|pwd\|session\|sid`), so `jsonSecretKeyRegex` is a backstop for the cookie class nowhere. It was load-bearing on the raw-message-in-JSON shape ONLY because the primary cookie rule could not fire there; after plan 27-04 it can, so on that shape AR-27-02 is superseded and is **not adopted**. **The bound this leaves, stated because it is the honest cost of not widening `SENSITIVE_WORDS`:** the two cookie rules are a SINGLE POINT OF CONTROL on the serialized emission path, with no independent backstop behind them. Adopting it would mean a broad widening of the shared key vocabulary re-measured against the WR-01 corpora, which already recorded 32 false positives (`status_code`, `errorCode`, `primary_key`, `public_key`, …) from a smaller widening — that measured cost is why it stays unadopted. **Measured directly in plan 27-06 against the compiled classes (JDK 21):** on the header-map shape `{"X-API-Key":"…"}` IS redacted by the JSON-key rule while `{"Cookie":"…"}` and `{"X-Cookie":"…"}` are NOT, so the auth class has a backstop on that shape and the cookie class has none. AR-27-02 therefore remains **load-bearing on the header-map shape** and is superseded only on the shape named above. | Re-decided by plan 27-06 on its own measurement | 2026-08-24 |
+| AR-27-03 | T-26-02-01 | **UNCHANGED.** Byte-identically-named headers collapse to one entry in the tool-result header map (CP-27-02-01, maintainer-decided at plan 27-02's checkpoint): privacy-safe and asserted to leak no original value, but it costs analysis signal. Nothing in plans 27-04, 27-05 or 27-06 touches this, and nothing here should be read as re-deciding it. | Checkpoint CP-27-02-01 (plan 27-02), maintainer-decided | 2026-08-24 |
+| AR-27-04 | T-26-02-01 | **NEW, OPEN, severity MEDIUM.** The `Host:` header value inside the raw HTTP message AND the sibling `SiteMapEntry.url` field both reach an AI backend **un-anonymised under STRICT** on the serialized emission shape. Measured, quoted and reproducible — see **"Open findings on the serialized emission path"** below for the probe output and the two measured reasons it was excluded from this phase's code change. **Disposition:** see that section. This is outside PRIV-05's wording, which is about cookie values; it is a gap between STRICT's stated promise of host anonymisation and STRICT's shipped behaviour on a 1.0.0 release. | See disposition in the evidence section below | 2026-08-24 |
+| AR-27-05 | T-26-02-01 | **NEW, OPEN, severity MEDIUM. Defined here for the first time** — if any earlier draft cited this identifier, nothing stood behind it; this is the definition. On the **header-map** shape (`ParsedRequest` / `ParsedResponse`, emitted by `request_parse` and `response_parse`) the headers are JSON OBJECT MEMBERS, not lines, so the payload carries **no line boundary of any kind** — neither a real newline nor a JSON-escaped one. Neither branch of `logicalLineHeaderRule` can fire, so `redactIfNeeded` **cannot recover a missed cookie header on that shape**, and `McpToolHelpers.sanitizeHeaders` is the **SOLE** control for the cookie-header class on those two tools. This is a no-backstop bound, **not a live leak**: all four construction sites pass `headers = sanitizeHeaders(…)` — `McpToolExecutorImpl.kt:369` and `:387`, `McpToolLegacy.kt:179` and `:201`, each re-read at source in plan 27-06 — so a cookie value does not in fact reach a backend on this path today. What is open is the absence of any second control if `sanitizeHeaders` is ever narrowed, bypassed at a new call site, or omitted from a future `ParsedRequest` producer. See the evidence section below. | Recorded by plan 27-06 on its own measurement; carried forward as an open finding | 2026-08-24 |
+
+---
+
+## Open findings on the serialized emission path — AR-27-04 and AR-27-05
+
+Both were measured in plan 27-06 against the **compiled shipped classes** (`build/classes/kotlin/main`,
+JDK 21 temurin-21, salt `probe-salt`, `recordMapping=false`), by re-running plan 27-05's throwaway
+`ResidualProbe` with one shape added. The probe is deliberately **not committed**: a green assertion
+under `src/` that a `Host` value survives STRICT is precisely the artifact this register exists to
+stop producing. Its full source and exact commands are recorded in
+`.planning/phases/27-priv-05-gap-closure-sanitize-headers/27-05-SUMMARY.md` and `27-06-SUMMARY.md`,
+so the measurement stays re-runnable without living in the tree.
+
+### AR-27-04 — `Host:` and `SiteMapEntry.url` un-anonymised under STRICT
+
+Observed output, verbatim, on the raw-message-in-JSON shape after plans 27-04 and 27-05:
+
+```
+==== SHAPE: raw-message-in-JSON (335 bytes) ====
+carries an escaped newline: true
+STRICT    COOKIE          STRIPPED
+STRICT    SETCOOKIE       STRIPPED
+STRICT    APIKEY          STRIPPED
+STRICT    BEARER          STRIPPED
+STRICT    HOST-HEADER     SURVIVES
+STRICT    URL-FIELD       SURVIVES
+STRICT    BENIGN-CONTROL  SURVIVES
+---- STRICT output ----
+{"url":"https://shop.example/basket","request":"GET /basket HTTP/1.1\r\nHost: shop.example\r\nCookie: [STRIPPED]\r\nSet-Cookie: [STRIPPED]\r\nX-API-Key: [REDACTED]\r\nAuthorization: [REDACTED]\r\nX-Request-Id: benignprobecontrol\r\n\r\n","response":"HTTP/1.1 200 OK\r\n\r\n"}
+BALANCED  COOKIE          STRIPPED
+BALANCED  SETCOOKIE       STRIPPED
+BALANCED  APIKEY          STRIPPED
+BALANCED  BEARER          STRIPPED
+BALANCED  HOST-HEADER     SURVIVES
+BALANCED  URL-FIELD       SURVIVES
+BALANCED  BENIGN-CONTROL  SURVIVES
+```
+
+The cookie and API-key rows read `STRIPPED`, so the probe ran against classes containing both fixes
+and the measurement is valid rather than vacuous. Under BALANCED `anonymizeHosts` is `false`, so the
+host is *expected* to survive there; **the finding is the STRICT row**, where the policy asks for
+anonymisation and does not get it on this shape.
+
+**Two measured reasons it was excluded from this phase's code change** — neither aesthetic, both
+re-read at source in plan 27-06:
+
+1. `hostHeaderRegex` (`Redaction.kt:1810`) is `Regex("(?im)^host:\\s*([^\\s]+)\\s*$")` — real-line
+   anchored, and deliberately NOT routed through `logicalLineHeaderRule` (D-27-13). Routing it there
+   makes it rewrite through `anonymizeHost`, which records into a de-anonymisation map that
+   `RedactionHostMapBoundTest` exists to bound; firing that per raw message on every `site_map` and
+   `proxy_http_history` result is an **unmeasured load change on that bound**.
+2. `SiteMapEntry.url` (`Serialization.kt:80`, field declared at `:159`) is
+   `url = req?.url() ?: "<no url>"` — the SAME host, verbatim, with no `maybeAnonymizeUrl` in front
+   of it. Anonymising only the header yields a JSON object whose `request` field is anonymised and
+   whose `url` field is not: **a control that reads as closed and is not.**
+
+The exclusion is asserted from source, not merely written down: `LogicalLineBoundaryScopeTest`
+(3 tests, green) fails if `hostHeaderRegex` is routed through the composer, and fails if the
+rationale comment stops agreeing with the code.
+
+### AR-27-04 — disposition, 2026-08-24
+
+**Chosen option, recorded verbatim: `accept-residual` — "Accept as a recorded residual at medium
+severity".**
+
+**Provenance, stated plainly because it changes how much weight this disposition carries:
+AUTO-SELECTED BY THE CONFIGURED RUN MODE, NOT MAINTAINER-CHOSEN.** Plan 27-06's task 3 is a
+`checkpoint:decision` carrying `gate="blocking"`, and this project runs `mode: yolo`, which
+auto-selects blocking checkpoints; the first option was taken. The plan anticipated exactly this
+(threat `T-27-06-07`) and moved the substantive checks off the checkpoint and onto automated gates,
+which did hold: the diff gates, the computed counter and the quoted probe output above are all
+executor-verified. **A future auditor should read this row as a recorded default, not as a human
+having weighed the release posture.** It is re-openable at no cost, and re-opening it does not
+invalidate anything else in this file.
+
+**Reason recorded for the choice.** The two competing options were `follow-up-phase` and `close-now`.
+`close-now` was excluded by the plan's own instruction — fixing `hostHeaderRegex` and the `url` field
+together is plan-set revision work, not something to improvise inside a checkpoint — and doing it
+under time pressure is precisely how the map-load question would go unmeasured. `follow-up-phase`
+remains open to the maintainer and is the option this record recommends if the promise-vs-behaviour
+gap is judged unacceptable on a shipped 1.0.0. `accept-residual` keeps the phase scoped to what it
+measured and gated, and leaves the next audit a measurement rather than a silence.
+
+**The cost this option carries, and the concrete item that pays it (`T-27-06-06`, disposition
+`transfer`).** Accepting the residual means STRICT's user-facing privacy claim stays broader than
+STRICT's behaviour until a later phase, so the gap must be named in the user-facing documentation or
+the overclaim simply relocates from this register into the docs. **Backlog item, naming the files to
+change:** `README.md:247` ("STRICT privacy mode anonymizes hosts using real HKDF …") and `SPEC.md:80`
+(the privacy-mode table's `anonymized (HKDF/HmacSHA256)` cell) with its accompanying paragraph at
+`SPEC.md:86` must state that host anonymisation applies to the prompt path and to parsed-header tool
+results, and **does not** apply to the raw HTTP message or the `url` field emitted by
+`proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`.
+Not done in this plan: `files_modified` scopes plan 27-06 to the three record files, and a
+user-facing documentation edit is a change to what ships, not a record repair. **Until that edit
+lands, this residual is accepted AND the documentation still overclaims** — recorded here rather than
+left to be discovered.
+
+**Severity unchanged at MEDIUM**, so `threats_open` did not need re-deriving for a severity change;
+it was re-run after this section was written and still returns `0` over 46 rows, 46 closed.
+
+### AR-27-05 — the header-map shape carries no line boundary at all
+
+Observed output, verbatim, on the header-map shape, same run:
+
+```
+==== SHAPE: header-map-in-JSON (246 bytes) ====
+carries an escaped newline: false
+STRICT    COOKIE          SURVIVES
+STRICT    APIKEY          STRIPPED
+STRICT    BEARER          STRIPPED
+STRICT    HOST-VALUE      SURVIVES
+STRICT    BENIGN-CONTROL  SURVIVES
+---- STRICT output ----
+{"method":"GET","url":"https://shop.example/basket","headers":{"Host":"shop.example","X-Cookie":"probecookiesentinel","X-API-Key":"[REDACTED]","Authorization":"Bearer [REDACTED]","X-Request-Id":"benignprobecontrol"},"body":null}
+```
+
+Attribution probe on bare JSON pairs, same run, STRICT — this is what makes the asymmetry a
+measurement rather than an inference:
+
+```
+bare X-API-Key JSON pair   ->  {"X-API-Key":"[REDACTED]"}
+bare X-Cookie   JSON pair   ->  {"X-Cookie":"probecookiesentinel"}
+bare Cookie     JSON pair   ->  {"Cookie":"probecookiesentinel"}
+bare Host       JSON pair   ->  {"Host":"shop.example"}
+```
+
+The auth class has an independent backstop on this shape (the JSON-key rule reaches
+`"X-API-Key": "…"`); **the cookie class has none, because `cookie` is absent from `SENSITIVE_WORDS`**
+— which is AR-27-02, measured as still load-bearing here.
+
+**This is a no-backstop bound, not a live leak, and the record must not blur the two.** All four
+`ParsedRequest` / `ParsedResponse` construction sites pass `headers = sanitizeHeaders(…)` —
+`McpToolExecutorImpl.kt:369` (`request_parse`) and `:387` (`response_parse`),
+`McpToolLegacy.kt:179` and `:201` — each re-read at source in plan 27-06 rather than taken from a
+SUMMARY. A cookie value therefore does **not** reach an AI backend on `request_parse` /
+`response_parse` today. What is open is that `sanitizeHeaders` is the **sole** control there: if it
+is narrowed, bypassed at a new call site, or omitted by a future `ParsedRequest` producer, nothing
+downstream recovers the miss. **This is what bounds AR-27-01's closure** — `redactIfNeeded` is a
+second control on the raw-message-in-JSON shape and on no other.
 
 ---
 
@@ -123,10 +276,23 @@ the workflow declares sufficient when `threats_open: 0` and the register is plan
 | 2026-08-24 | 46 | 46 | 0 | `/gsd-secure-phase 26` (orchestrator, ASVS L1 source verification) |
 | 2026-08-24 | 46 | 45 | **1** | `/gsd-audit-milestone` — T-26-02-01 reopened (see below) |
 | 2026-08-24 | 46 | 46 | 0 | Phase 27 (27-03) — source re-verification |
+| 2026-08-24 | 46 | 46 | 0 | Phase 27 (27-04, 27-05, 27-06) — **second** reopening of T-26-02-01 and its re-closure; `threats_open` COMPUTED from the rows, not asserted |
 
 **Note on the count.** 46 register rows across 46 distinct threat IDs. The seven PLAN files declare
 52 rows in total, but `T-26-0N-SC` is the same supply-chain threat declared identically in all seven
 and is counted once as `T-26-SC`.
+
+**Note on the second reopening, and the interval it makes visible rather than erases.** Row 3 above
+restored `threats_open: 0` / `status: verified` on 2026-08-24 on the strength of T-26-02-01. Later
+the same day, this phase's own verification (`27-VERIFICATION.md`, verified
+`2026-08-24T14:12:50Z`, 7/9 truths) found the PARENT requirement PRIV-05 still refuted on a sibling
+path — the raw-message-in-JSON emission shape — and recorded the frontmatter consequence of row 3 as
+questionable. **For that interval the frontmatter was an overclaim**, and row 4 exists so the
+interval is legible instead of edited away. It was closed later the same day by plans 27-04 (the
+cookie rules) and 27-05 (the auth-header rule), and recorded by plan 27-06. The counter on row 4 is
+the output of the command quoted in this file's frontmatter, run after the plan 27-06 amendment; the
+two open findings this phase carries forward, **AR-27-04** and **AR-27-05**, are MEDIUM and therefore
+below the `high` blocking gate — which is why the count is `0` and not because they were dropped.
 
 ---
 
@@ -136,6 +302,15 @@ and is counted once as `T-26-SC`.
 - [x] Accepted risks documented in Accepted Risks Log
 - [x] `threats_open: 0` confirmed — T-26-02-01 re-closed 2026-08-24 by Phase 27 (27-03)
 - [x] `status: verified` set in frontmatter — restored after the Phase 27 closure
+- [x] **Post-second-reopening, 2026-08-24 (plan 27-06):** `threats_open` re-derived by the documented
+  command in the frontmatter rather than re-asserted — output `0` over 46 rows, 46 closed, and the
+  written value equals that output
+- [x] **Post-second-reopening, 2026-08-24 (plan 27-06):** the two findings carried forward,
+  **AR-27-04** and **AR-27-05**, are recorded as OPEN at MEDIUM severity with quoted measured
+  evidence — neither is recorded as closed, moot or theoretical
+- [x] **Post-second-reopening, 2026-08-24 (plan 27-06):** **AR-27-01** is no longer described as an
+  accepted residual anywhere in this file, and **AR-27-02** is superseded only on the shape where the
+  measurement supports it
 
 **Approval:** RE-APPROVED 2026-08-24 by Phase 27 (plan 27-03), after the 2026-08-24 withdrawal
 recorded in the reopening note below. The re-approval rests on source read in the closing task —
@@ -143,6 +318,24 @@ recorded in the reopening note below. The re-approval rests on source read in th
 sweeps returning `0` and a green `CookieHeaderRuleOwnershipTest`, and it is scoped to the two
 redaction paths and the passive-scan admitter. It is NOT a re-approval of the L1 pass that produced
 the original false close; the standing rule below is what that pass was missing.
+
+### Read-back — 2026-08-24 (plan 27-06, task 3), item by item
+
+Each item below was checked against the SHIPPED SOURCE or against this file's own bytes, in the
+closing task, with the check named. **None was confirmed by a maintainer**: the checkpoint that would
+have asked for that confirmation was auto-selected by the configured run mode (see the AR-27-04
+disposition above). These are executor verifications, and they are recorded at that weight.
+
+| # | Read-back item | Verdict | Check actually run |
+|---|----------------|---------|--------------------|
+| 1 | T-26-02-01 clauses (1), (2) and (3) are unedited | CONFIRMED | The row is one physical line, so appending clause (4) necessarily rewrites it; the splice asserted that the OLD row body is an exact BYTE PREFIX of the new row (5,633 → 11,320 chars, prefix check PASS). No clause text was altered, reordered or softened. |
+| 2 | The `## Reopening` narrative dated 2026-08-24 is unedited | CONFIRMED | `git diff HEAD -- 26-SECURITY.md \| grep -c 'Reopening — 2026-08-24'` returns `0` over the WHOLE diff — the heading appears on no added and no removed line. Clause (4) therefore refers to that section without reproducing its heading string. |
+| 3 | Clause (4) says what happened without softening it | CONFIRMED | It states, in its own words, that the parent requirement was still refuted when clause (3) was written; that the leak was the CANONICAL names and strictly broader than the variant spellings; and that the frontmatter consequence drawn on 2026-08-24 was drawn while PRIV-05 was violated elsewhere. |
+| 4 | AR-27-01 reads as a reclassified live finding, not as a residual | CONFIRMED | Its Accepted Risks Log row opens "RECLASSIFIED … this was never a genuine accepted residual", names the interval, names the repository's own green test that pinned the leak, and closes it on the raw-message-in-JSON shape only. `grep -c` for the old "accepted residual" framing of AR-27-01 elsewhere in this file: none remains. |
+| 5 | `threats_open` matches its quoted computation | CONFIRMED | The documented `awk` command in the frontmatter was re-run against this file after every edit in this plan: output `0`, 46 rows scanned, 46 closed. The written value is `0`. |
+| 6 | No sentence in any of the three records claims a scope wider than the serialized emission path, the cookie-header class and the exact-name auth-header class | CONFIRMED | Every scope sentence added here cites the pinned counts (`14` emission sites, `3` composer rules) and names its class. The tree-wide scope phrase this phase is prohibited from using appears `0` times in all three files, and no negated form was substituted for it — the phrase and its inverse are both absent. (Checked with the same grep plan 27-05 recorded; the search string is deliberately not reproduced here, because writing it down is itself a hit.) Both tripwires are described by what they measure — `SerializedEmissionSiteInventoryTest`'s registration bound is stated as WEAKER than its emission bound, and `LogicalLineBoundaryScopeTest` is bounded to the composer's rule set. |
+| 7 | AR-27-04 is recorded as OPEN with measured evidence, not as closed, moot or theoretical | CONFIRMED | Recorded OPEN at MEDIUM with the probe output quoted verbatim, the probe re-run in the closing task against the compiled classes rather than copied from a SUMMARY, and its two measured exclusion reasons re-read at source (`Redaction.kt:1810`, `Serialization.kt:80`/`:159`). |
+| 8 | The disposition's provenance is not passed off as a human decision | CONFIRMED | Stated in the AR-27-04 disposition in its own bold paragraph, and repeated in `27-06-SUMMARY.md`. |
 
 ### What this audit did and did not do
 
@@ -175,8 +368,9 @@ suite — 1131 tests, 0 failures.
 
 ### Standing rule added 2026-08-24 (Phase 27)
 
-Two clauses, both learned in this file. They bind every future audit pass in this repository, not
-only ASVS L1 ones.
+Two clauses, both learned in this file, joined later the same day by a third (see clause (iii)
+below, added by plan 27-06 after this same threat was closed wrongly a second time). They bind
+every future audit pass in this repository, not only ASVS L1 ones.
 
 **(i) Width, not only presence.** Verifying that a control is PRESENT is not sufficient to close a
 threat about that control's COVERAGE. Where one rule has more than one implementation, an L1 pass
@@ -199,6 +393,23 @@ paths and the passive-scan admitter, and the four survivors were named and class
 NOT that the code was wrong — every survivor was non-redacting and the code was fine. The lesson is
 that the VERIFICATION was narrower than the SENTENCE, and that gap is precisely how a register drifts
 wider than the control it describes. That drift is what produced the false close this file records.
+
+**(iii) Sibling paths must be ENUMERATED BY MEASUREMENT, and the count recorded.** Added 2026-08-24
+by plan 27-06, because clauses (i) and (ii) were both honoured and this threat was still closed
+wrongly a second time. A control verified at the site it was written for must also be compared
+against every SIBLING PATH that consumes the same downstream weakness — and the set of paths compared
+must be produced by a MEASUREMENT whose count is written into the record, never by a prose list a
+reader is trusted to have completed. **Worked example: this file's second false close.** Clause (i)
+was satisfied — the cookie matcher's WIDTH was compared against its sibling on the prompt path, both
+were name-contains-`cookie`, and the sweep in clause (ii) covered five spelling classes. What nobody
+enumerated was the set of paths that consult a cookie rule AT ALL. Ten emission sites embedded a raw
+HTTP message inside a JSON string, where the line-anchored rules could not fire and no
+`sanitizeHeaders` ran in front, so the canonical `Cookie:` and `Set-Cookie:` names leaked while the
+register read `closed`. The remedy is mechanical and cheap: the path set is now a measured **14**
+(`SerializedEmissionSiteInventoryTest`), the rule set carrying the new boundary is a measured **3**
+(`LogicalLineBoundaryScopeTest`), and both counts fail a test when they drift. **An audit that cannot
+state the NUMBER of sibling paths it compared, and point at what measured that number, has not
+answered the question — it has answered a narrower one and reported the answer at the wider scope.**
 
 
 ---
