@@ -60,14 +60,48 @@ enum class PrivacyMode {
 }
 
 object Redaction {
+    // (PRIV-05) 27-05 / D-27-12: WHY THIS RULE GOES THROUGH THE SHARED BOUNDARY COMPOSER.
+    //
+    // This rule carried the IDENTICAL defect the two cookie rules did — `(?im)^…:\s*.+$`, anchored
+    // to a REAL line start — and so it could not fire on the MCP tool-RESULT shape, where the raw
+    // HTTP message lives inside a JSON string and every CRLF is the two literal characters
+    // backslash-r / backslash-n. MEASURED on the compiled shipped classes against that shape, salt
+    // `probe-salt`:
+    //
+    //     STRICT   APIKEY  SURVIVES        BALANCED APIKEY  SURVIVES
+    //     STRICT   BEARER  STRIPPED        BALANCED BEARER  STRIPPED
+    //
+    // `Authorization: Bearer …` survived only BY LUCK: the un-anchored bearerRegex below happened to
+    // claim its VALUE while this rule missed the line entirely. A plain-token `X-API-Key` has no such
+    // luck — it is not bearer-, basic- or JWT-shaped, and it is a header VALUE rather than a quoted
+    // JSON key so jsonSecretKeyRegex cannot reach it either. It left the process VERBATIM under the
+    // strongest privacy mode, and an API key is a longer-lived credential than a session cookie.
+    //
+    // ONLY THE BOUNDARY CHANGED. The name alternation below is the one that shipped, character for
+    // character, all 16 names: this rule recognises exactly the headers it always claimed to. What
+    // changed is what counts as the start of a line — see logicalLineHeaderRule and the fragment
+    // rationale further down, which this rule now shares with cookieHeaderRegex and
+    // setCookieHeaderRegex rather than restating.
+    //
+    // SHARING THE COMPOSER MEANS SHARING ITS COST, not only its fix: this rule now carries the
+    // D-27-15 over-match bound too. A raw value that literally contains a backslash followed by `r`
+    // or `n` — a Windows path, a regex in a body — is indistinguishable from an encoded newline, so
+    // an `authorization:`-class run immediately after one is treated as a logical line start and its
+    // value is replaced. Over-redaction, fail-safe in direction, and stated rather than discovered.
+    //
+    // WHAT THIS DOES NOT CLOSE. Token redaction is NOT complete. The alternation is an exact-name
+    // list, and every vendor auth header outside it — `X-Shopify-Access-Token`, `X-Amz-Security-Token`
+    // and their kind — is matched by NO rule here at all. That gap predates this change, is unchanged
+    // by it, and stays recorded as an open item in CONCERNS.md. A reader who takes this comment as
+    // "auth headers are handled" has read it wider than it is written.
     private val authHeaderRegex =
-        Regex(
-            "(?im)^(" +
+        logicalLineHeaderRule(
+            "(" +
                 "authorization|proxy-authorization|" +
                 "x-api-key|api-key|x-api-secret|api-secret|x-client-secret|" +
                 "x-auth-token|auth-token|x-access-token|access-token|" +
                 "x-session-token|session-token|x-csrf-token|csrf-token|x-xsrf-token" +
-                "):\\s*.+$",
+                ")",
         )
 
     // The trailing =* captures base64/base64url padding on the token. The token char-class
@@ -143,14 +177,26 @@ object Redaction {
     // and its value is stripped. That is OVER-redaction, fail-safe in direction, and cheaper to state
     // than to fix, since fixing it needs the same backslash-parity look-back declined above.
     //
-    // SCOPE OF THIS CHANGE, deliberately: THIS plan applies the composer to the TWO COOKIE RULES
-    // ONLY. `hostHeaderRegex` still recognises only the real-line boundary and therefore still does
-    // not anonymise a `Host:` header on the serialized emission shape — recorded as open finding
-    // AR-27-04 in plan 27-06, not silently fixed here, because it rewrites through `anonymizeHost`
-    // and would record a de-anonymisation mapping for every raw message in every tool result.
-    // `authHeaderRegex` is closed one wave later by plan 27-05 (D-27-12), reusing this same composer.
-    // Nothing here makes redaction complete: the claim is bounded to the serialized emission path and
-    // to the cookie-header class.
+    // SCOPE OF THE COMPOSER, deliberately, and MEASURED rather than assumed (27-04 + 27-05 / D-27-13).
+    // Exactly THREE rules are built from `logicalLineHeaderRule`: `cookieHeaderRegex`,
+    // `setCookieHeaderRegex` (plan 27-04) and `authHeaderRegex` (plan 27-05 / D-27-12, declared at the
+    // top of this object with its own measured before-state). `LogicalLineBoundaryScopeTest` pins that
+    // set, so a fourth rule adopting the composer, or one of these three dropping it, reads as a data
+    // change rather than as a silent regex edit.
+    //
+    // `hostHeaderRegex` is the DELIBERATE EXCLUSION and stays on the real-line boundary only, so a
+    // `Host:` header is still NOT anonymised on the serialized emission shape. Two measured reasons,
+    // neither aesthetic: it rewrites through `anonymizeHost`, which records into a de-anonymisation
+    // map that `RedactionHostMapBoundTest` exists to bound, and firing that on every raw message of
+    // every `site_map` / `proxy_http_history` result is an unmeasured load change on that bound; and
+    // `SiteMapEntry.url` (`mcp/schema/Serialization.kt:79`) carries the SAME host VERBATIM with no
+    // `maybeAnonymizeUrl` in front of it, so anonymising the header alone would produce a JSON object
+    // whose `request` field is anonymised and whose `url` field is not — a control that reads as
+    // closed and is not. Recorded as open finding AR-27-04 for plan 27-06 with the probe output
+    // quoted, not silently fixed and not silently dropped.
+    //
+    // Nothing here makes redaction complete: the claim is bounded to the serialized emission path,
+    // and to the cookie-header and exact-name auth-header classes.
 
     // The two literal characters kotlinx.serialization emits for a real CR or LF. FIXED-WIDTH on
     // purpose: an encoded CRLF is four characters ENDING in the encoded LF, so a two-character

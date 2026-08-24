@@ -496,6 +496,194 @@ class SerializedEmissionRedactionTest {
         }
     }
 
+    // ── the auth-header class on the same shape (27-05 / D-27-12) ────────────────────────
+
+    /**
+     * (PRIV-05) Phase 27 plan 27-05. `authHeaderRegex` carried the IDENTICAL defect the two cookie
+     * rules did: `(?im)^…:\s*.+$`, line-anchored, unable to fire on a payload whose newlines are
+     * JSON escapes.
+     *
+     * MEASURED before the change, on the compiled shipped classes, against the serialized shape:
+     *
+     * ```
+     * STRICT   APIKEY  SURVIVES        BALANCED APIKEY  SURVIVES
+     * STRICT   BEARER  STRIPPED        BALANCED BEARER  STRIPPED
+     * ```
+     *
+     * `Authorization: Bearer …` survived only BY LUCK — the un-anchored [Redaction] `bearerRegex`
+     * happened to claim its value while the header rule missed the line entirely. A plain-token
+     * `X-API-Key` has no such luck: it is not bearer-, basic- or JWT-shaped, and it is a header VALUE
+     * rather than a quoted JSON key so `jsonSecretKeyRegex` cannot reach it either. It left the
+     * process VERBATIM under the strongest privacy mode — and an API key outlives a session cookie.
+     *
+     * The fix recomposes `authHeaderRegex` through the SAME `logicalLineHeaderRule` composer plan
+     * 27-04 proved, so all 16 names in its alternation are covered rather than just the measured one.
+     * Which names it matches is unchanged.
+     */
+    @Nested
+    inner class AuthHeaderCredentials {
+        @Test
+        fun credentialBearingAuthHeaderValueDoesNotSurviveTheSerializedShapeUnderStrict() {
+            val serialized =
+                toolJson.encodeToString(
+                    requestOnly("X-API-Key: wibble=${Sentinel.AUTH_API_KEY_STRICT.value}"),
+                )
+
+            val redacted = contextWith(PrivacyMode.STRICT, "auth-strict-salt").redactIfNeeded(serialized)
+
+            assertFalse(
+                redacted.contains(Sentinel.AUTH_API_KEY_STRICT.value),
+                "a plain-token X-API-Key value must not survive STRICT redaction of the serialized " +
+                    "shape. It is not bearer-, basic- or JWT-shaped, so no un-anchored token rule " +
+                    "rescues it and authHeaderRegex is the only control (got: $redacted)",
+            )
+            assertTrue(
+                redacted.contains("X-API-Key"),
+                "the header NAME must survive — only the VALUE is replaced (T-21-WA2) (got: $redacted)",
+            )
+        }
+
+        @Test
+        fun credentialBearingAuthHeaderValueDoesNotSurviveTheSerializedShapeUnderBalanced() {
+            val serialized =
+                toolJson.encodeToString(
+                    requestOnly("X-API-Key: wibble=${Sentinel.AUTH_API_KEY_BALANCED.value}"),
+                )
+
+            val redacted = contextWith(PrivacyMode.BALANCED, "auth-balanced-salt").redactIfNeeded(serialized)
+
+            assertFalse(
+                redacted.contains(Sentinel.AUTH_API_KEY_BALANCED.value),
+                "BALANCED sets redactTokens too, so the API-key value must not survive (got: $redacted)",
+            )
+            assertSameJsonShape(serialized, redacted)
+        }
+
+        /**
+         * The one sentinel in this file deliberately reachable by a SECOND rule. Its point is the
+         * name-preservation invariant, not the absence: whichever rule claims the value —
+         * `authHeaderRegex`'s name-preserving lambda after this change, `bearerRegex` before it — the
+         * header name must still read `Authorization` in the analyst's view of the traffic.
+         */
+        @Test
+        fun bearerShapedAuthorizationIsStillRedactedAndTheHeaderNameSurvives() {
+            val serialized =
+                toolJson.encodeToString(
+                    requestOnly("Authorization: Bearer ${Sentinel.AUTH_BEARER_SHAPED.value}"),
+                )
+
+            listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED).forEach { mode ->
+                val redacted = contextWith(mode, "auth-bearer-salt-$mode").redactIfNeeded(serialized)
+
+                assertFalse(
+                    redacted.contains(Sentinel.AUTH_BEARER_SHAPED.value),
+                    "$mode: a bearer token must not survive the serialized shape (got: $redacted)",
+                )
+                assertTrue(
+                    redacted.contains("Authorization"),
+                    "$mode: the Authorization header NAME must survive (got: $redacted)",
+                )
+                assertTrue(
+                    redacted.contains(Sentinel.BENIGN_CONTROL.value),
+                    "$mode: negative control — a non-auth header must survive (got: $redacted)",
+                )
+                assertSameJsonShape(serialized, redacted)
+            }
+        }
+
+        @Test
+        fun redactedAuthBearingSerializedOutputStillParsesAsJsonWithTheSameKeySet() {
+            // The tool CONTRACT gate. The same greedy-tail hazard applies to this rule as to the
+            // cookie rules: a `.+$` tail on a single-line payload consumes the closing quote and the
+            // closing brace and emits invalid JSON — a break worse than the leak it was meant to fix.
+            val serialized =
+                toolJson.encodeToString(
+                    requestOnly("X-API-Key: wibble=${Sentinel.AUTH_JSON_PARSE.value}"),
+                )
+
+            val redacted = contextWith(PrivacyMode.STRICT, "auth-parse-salt").redactIfNeeded(serialized)
+
+            assertSameJsonShape(serialized, redacted)
+        }
+
+        @Test
+        fun offModeLeavesTheAuthBearingSerializedShapeByteIdentical() {
+            val serialized =
+                toolJson.encodeToString(
+                    requestOnly("X-API-Key: wibble=${Sentinel.AUTH_OFF_MODE.value}"),
+                )
+
+            val redacted = contextWith(PrivacyMode.OFF, "auth-off-mode-salt").redactIfNeeded(serialized)
+
+            assertEquals(
+                serialized,
+                redacted,
+                "PrivacyMode.OFF sets redactTokens=false, so the auth-bearing payload must be byte-identical",
+            )
+        }
+
+        /**
+         * INHERITED BLOCKER 1 (plan 27-05 test 6). `authHeaderRegex` now consumes
+         * `JSON_ESCAPED_HEADER_VALUE` verbatim, so it inherits the shape a "quote not preceded by a
+         * backslash" terminator silently destroys: an auth value ending in a backslash as the last
+         * content in the JSON string. Encoding doubles the backslash, a one-character negative
+         * lookbehind suppresses the terminator, and the match runs to end-of-input — swallowing the
+         * closing quote and the closing brace.
+         *
+         * This test exists because the inheritance must be VERIFIED, not assumed. If it fails, the
+         * fragment is wrong for BOTH rules and the fix belongs in the fragment, not here.
+         */
+        @Test
+        fun anAuthHeaderValueEndingInABackslashAtTheEndOfThePayloadStillParsesAsJson() {
+            val sentinel = Sentinel.AUTH_BACKSLASH_TAIL.value
+            val serialized =
+                toolJson.encodeToString(
+                    HttpRequestResponse(
+                        request = "GET /basket HTTP/1.1\r\nX-API-Key: wibble=$sentinel\\",
+                        response = null,
+                        notes = null,
+                    ),
+                )
+
+            assertTrue(
+                serialized.contains("\\\\\""),
+                "fixture guard: the encoded value must end in a doubled backslash before the closing quote",
+            )
+
+            val redacted = contextWith(PrivacyMode.STRICT, "auth-backslash-salt").redactIfNeeded(serialized)
+
+            assertSameJsonShape(serialized, redacted)
+            assertFalse(redacted.contains(sentinel), "the auth header value must still be redacted (got: $redacted)")
+        }
+
+        /**
+         * INHERITED BLOCKER 2 (plan 27-05 test 7), the other half. A REAL multi-line `X-API-Key`
+         * value containing an UNESCAPED `"` must still be stripped whole and character-identical to
+         * what shipped — which is what the two-branch shape delivers by keeping the quote terminator
+         * off the real-line branch. `RedactionTest`'s auth fixtures contain no quote in a value, so
+         * this is the assertion that proves the two-branch shape carried across to this rule.
+         *
+         * The expectation is [SHIPPED_REAL_MULTILINE_AUTH_OUTPUT], captured from the PRE-CHANGE
+         * compiled classes, so it cannot have been typed to match the new rule's behaviour.
+         */
+        @Test
+        fun aRealMultiLineAuthHeaderValueContainingAQuoteIsStillStrippedWhole() {
+            val fixture = realMultiLine("X-API-Key: a=\"q\"; snork=${Sentinel.AUTH_REAL_MULTILINE_QUOTE.value}")
+
+            val output = Redaction.apply(fixture, STRICT_POLICY, stableHostSalt = "real-multiline-salt")
+
+            assertEquals(
+                SHIPPED_REAL_MULTILINE_AUTH_OUTPUT,
+                output,
+                "multi-line auth-header behaviour must be byte-identical to what shipped",
+            )
+            assertFalse(
+                output.contains(Sentinel.AUTH_REAL_MULTILINE_QUOTE.value),
+                "no fragment of a quoted auth value may survive",
+            )
+        }
+    }
+
     // ── fixtures and shared assertions ────────────────────────────────────────────────────
 
     /**
@@ -621,6 +809,18 @@ class SerializedEmissionRedactionTest {
         ESCAPED_QUOTE_HAZARD("sentinelpapa"),
         REAL_MULTILINE_QUOTE("sentinelquebec"),
         REAL_MULTILINE_BACKSLASH("sentinelromeo"),
+
+        // (PRIV-05) 27-05 / D-27-12. The auth family. Each is a PLAIN ALPHANUMERIC TOKEN carrying no
+        // `Bearer `/`Basic ` prefix and no dotted `eyJ` segment, so bearerRegex, basicAuthRegex and
+        // jwtRegex cannot claim it and an absence assertion can only pass because authHeaderRegex
+        // fired. AUTH_BEARER_SHAPED is the deliberate exception, and its test says so.
+        AUTH_API_KEY_STRICT("sentinelsierra"),
+        AUTH_API_KEY_BALANCED("sentineltango"),
+        AUTH_BEARER_SHAPED("sentineluniform"),
+        AUTH_JSON_PARSE("sentinelvictor"),
+        AUTH_OFF_MODE("sentinelwhiskey"),
+        AUTH_BACKSLASH_TAIL("sentinelxray"),
+        AUTH_REAL_MULTILINE_QUOTE("sentinelyankee"),
         BENIGN_CONTROL("benignidcontrolvalue"),
     }
 
@@ -637,5 +837,13 @@ class SerializedEmissionRedactionTest {
          * disappear into the same replacement.
          */
         const val SHIPPED_REAL_MULTILINE_OUTPUT = "GET /a HTTP/1.1\r\nCookie: [STRIPPED]\r\nAccept: text/html\r\n\r\n"
+
+        /**
+         * The same discipline for the auth rule (27-05). MEASURED against the compiled classes with
+         * `authHeaderRegex` still line-anchored, BEFORE it was recomposed — so a recomposition that
+         * changed real multi-line behaviour would fail this rather than redefine it. The shipped rule
+         * replaces the whole logical line, so the quoted value disappears into the replacement.
+         */
+        const val SHIPPED_REAL_MULTILINE_AUTH_OUTPUT = "GET /a HTTP/1.1\r\nX-API-Key: [REDACTED]\r\nAccept: text/html\r\n\r\n"
     }
 }

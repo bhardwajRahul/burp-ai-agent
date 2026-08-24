@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 12
+open_count: 15
 waived_count: 0
 fixed_count: 0
-total_count: 12
-last_updated: 2026-08-24T20:05:47.651Z
+total_count: 15
+last_updated: 2026-08-24T20:31:52.926Z
 ---
 
 # Broken Windows Ledger
@@ -27,6 +27,9 @@ last_updated: 2026-08-24T20:05:47.651Z
 | 10 | 24 | deviation | build/test-results/test |  | One unidentified intermittent test failure on the first unfiltered './gradlew test detekt ktlintCheck shadowJar' run in plan 24-05; suite name lost to output tailing, not reproduced across three subsequent full runs (two forced --rerun-tasks). Probable known RedactionTest wall-clock/SafeRegex-deadline flake under CPU load, unconfirmed. | open |  | 2026-08-21T15:14:38.714Z |  |
 | 11 | 27 | deviation | src/main/kotlin/com/six2dez/burp/aiagent/redact/Redaction.kt |  | Plan 27-04 task 1 acceptance criterion 3 (removed-line grep must return 0) is unsatisfiable by the implementation the same plan mandates: it counts CONSUMER lines of COOKIE_NAME_PART/COOKIE_NAME_TOKEN, and rebuilding both cookie regexes via logicalLineHeaderRule necessarily rewrites those lines. Observed 3, not 0. The intended invariant (definitions byte-identical) was measured and holds; parity/ownership tests green unedited. Criterion is wrong, code is right. | open |  | 2026-08-24T20:05:39.056Z |  |
 | 12 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/McpToolHelpersTest.kt |  | Plan 27-04 task 3 premise falsified: the plan expected the AR-27-01 pin to turn RED after the cookie-rule fix. Measured green. The pin's fixture is the ParsedRequest HEADER-MAP shape, which carries no line boundary of any kind (no escaped newline), so neither branch can fire; inverting in place would have committed a RED, false test. Resolved by inverting on the raw-message-in-JSON shape and gating the header-map shape's root cause instead. Residual for 27-06: redactIfNeeded still cannot recover a missed cookie on the header-map shape, so sanitizeHeaders remains the only control for request_parse/response_parse. | open |  | 2026-08-24T20:05:47.651Z |  |
+| 13 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-05-PLAN.md |  | Plan 27-05 task 1 red-probe criterion falsified as written: removing a tool name from RAW_HTTP_EMISSION_TOOL_NAMES fails theMeasuredEmissionSiteCountIsPinned (via the names-vs-count cross-check), NOT everyEmissionToolNameAppearsInBothExecutors — a smaller set simply checks fewer names and stays green. The intended probe for the presence test is a name IN the set that is ABSENT from an executor; run as a rename and observed RED. Both probes recorded. | open |  | 2026-08-24T20:31:37.830Z |  |
+| 14 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/mcp/McpSupervisorProbeTest.kt |  | Plan 27-05 task 3 acceptance criterion 'no path containing Probe appears anywhere under src/' is unsatisfiable as written: McpSupervisorProbeTest.kt has existed since phase 20 (08e8ff8) and is unrelated to redaction measurement. The intended invariant — this plan's throwaway residual probe is not committed — was verified directly (git status --porcelain src/ clean, probe lives only in the scratchpad, its full source quoted in the SUMMARY). | open |  | 2026-08-24T20:31:45.459Z |  |
+| 15 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/SerializedEmissionSiteInventoryTest.kt |  | Plan 27-05 pins the three addTool registration sites by PATH and COUNT rather than by file:line as the plan's must_haves wording implies. Line-number pins rot on any edit above line 34 and contradict CookieHeaderRuleOwnershipTest's stated path-keyed discipline. Measured line numbers (McpTool.kt:34, McpTool.kt:72, McpToolHandlers.kt:122) are recorded in the SUMMARY and in the test's own constant comment instead. Red probe confirms the path+count pin still fails when a path is dropped. | open |  | 2026-08-24T20:31:52.926Z |  |
 
 ````json
 [
@@ -172,6 +175,42 @@ last_updated: 2026-08-24T20:05:47.651Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-24T20:05:47.651Z",
+    "resolved_at": null
+  },
+  {
+    "id": 13,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-05-PLAN.md",
+    "line": null,
+    "description": "Plan 27-05 task 1 red-probe criterion falsified as written: removing a tool name from RAW_HTTP_EMISSION_TOOL_NAMES fails theMeasuredEmissionSiteCountIsPinned (via the names-vs-count cross-check), NOT everyEmissionToolNameAppearsInBothExecutors — a smaller set simply checks fewer names and stays green. The intended probe for the presence test is a name IN the set that is ABSENT from an executor; run as a rename and observed RED. Both probes recorded.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-24T20:31:37.830Z",
+    "resolved_at": null
+  },
+  {
+    "id": 14,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/mcp/McpSupervisorProbeTest.kt",
+    "line": null,
+    "description": "Plan 27-05 task 3 acceptance criterion 'no path containing Probe appears anywhere under src/' is unsatisfiable as written: McpSupervisorProbeTest.kt has existed since phase 20 (08e8ff8) and is unrelated to redaction measurement. The intended invariant — this plan's throwaway residual probe is not committed — was verified directly (git status --porcelain src/ clean, probe lives only in the scratchpad, its full source quoted in the SUMMARY).",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-24T20:31:45.459Z",
+    "resolved_at": null
+  },
+  {
+    "id": 15,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/SerializedEmissionSiteInventoryTest.kt",
+    "line": null,
+    "description": "Plan 27-05 pins the three addTool registration sites by PATH and COUNT rather than by file:line as the plan's must_haves wording implies. Line-number pins rot on any edit above line 34 and contradict CookieHeaderRuleOwnershipTest's stated path-keyed discipline. Measured line numbers (McpTool.kt:34, McpTool.kt:72, McpToolHandlers.kt:122) are recorded in the SUMMARY and in the test's own constant comment instead. Red probe confirms the path+count pin still fails when a path is dropped.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-24T20:31:52.926Z",
     "resolved_at": null
   }
 ]
