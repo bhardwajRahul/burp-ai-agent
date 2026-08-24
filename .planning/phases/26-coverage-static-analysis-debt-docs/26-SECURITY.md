@@ -187,6 +187,46 @@ The exclusion is asserted from source, not merely written down: `LogicalLineBoun
 (3 tests, green) fails if `hostHeaderRegex` is routed through the composer, and fails if the
 rationale comment stops agreeing with the code.
 
+### AR-27-04 — disposition, 2026-08-24
+
+**Chosen option, recorded verbatim: `accept-residual` — "Accept as a recorded residual at medium
+severity".**
+
+**Provenance, stated plainly because it changes how much weight this disposition carries:
+AUTO-SELECTED BY THE CONFIGURED RUN MODE, NOT MAINTAINER-CHOSEN.** Plan 27-06's task 3 is a
+`checkpoint:decision` carrying `gate="blocking"`, and this project runs `mode: yolo`, which
+auto-selects blocking checkpoints; the first option was taken. The plan anticipated exactly this
+(threat `T-27-06-07`) and moved the substantive checks off the checkpoint and onto automated gates,
+which did hold: the diff gates, the computed counter and the quoted probe output above are all
+executor-verified. **A future auditor should read this row as a recorded default, not as a human
+having weighed the release posture.** It is re-openable at no cost, and re-opening it does not
+invalidate anything else in this file.
+
+**Reason recorded for the choice.** The two competing options were `follow-up-phase` and `close-now`.
+`close-now` was excluded by the plan's own instruction — fixing `hostHeaderRegex` and the `url` field
+together is plan-set revision work, not something to improvise inside a checkpoint — and doing it
+under time pressure is precisely how the map-load question would go unmeasured. `follow-up-phase`
+remains open to the maintainer and is the option this record recommends if the promise-vs-behaviour
+gap is judged unacceptable on a shipped 1.0.0. `accept-residual` keeps the phase scoped to what it
+measured and gated, and leaves the next audit a measurement rather than a silence.
+
+**The cost this option carries, and the concrete item that pays it (`T-27-06-06`, disposition
+`transfer`).** Accepting the residual means STRICT's user-facing privacy claim stays broader than
+STRICT's behaviour until a later phase, so the gap must be named in the user-facing documentation or
+the overclaim simply relocates from this register into the docs. **Backlog item, naming the files to
+change:** `README.md:247` ("STRICT privacy mode anonymizes hosts using real HKDF …") and `SPEC.md:80`
+(the privacy-mode table's `anonymized (HKDF/HmacSHA256)` cell) with its accompanying paragraph at
+`SPEC.md:86` must state that host anonymisation applies to the prompt path and to parsed-header tool
+results, and **does not** apply to the raw HTTP message or the `url` field emitted by
+`proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`.
+Not done in this plan: `files_modified` scopes plan 27-06 to the three record files, and a
+user-facing documentation edit is a change to what ships, not a record repair. **Until that edit
+lands, this residual is accepted AND the documentation still overclaims** — recorded here rather than
+left to be discovered.
+
+**Severity unchanged at MEDIUM**, so `threats_open` did not need re-deriving for a severity change;
+it was re-run after this section was written and still returns `0` over 46 rows, 46 closed.
+
 ### AR-27-05 — the header-map shape carries no line boundary at all
 
 Observed output, verbatim, on the header-map shape, same run:
@@ -278,6 +318,24 @@ recorded in the reopening note below. The re-approval rests on source read in th
 sweeps returning `0` and a green `CookieHeaderRuleOwnershipTest`, and it is scoped to the two
 redaction paths and the passive-scan admitter. It is NOT a re-approval of the L1 pass that produced
 the original false close; the standing rule below is what that pass was missing.
+
+### Read-back — 2026-08-24 (plan 27-06, task 3), item by item
+
+Each item below was checked against the SHIPPED SOURCE or against this file's own bytes, in the
+closing task, with the check named. **None was confirmed by a maintainer**: the checkpoint that would
+have asked for that confirmation was auto-selected by the configured run mode (see the AR-27-04
+disposition above). These are executor verifications, and they are recorded at that weight.
+
+| # | Read-back item | Verdict | Check actually run |
+|---|----------------|---------|--------------------|
+| 1 | T-26-02-01 clauses (1), (2) and (3) are unedited | CONFIRMED | The row is one physical line, so appending clause (4) necessarily rewrites it; the splice asserted that the OLD row body is an exact BYTE PREFIX of the new row (5,633 → 11,320 chars, prefix check PASS). No clause text was altered, reordered or softened. |
+| 2 | The `## Reopening` narrative dated 2026-08-24 is unedited | CONFIRMED | `git diff HEAD -- 26-SECURITY.md \| grep -c 'Reopening — 2026-08-24'` returns `0` over the WHOLE diff — the heading appears on no added and no removed line. Clause (4) therefore refers to that section without reproducing its heading string. |
+| 3 | Clause (4) says what happened without softening it | CONFIRMED | It states, in its own words, that the parent requirement was still refuted when clause (3) was written; that the leak was the CANONICAL names and strictly broader than the variant spellings; and that the frontmatter consequence drawn on 2026-08-24 was drawn while PRIV-05 was violated elsewhere. |
+| 4 | AR-27-01 reads as a reclassified live finding, not as a residual | CONFIRMED | Its Accepted Risks Log row opens "RECLASSIFIED … this was never a genuine accepted residual", names the interval, names the repository's own green test that pinned the leak, and closes it on the raw-message-in-JSON shape only. `grep -c` for the old "accepted residual" framing of AR-27-01 elsewhere in this file: none remains. |
+| 5 | `threats_open` matches its quoted computation | CONFIRMED | The documented `awk` command in the frontmatter was re-run against this file after every edit in this plan: output `0`, 46 rows scanned, 46 closed. The written value is `0`. |
+| 6 | No sentence in any of the three records claims a scope wider than the serialized emission path, the cookie-header class and the exact-name auth-header class | CONFIRMED | Every scope sentence added here cites the pinned counts (`14` emission sites, `3` composer rules) and names its class. The tree-wide scope phrase this phase is prohibited from using appears `0` times in all three files, and no negated form was substituted for it — the phrase and its inverse are both absent. (Checked with the same grep plan 27-05 recorded; the search string is deliberately not reproduced here, because writing it down is itself a hit.) Both tripwires are described by what they measure — `SerializedEmissionSiteInventoryTest`'s registration bound is stated as WEAKER than its emission bound, and `LogicalLineBoundaryScopeTest` is bounded to the composer's rule set. |
+| 7 | AR-27-04 is recorded as OPEN with measured evidence, not as closed, moot or theoretical | CONFIRMED | Recorded OPEN at MEDIUM with the probe output quoted verbatim, the probe re-run in the closing task against the compiled classes rather than copied from a SUMMARY, and its two measured exclusion reasons re-read at source (`Redaction.kt:1810`, `Serialization.kt:80`/`:159`). |
+| 8 | The disposition's provenance is not passed off as a human decision | CONFIRMED | Stated in the AR-27-04 disposition in its own bold paragraph, and repeated in `27-06-SUMMARY.md`. |
 
 ### What this audit did and did not do
 
