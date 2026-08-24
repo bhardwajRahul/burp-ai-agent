@@ -396,9 +396,16 @@ reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Plans:** 3 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 27-01-PLAN.md — Shared `Redaction.isCookieHeaderName` predicate, `Locale.ROOT` compare, and the full variant matrix on the MCP tool-result path (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 27-02-PLAN.md — `CookieHeaderNameParityTest` structural coupling, plus CP-27-02-01 on the tool-result header map shape and the ordering/duplicate edges (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 27-03-PLAN.md — Reconcile the records: re-close `26-SECURITY.md` T-26-02-01 with source citations, amend `CONCERNS.md` W-A, note the closure in the milestone audit (wave 3)
 
 ---

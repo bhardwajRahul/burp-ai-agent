@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
-current_phase: 26
-current_phase_name: Coverage, Static-Analysis Debt & Docs
+current_phase: 27
+current_phase_name: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity
 status: executing
 stopped_at: Phase 25 complete, ready to plan Phase 26
-last_updated: "2026-08-22T12:48:23.951Z"
+last_updated: "2026-08-24T11:55:56.856Z"
 last_activity: 2026-08-22
 last_activity_desc: Phase 26 execution started
-state_head: 767776d6330a29322983026e7e31e10c6dfd0399
+state_head: cd19eb27f2658079a304fa3d22338c946640c92e
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 4
-  total_plans: 61
-  completed_plans: 54
-  percent: 57
+  total_plans: 64
+  completed_plans: 61
+  percent: 50
 ---
 
 # Project State
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 26 (Coverage, Static-Analysis Debt & Docs) — EXECUTING
+Phase: 27 (PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity) — READY TO EXECUTE
 Plan: 1 of 7
-Status: Executing Phase 26
+Status: Ready to execute
 Resume file: None
 Last activity: 2026-08-22 — Phase 26 execution started
 
@@ -241,6 +241,7 @@ Recent decisions affecting current work:
 - 2026-05-28: Phase 8 added — BApp Store resubmission (MCP pivot to extension-native tools + `-PstoreBuild` gate, gate all AI calls on `ai.isEnabled()`, migrate passive scanning to `ScanCheck.passiveAudit()`, confirm name). Addresses PortSwigger review feedback on issue #231; follows Phase 07. Approved plan seed: ~/.claude/plans/drifting-hatching-sphinx.md.
 - 2026-05-29: Phases 9-11 added — v0.8.0 UI/UX Overhaul milestone. Phase 9: Design System Foundation (UI-01). Phase 10: MCP Tools Tab Redesign (UI-03, UI-04, UI-05, UI-07). Phase 11: Settings Tabs + Theme Rollout (UI-02, UI-06, UI-08, UI-07). All 8 UI-* requirements mapped; 100% coverage.
 - 2026-06-10: Phases 12-19 added — v0.9.0 Hardening, Quality & New Capabilities milestone. 22 requirements mapped across 8 phases. Hard ordering constraints from research enforced: SEC first, QUAL-01 split last.
+- 2026-08-24: Phase 27 added — close gap: PRIV-05 — mirror the cookie name-variant fix into sanitizeHeaders (v0.10.0 milestone audit gap F1)
 
 ### Pending Todos
 
