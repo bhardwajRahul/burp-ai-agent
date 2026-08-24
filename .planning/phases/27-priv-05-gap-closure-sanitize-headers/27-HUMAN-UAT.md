@@ -47,8 +47,20 @@ result: [pending]
 
 ## Notes
 
-- Affected call sites (10, all via `toSerializableForm()` / `toSiteMapEntry()`):
-  `McpToolExecutorImpl.kt:608,836,855,873,896` and `McpToolLegacy.kt:475,713,729,744,764`.
+- Affected call sites — **14**, seven per executor file, all via `toSerializableForm()` /
+  `toSiteMapEntry()`. Measured with
+  `grep -rnE 'encodeToString\(it\.(toSerializableForm|toSiteMapEntry)\(' src/main/kotlin`:
+  - `McpToolExecutorImpl.kt:608,740,760,836,855,873,896`
+  - `McpToolLegacy.kt:475,622,639,713,729,744,764`
+
+  **Correction:** an earlier revision of this note listed 10 sites
+  (`McpToolExecutorImpl.kt:608,836,855,873,896` / `McpToolLegacy.kt:475,713,729,744,764`). That list
+  was produced by a narrower grep that missed the `toSerializableForm(preprocess)` variants, and it
+  is wrong — re-testing from it would exercise the wrong tools. Plan `27-05` pins the corrected
+  inventory as a gated count. Not every one of the 14 carries a raw HTTP message: a subset carries
+  WebSocket payloads instead, and `27-05` records the raw-HTTP / WebSocket split by tool name.
+  When running the tests above, follow `27-05-PLAN.md`'s classification rather than assuming all 14
+  are raw-HTTP carriers.
 - `cookie_jar_get` is correctly gated and is NOT part of this finding.
 - This leak is the **canonical** `Cookie:` / `Set-Cookie:` header, not a name variant — strictly
   broader than the original PRIV-05 defect, which only affected `X-Cookie`-style variants.
