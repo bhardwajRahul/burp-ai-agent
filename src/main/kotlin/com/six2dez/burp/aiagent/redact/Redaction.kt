@@ -3,6 +3,7 @@ package com.six2dez.burp.aiagent.redact
 import com.six2dez.burp.aiagent.config.Defaults
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.regex.Pattern
@@ -83,6 +84,12 @@ object Redaction {
     // headers is [A-Za-z0-9-]. Used as the "rest of the name" either side of the literal "cookie".
     private const val COOKIE_NAME_PART = "[A-Za-z0-9-]*"
 
+    // (PRIV-05) D-27-01: the ONE lowercase literal that says what "a cookie header" is named. Both
+    // regexes below and isCookieHeaderName are composed from it, so a rename is a compile-wide change
+    // rather than three hand-kept copies that can drift apart — which is exactly how the v0.10.0
+    // milestone audit found the tool-result path testing a narrower rule than the prompt path.
+    private const val COOKIE_NAME_TOKEN = "cookie"
+
     // W-A: both rules key on a header whose NAME CONTAINS "cookie", not on the two exact names
     // "cookie"/"set-cookie". The phase verifier measured five real names — Cookie2, X-Cookie,
     // Set-Cookie2, X-Original-Cookie, X-Forwarded-Cookie — reaching an AI backend VERBATIM under
@@ -99,11 +106,56 @@ object Redaction {
     // the set-cookie rule and never by the request-cookie one, whatever order apply() runs them in.
     private val cookieHeaderRegex =
         Regex(
-            "(?im)^(?!" + COOKIE_NAME_PART + "set-cookie)" +
-                COOKIE_NAME_PART + "cookie" + COOKIE_NAME_PART + ":\\s*.+$",
+            "(?im)^(?!" + COOKIE_NAME_PART + "set-" + COOKIE_NAME_TOKEN + ")" +
+                COOKIE_NAME_PART + COOKIE_NAME_TOKEN + COOKIE_NAME_PART + ":\\s*.+$",
         )
     private val setCookieHeaderRegex =
-        Regex("(?im)^" + COOKIE_NAME_PART + "set-cookie" + COOKIE_NAME_PART + ":\\s*.+$")
+        Regex("(?im)^" + COOKIE_NAME_PART + "set-" + COOKIE_NAME_TOKEN + COOKIE_NAME_PART + ":\\s*.+$")
+
+    /**
+     * The single cookie-header-name rule shared by the two redaction paths and the passive-scan
+     * admitter: `mcp/tools/McpToolHelpers.sanitizeHeaders` (the MCP tool-RESULT redactor),
+     * `scanner/PassiveAiScannerFilters.sanitizeHeadersForPrompt` (the passive-scan admitter) and the
+     * two regexes above, which share this function's [COOKIE_NAME_TOKEN].
+     *
+     * That scope is MEASURED, not rhetorical, and must stay written down as the three sites it is.
+     * Other cookie-header-name matchers survive elsewhere in `src/main/kotlin` — in
+     * `PassiveAiScannerAnalysis`, `PassiveAiScannerHeuristics`, `ActiveAiScanner` and
+     * `BountyPromptTagResolver` — and are individually classified as non-redacting by
+     * `CookieHeaderRuleOwnershipTest`. Do not widen this sentence into a tree-wide singularity claim:
+     * a record wider than the control it describes is the defect the v0.10.0 milestone audit found,
+     * and restating it here would only relocate it into the artifact a maintainer reads first.
+     *
+     * The predicate is deliberately WIDER than the two regexes. They constrain the characters either
+     * side of the token to [COOKIE_NAME_PART]; this constrains nothing, so any name containing the
+     * token matches. Wider on the redacting side is fail-safe: the cost is over-redacting a benign
+     * `Cookie-Consent`-style header's VALUE (T-21-WA3, accepted), and the alternative cost is a
+     * cookie reaching an AI backend.
+     *
+     * Both header paths call THIS function rather than writing their own test, so a future widening
+     * cannot be applied to one path and forgotten in the other. That forgetting is precisely what the
+     * v0.10.0 milestone audit found: the prompt path matched name-contains-`cookie` while the
+     * tool-result path still compared against the two canonical spellings, and `X-Cookie`,
+     * `Cookie2`, `Set-Cookie2`, `X-Original-Cookie` and `X-Forwarded-Cookie` reached the model
+     * verbatim through the MCP `request_parse` / `response_parse` tools.
+     *
+     * The `Locale.ROOT` argument is explicit for a MEASURED reason, and the measurement is not the
+     * one the folklore gives. Kotlin's no-argument `String.lowercase()` is ALREADY locale-agnostic —
+     * it compiles to `toLowerCase(Locale.ROOT)` — so with the JVM default locale set to `tr-TR`,
+     * `"COOKIE".lowercase()` was measured on this toolchain to yield `cookie`, not the dotless-i
+     * `cookıe`. The dotless-i hazard is real, but it belongs to the JAVA spelling: under that same
+     * default, `"COOKIE".toLowerCase()` and `toLowerCase(Locale.getDefault())` were both measured to
+     * yield `cookıe`, which would silently stop this control matching on such a host.
+     *
+     * So `Locale.ROOT` is stated rather than left implied, and the honest bound is worth writing
+     * down: removing this argument does NOT change behaviour today, whereas replacing it with
+     * `Locale.getDefault()`, or switching to Java's `toLowerCase()`, would break the control without
+     * an error anywhere. The argument's job is to make that future edit read as the change it is.
+     *
+     * Cost is one `lowercase` plus one `contains` — no `Regex`, no compilation, no backtracking
+     * surface — because this runs once per header on the MCP tool path.
+     */
+    fun isCookieHeaderName(name: String): Boolean = name.lowercase(Locale.ROOT).contains(COOKIE_NAME_TOKEN)
 
     /**
      * The passive scanner's dedicated cookie-section header.

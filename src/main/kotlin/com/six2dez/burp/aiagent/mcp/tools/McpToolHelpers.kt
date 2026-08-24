@@ -19,6 +19,7 @@ import kotlinx.serialization.json.Json
 import java.awt.KeyboardFocusManager
 import java.net.URI
 import java.util.Base64
+import java.util.Locale
 import javax.swing.JTextArea
 
 internal val toolJson = Json { encodeDefaults = true }
@@ -316,9 +317,23 @@ internal fun sanitizeHeaders(
     val sanitized = LinkedHashMap<String, String>()
     headers.forEach { header ->
         val name = header.name()
-        val lowered = name.lowercase()
+        // (PRIV-05) D-27-04: this single lowered value feeds ALL THREE comparisons below — the
+        // cookie test, the tokenHeaders lookup and the host compare — so the locale question cannot
+        // be answered for one of them alone. Measured, rather than assumed: Kotlin's no-argument
+        // lowercase() is already locale-agnostic (it compiles to toLowerCase(Locale.ROOT)), so this
+        // argument does not change behaviour today. It is stated so that a later switch to a
+        // locale-SENSITIVE spelling — Java's toLowerCase(), or lowercase(Locale.getDefault()), both
+        // measured to yield the dotless-i "cookıe" under a tr-TR default — reads as the security
+        // change it would be instead of slipping through as a formatting tidy-up.
+        val lowered = name.lowercase(Locale.ROOT)
         var value = header.value()
-        if (policy.stripCookies && (lowered == "cookie" || lowered == "set-cookie")) {
+        // (PRIV-05) D-27-01: the cookie-header-name rule lives in Redaction and is shared with the
+        // prompt path's two regexes and the passive-scan admitter. This site used to compare against
+        // the two canonical spellings while the prompt path matched name-contains-"cookie", so
+        // X-Cookie / Cookie2 / Set-Cookie2 / X-Original-Cookie / X-Forwarded-Cookie reached the model
+        // verbatim through request_parse / response_parse — the gap the v0.10.0 milestone audit found.
+        // The ORIGINAL name is passed: the predicate does its own locale-safe lowering.
+        if (policy.stripCookies && Redaction.isCookieHeaderName(name)) {
             value = "[STRIPPED]"
         }
         if (policy.redactTokens && tokenHeaders.contains(lowered)) {
