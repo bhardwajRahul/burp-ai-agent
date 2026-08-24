@@ -46,6 +46,7 @@ Everything else in this milestone is real but was found by reading: an agent loo
 - [x] **Phase 24: Scheduler & Process Robustness** — Guard recurring tasks against death-by-exception; fix the CLI output race and unbounded resource use (completed 2026-08-22)
 - [x] **Phase 25: Secondary Hardening** — Stop leaking the MCP token to unverified port holders; teach SsrfGuard the alternate IP notations (completed 2026-08-22)
 - [ ] **Phase 26: Coverage, Static-Analysis Debt & Docs** — Allowlist shell escaping, raise coverage on security paths, shrink the detekt baseline, publish the advisory
+- [ ] **Phase 27: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity** — Close gap: PRIV-05 — mirror the cookie name-variant fix into `sanitizeHeaders`, so the MCP tool path strips `X-Cookie` / `Cookie2` / `Set-Cookie2` / `X-Original-Cookie` / `X-Forwarded-Cookie` the way the prompt path already does
 
 ## Phase Details
 
@@ -378,13 +379,35 @@ Plans:
 - [x] 26-06-PLAN.md — the `DECISIONS.md` half of SC6: ADR-16's seventh residual with a guard bound that can catch its deletion (W-1a / IN-02), ADR-17 for QUAL-07's three dispositions, and W-3's honest non-loopback TLS diagnostic (wave 2)
 - [x] 26-07-PLAN.md — SC3: the detekt baseline shrinks from 1096 to ≤ 1045 across eleven named rule categories with a removals-only diff and `detekt.yml` untouched; carries the phase coverage seal (wave 3)
 
+### Phase 27: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity
+
+**Goal:** Close gap: PRIV-05 — mirror the cookie name-variant fix into `sanitizeHeaders`, so the MCP tool path strips `X-Cookie` / `Cookie2` / `Set-Cookie2` / `X-Original-Cookie` / `X-Forwarded-Cookie` the way the prompt path already does. The v0.10.0 milestone audit (2026-08-24) refuted PRIV-05's phase-level pass:
+Phase 21 widened `cookieHeaderRegex` / `setCookieHeaderRegex` to name-contains-`cookie`
+(`Redaction.kt:100-106`), but the second redaction path — `McpToolHelpers.sanitizeHeaders`
+(`McpToolHelpers.kt:321`) — still tests exact names (`lowered == "cookie" || lowered == "set-cookie"`),
+so cookie-bearing name variants pass through unstripped. `McpToolContext.redactIfNeeded` cannot
+recover them: `sanitizeHeaders` emits single-line JSON while both cookie regexes are line-anchored
+`(?im)^...$`, and `cookie` is absent from `SENSITIVE_WORDS` so `jsonSecretKeyRegex` never fires.
+Reachable via the `request_parse` / `response_parse` MCP tools; confirmed by live probe against
+`Custom-AI-Agent-full-1.0.0.jar`. Closing this makes PRIV-05's "by any path" wording true and
+reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
+**Requirements**: PRIV-05 (re-opened by `v0.10.0-MILESTONE-AUDIT.md`, gap F1, blocker)
+**Depends on:** Phase 26
+**Plans:** 3 plans
+
+Plans:
+
+- [ ] 27-01-PLAN.md — Shared `Redaction.isCookieHeaderName` predicate, `Locale.ROOT` compare, and the full variant matrix on the MCP tool-result path (wave 1)
+- [ ] 27-02-PLAN.md — `CookieHeaderNameParityTest` structural coupling, plus CP-27-02-01 on the tool-result header map shape and the ordering/duplicate edges (wave 2)
+- [ ] 27-03-PLAN.md — Reconcile the records: re-close `26-SECURITY.md` T-26-02-01 with source citations, amend `CONCERNS.md` W-A, note the closure in the milestone audit (wave 3)
+
 ---
 
 ## Progress
 
 **Execution Order (v0.10.0):**
 
-Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 → 23 strictly sequential (both rewrite `maybeExecuteToolCall`). Phases 24 and 25 independent, may run any time after 20. Phase 26 last.
+Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 → 23 strictly sequential (both rewrite `maybeExecuteToolCall`). Phases 24 and 25 independent, may run any time after 20. Phase 26 last. Phase 27 added 2026-08-24 after the milestone audit reopened PRIV-05; it runs after 26.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -395,6 +418,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
 | 26. Coverage, Static-Analysis Debt & Docs | 7/7 | In Progress|  |
+| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 0/3 | Not Started |  |
 
 ## Backlog
 
