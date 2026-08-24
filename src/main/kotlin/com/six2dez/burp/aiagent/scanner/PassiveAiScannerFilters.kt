@@ -7,10 +7,12 @@ import com.six2dez.burp.aiagent.cache.CachedEntry
 import com.six2dez.burp.aiagent.cache.CachedIssue
 import com.six2dez.burp.aiagent.cache.PersistentPromptCache
 import com.six2dez.burp.aiagent.config.AgentSettings
+import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.util.IssueUtils
 import java.io.File
 import java.net.URI
 import java.util.LinkedHashMap
+import java.util.Locale
 
 // AWT-free contract: MUST NOT import java.awt.* or javax.swing.*
 
@@ -166,10 +168,24 @@ internal fun PassiveAiScanner.sanitizeHeadersForPrompt(
     headers
         .asSequence()
         .filter { header ->
-            val name = header.name().lowercase()
+            // (PRIV-05) D-27-04: Locale.ROOT covers every comparison that reads this one lowered
+            // value — the denylist lookup, the "x-" prefix test and both allowlist lookups. Measured:
+            // Kotlin's no-argument lowercase() is already locale-agnostic, so this is stated to make a
+            // future switch to a locale-SENSITIVE spelling read as the security change it would be.
+            val name = header.name().lowercase(Locale.ROOT)
             if (name in headerNoiseDenylist) return@filter false
             if (name.startsWith("x-")) return@filter true
-            if (name.contains("auth") || name.contains("token") || name.contains("cookie")) return@filter true
+            // (PRIV-05) D-27-01: Redaction.isCookieHeaderName is the single cookie-header-name rule
+            // across the two redaction paths and this admitter — measured at those three sites, not a
+            // claim about every cookie matcher in the tree (CookieHeaderRuleOwnershipTest classifies
+            // the others as non-redacting). All three share it because the v0.10.0 milestone audit
+            // found the rule widened on the prompt path and forgotten on the tool-result one. The
+            // `auth`/`token` conjuncts stay hand-written on purpose: they are the open-ended vendor
+            // class CONCERNS.md records as deliberately deferred, and folding them in here would
+            // quietly extend this phase into a class the maintainer decided not to close.
+            if (name.contains("auth") || name.contains("token") || Redaction.isCookieHeaderName(header.name())) {
+                return@filter true
+            }
             if (isRequest) {
                 name in requestHeaderAllowlist
             } else {
