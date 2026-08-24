@@ -450,6 +450,15 @@ None — no new network endpoint, auth path, file access pattern or schema chang
 - **Open obligation:** the ROADMAP backlog line for the entry-list change (see CP-27-02-01). Owed by the orchestrator after merge, not by this branch.
 - **For any future plan touching cookie matching:** the ownership test's guarantee stays bounded to five measured spelling classes, and this plan's parity test is bounded to its 17-name corpus. Both are tripwires, not proofs.
 
+## Self-Check: PASSED
+
+- Created files exist on disk: `CookieHeaderNameParityTest.kt`, `27-02-SUMMARY.md`.
+- All three commits exist: `33b3c33`, `b7519c5`, `7f347a9`.
+- `git diff a517da9 HEAD --name-only` lists exactly three files — the two test files and the SUMMARY. **No `STATE.md`, no `ROADMAP.md`** — the orchestrator owns those writes, and the ROADMAP backlog line owed by CP-27-02-01 is recorded above as its obligation.
+- Working tree clean; all four probe restorations verified with `git diff --quiet src/main/kotlin`.
+- Every task-level `<acceptance_criteria>` was executed. The one that could not be satisfied as literally written — Task 3's "failing first", which is impossible for tests that assert current behaviour with no production change — is recorded as Deviation 3 with the measurement that replaced it, not silently skipped.
+- Each new test was confirmed to have actually RUN, by name, in the JUnit XML. That check is not ceremonial: it is what caught Deviation 1.
+
 ---
 *Phase: 27-priv-05-gap-closure-sanitize-headers*
 *Completed: 2026-08-24*
