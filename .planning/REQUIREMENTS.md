@@ -31,12 +31,12 @@ Scope = the 17 findings of the 2026-08-05 deep code review of v0.9.2. Two of the
 
 ### Quality & Maintainability (QUAL)
 
-- [ ] **QUAL-06** (Finding 10 + coverage): `shellEscape` quotes by allowlist, so an argument containing shell metacharacters without whitespace (`foo;id`, `$(cmd)`) cannot reach `sh -c` unquoted — closing the settings-import-to-command-execution path. Line coverage on the security-relevant packages (`redact`, `mcp`, `config`) rises meaningfully from the 34% line / 23% branch project baseline, with the new tests concentrated on the paths this milestone changes.
-- [ ] **QUAL-07** (Findings 16, 17): The detekt baseline shrinks rather than grows — no finding from this milestone is added to it. `assert()`-based EDT enforcement, which is a no-op in production Burp, is either upgraded to something that reports in the field or explicitly documented as test-only. `SecretCipher`'s at-rest guarantee is described accurately in user-facing docs (the master key sits beside the ciphertext in Burp Preferences).
+- [x] **QUAL-06** (Finding 10 + coverage): `shellEscape` quotes by allowlist, so an argument containing shell metacharacters without whitespace (`foo;id`, `$(cmd)`) cannot reach `sh -c` unquoted — closing the settings-import-to-command-execution path. Line coverage on the security-relevant packages (`redact`, `mcp`, `config`) rises meaningfully from the 34% line / 23% branch project baseline, with the new tests concentrated on the paths this milestone changes.
+- [x] **QUAL-07** (Findings 16, 17): The detekt baseline shrinks rather than grows — no finding from this milestone is added to it. `assert()`-based EDT enforcement, which is a no-op in production Burp, is either upgraded to something that reports in the field or explicitly documented as test-only. `SecretCipher`'s at-rest guarantee is described accurately in user-facing docs (the master key sits beside the ciphertext in Burp Preferences).
 
 ### Docs (DOC)
 
-- [ ] **DOC-03**: A security advisory documents SEC-04 and PRIV-05 for users running v0.9.0–v0.9.2, stating impact and the version that fixes them; `README.md`, `SPEC.md`, `DECISIONS.md` and the GitBook site (`burp-ai-agent-docs`) reflect the new tool-call confirmation flow and the corrected privacy claims.
+- [x] **DOC-03**: A security advisory documents SEC-04 and PRIV-05 for users running v0.9.0–v0.9.2, stating impact and the version that fixes them; `README.md`, `SPEC.md`, `DECISIONS.md` and the GitBook site (`burp-ai-agent-docs`) reflect the new tool-call confirmation flow and the corrected privacy claims.
 
 ## Traceability
 

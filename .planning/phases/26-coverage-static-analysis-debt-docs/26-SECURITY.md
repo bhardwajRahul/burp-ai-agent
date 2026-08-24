@@ -1,9 +1,9 @@
 ---
 phase: 26
 slug: coverage-static-analysis-debt-docs
-status: verified
+status: gaps_found
 # threats_open = count of OPEN threats at or above workflow.security_block_on severity (the blocking gate)
-threats_open: 0
+threats_open: 1
 asvs_level: 1
 created: 2026-08-24
 ---
@@ -57,7 +57,7 @@ the workflow declares sufficient when `threats_open: 0` and the register is plan
 | T-26-01-03 | Denial of Service | `shellEscape` fast path | low | mitigate | The pass-through test is `arg.all { it in SHELL_SAFE_CHARS }` — a per-character scan over a `const val`, not a `Regex`. No backtracking surface on a path that runs per CLI argument. **Verified in source.** | closed |
 | T-26-01-04 | Information Disclosure | widened `internal` helpers | low | **accept** | `internal` is module-scoped, single-module Gradle build, no published Kotlin API; the five widened helpers are pure transforms over data the caller already holds. Same trade-off `buildTimeoutMessage` and `buildCopilotCommand` already made. See Accepted Risks. | closed |
 | T-26-01-05 | Tampering | over-quoting regression | medium | mitigate | Positive assertions that `--silent`, `/usr/local/bin/claude`, `claude-3.5` and `gemini_cli` return byte-identical, guarding against a fix that quotes everything and silently breaks working CLI backends. **Verified:** `plainFlagIsPassedThroughUnquoted`, `absolutePathIsPassedThroughUnquoted`, `versionSuffixAndUnderscoreNameArePassedThroughUnquoted`, `ptyArgvLeavesAllowlistedArgumentsByteIdentical`. | closed |
-| T-26-02-01 | Information Disclosure | `sanitizeHeaders` | high | mitigate | Case-insensitive matching of `Cookie`, `Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-API-Key`, `Api-Key` and `Host` asserted per privacy mode against `RedactionPolicy.fromMode`. **Verified:** `McpToolHelpers.kt:310-332` lowercases the header name before every comparison; `McpToolHelpersTest.SanitizeHeaders`. The PRIV-05 failure mode cannot recur unnoticed in this second redaction path. | closed |
+| T-26-02-01 | Information Disclosure | `sanitizeHeaders` | high | mitigate | **REOPENED 2026-08-24 by the v0.10.0 milestone audit — this row previously read `closed` and overstated.** The narrow claim holds: case-insensitive matching of `Cookie`, `Set-Cookie`, `Authorization`, `Proxy-Authorization`, `X-API-Key`, `Api-Key` and `Host` is asserted per privacy mode (`McpToolHelpers.kt:310-332`; `McpToolHelpersTest.SanitizeHeaders`). The broad claim does not: the matcher is `lowered == "cookie" || lowered == "set-cookie"` (`:321`), an EXACT-name test, while Phase 21 closed this same class on the prompt path by widening to name-contains-`cookie` (`Redaction.kt:100-106`). `X-Cookie`, `Cookie2`, `Set-Cookie2`, `X-Original-Cookie` and `X-Forwarded-Cookie` therefore pass through `sanitizeHeaders` unstripped, and `McpToolContext.redactIfNeeded` cannot recover them: its output is single-line JSON and both cookie regexes are line-anchored `(?im)^...$`, while `cookie` is absent from `SENSITIVE_WORDS`. Reachable via `request_parse` / `response_parse`. | **open** |
 | T-26-02-02 | Information Disclosure | `maybeAnonymizeUrl` | medium | mitigate | STRICT replaces the host and only the host; a malformed URL falls back to returning the input rather than throwing into the tool result. **Verified:** `McpToolHelpers.kt:335-356` (`catch (_: Exception) { rawUrl }`); `McpToolHelpersTest.MaybeAnonymizeUrl`. | closed |
 | T-26-02-03 | Tampering | `resolveReportPath` | high | mitigate | Path containment above `user.home` asserted as a REJECTION for both the relative-with-parent-segments and absolute-outside-home forms, proven falsifiable by a recorded red probe that deleted the containment check. **Verified:** `McpToolHelpers.kt:374` — `require(resolved.startsWith(home))` after `normalize()`; `McpToolHelpersTest.ResolveReportPath` (7 tests). | closed |
 | T-26-02-04 | Spoofing | `toMontoyaServiceOrNull` | medium | mitigate | Blank hostname and non-positive port return null, so a partially-specified model-supplied target cannot become an outbound request destination. **Verified:** `McpToolModels.kt:17-20`; `McpToolModelsTest`. | closed |
@@ -121,6 +121,7 @@ the workflow declares sufficient when `threats_open: 0` and the register is plan
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-08-24 | 46 | 46 | 0 | `/gsd-secure-phase 26` (orchestrator, ASVS L1 source verification) |
+| 2026-08-24 | 46 | 45 | **1** | `/gsd-audit-milestone` — T-26-02-01 reopened (see below) |
 
 **Note on the count.** 46 register rows across 46 distinct threat IDs. The seven PLAN files declare
 52 rows in total, but `T-26-0N-SC` is the same supply-chain threat declared identically in all seven
@@ -132,10 +133,10 @@ and is counted once as `T-26-SC`.
 
 - [x] All threats have a disposition (mitigate / accept / transfer)
 - [x] Accepted risks documented in Accepted Risks Log
-- [x] `threats_open: 0` confirmed
-- [x] `status: verified` set in frontmatter
+- [ ] `threats_open: 0` confirmed — **1 open (T-26-02-01)**
+- [ ] `status: verified` set in frontmatter — reverted to `gaps_found`
 
-**Approval:** verified 2026-08-24
+**Approval:** WITHDRAWN 2026-08-24 — see the reopening note below.
 
 ### What this audit did and did not do
 
@@ -165,3 +166,34 @@ correct under every input. The behavioural proof for these threats lives in the 
 (`ShellEscapeTest`, `McpToolHelpersTest`, `SsrfGuardNoResolutionTest`, `McpTokenStrengthTest`,
 `SecurityDocsTest`, `ChatPanelEdtGuardTest`) and in `26-VERIFICATION.md`, which executed the full
 suite — 1131 tests, 0 failures.
+
+
+---
+
+## Reopening — 2026-08-24, v0.10.0 milestone audit
+
+The ASVS L1 pass earlier today marked T-26-02-01 `closed`. The cross-phase integration check run by
+`/gsd-audit-milestone` found that verdict wrong, and re-verification confirms it.
+
+**What the L1 pass checked, and why it was not enough.** It verified that `sanitizeHeaders`
+lowercases the header name before every comparison — which is true, and which is what
+`McpToolHelpersTest.SanitizeHeaders` asserts. It did not compare the matcher against its SIBLING on
+the prompt path. That comparison is the whole point of the threat: T-26-02-01 exists because
+`sanitizeHeaders` is a *second, independent* redaction path, and a control that is narrower than its
+sibling leaves the milestone's claim ("cookie values do not reach an AI backend by ANY path")
+stronger than what ships. Source-level presence proved the control exists; it could not prove the
+control is as wide as the requirement.
+
+**Measured, not inferred.** `Redaction.COOKIE_NAME_PART` is `[A-Za-z0-9-]*`, so the prompt path's
+`cookieHeaderRegex` matches `X-Cookie: …`. `sanitizeHeaders`' exact-name test does not. Applying
+both regexes to `sanitizeHeaders`' actual single-line JSON output matches neither, and `cookie` is
+not in `SENSITIVE_WORDS`, so `jsonSecretKeyRegex` does not fire either.
+
+**Cross-reference.** `.planning/codebase/CONCERNS.md` records this exact class as **W-A CLOSED —
+fixed, not accepted** (maintainer-decided 2026-08-13) for the prompt path, with the reasoning that
+name-contains-`cookie` is a bounded and complete predicate. That reasoning applies unchanged here;
+the fix was simply never mirrored into the sibling path added three phases later.
+
+**Remedy.** One line: `McpToolHelpers.kt:321` becomes a name-contains test mirroring
+`Redaction.COOKIE_NAME_PART`, with `set-cookie` kept mutually exclusive the way the prompt path
+does it. That belongs in a closure phase with its own red probe, not in an audit commit.
