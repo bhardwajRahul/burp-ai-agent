@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 18
+open_count: 29
 waived_count: 0
 fixed_count: 0
-total_count: 18
-last_updated: 2026-08-24T20:54:48.137Z
+total_count: 29
+last_updated: 2026-08-25T10:56:41.567Z
 ---
 
 # Broken Windows Ledger
@@ -33,6 +33,17 @@ last_updated: 2026-08-24T20:54:48.137Z
 | 16 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-06-PLAN.md |  | Plan 27-06 premise falsified: AR-27-02 is NOT simply 'SUPERSEDED, not still-deferred'. Measured in 27-06 against the compiled classes: on the header-map shape {"X-API-Key":"..."} is redacted by the JSON-key rule while {"Cookie":"..."} and {"X-Cookie":"..."} are not, because cookie is absent from SENSITIVE_WORDS (Redaction.kt:663-664). AR-27-02 is superseded on the raw-message-in-JSON shape only and remains load-bearing on the header-map shape. Recorded at that scope rather than at the plan's wider wording. | open |  | 2026-08-24T20:54:31.180Z |  |
 | 17 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-06-PLAN.md |  | Plan 27-06 task 1 acceptance criteria 1-2 are unsatisfiable as written: 'no removed line falls inside clauses (1),(2),(3) of T-26-02-01'. The whole T-26-02-01 register row is ONE physical markdown line, so appending clause (4) necessarily rewrites it and it appears as a removed line. Intent verified directly instead: the splice asserted the OLD row body is an exact BYTE PREFIX of the new row (5633 -> 11320 chars, prefix check PASS), so no clause text was altered. Recorded rather than worked around. | open |  | 2026-08-24T20:54:40.048Z |  |
 | 18 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-06-PLAN.md |  | GATE DEFECT, applies to any GSD plan reusing it: the append-only gate "git diff HEAD -- <file> \| grep -c '^-[^-]'" is a FALSE ZERO on markdown BULLET lines. A removed line beginning '- ' renders in the diff as '--', which the [^-] class excludes, so a real deletion is not counted. Observed in 27-06 on CONCERNS.md: the gate returned 0 while one line was genuinely replaced. Robust form used instead: git diff HEAD --unified=0 -- <file> \| grep '^-' \| grep -v '^--- '. Both 26-SECURITY.md and v0.10.0-MILESTONE-AUDIT.md were re-checked with the robust form; the milestone audit is genuinely append-only (zero removals). | open |  | 2026-08-24T20:54:48.137Z |  |
+| 19 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/ParameterCarrierRedactionTest.kt |  | Plan 27-07 task 1 premise falsified: the plan directs the new suite to follow SerializedEmissionRedactionTest's @Nested layout, while its OWN acceptance criterion 1 requires every test method present by name in TEST-...ParameterCarrierRedactionTest.xml. JUnit writes each @Nested class to its own TEST-<outer>$<Inner>.xml, so the criterion was unsatisfiable against the mandated layout no matter how green the suite was. Measured after flattening: tests=18 failures=0 errors=0 in the single expected XML, all 18 names present. WINDOWS 11/13/14/15 class - a criterion counting a population the artifact does not contain. | open |  | 2026-08-25T10:55:31.312Z |  |
+| 20 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/ParameterCarrierRedactionTest.kt |  | Plan 27-07 task 1 criterion 5 unsatisfiable as written: it requires reverting the request_parse branch and confirming the task's behavioural probes go RED. They CANNOT. Every producer begins HttpRequest.httpRequest(content), a Montoya static factory needing Burp's internal ObjectFactory that cannot run in a pure-JVM test (McpToolScopeEnforcementTest records the same constraint), so the task-1 probes drive sanitizeParameters directly and never reach the production branch - the suite would stay green with the sanitizer correct and never called. Resolved by pulling the producer-ownership pin forward from task 2 into task 1. Measured: red probe 2 fails the pin with the expected message; restored green. | open |  | 2026-08-25T10:55:41.532Z |  |
+| 21 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-07-PLAN.md |  | Plan 27-07 task 2 criterion 5 prediction falsified: it expected BOTH the behavioural probe and the producer-ownership pin to go RED when a sanitizer call is dropped from ONE producer. MEASURED: only the pin did - 1 of 18 red, run twice (delegating stub, then a genuine bypass constructing ParsedParam raw), failing theProducerInventoryIsExactlyFourAndEveryOneRoutesThroughTheSanitizer with 'McpToolLegacy.kt carries 1 sanitizeParameters( calls, not 2 ==> expected: <2> but was: <1>'. The behavioural probes are structurally incapable of detecting a producer unwiring. Reported as a finding rather than assumed, per the WINDOWS 13 precedent of a probe failing a different assertion than predicted. Note also that JUnit stops a method at its first failed assertion, so the pin's HELPERS_FILE count assertion never ran. | open |  | 2026-08-25T10:55:45.682Z |  |
+| 22 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/ParameterCarrierRedactionTest.kt |  | Plan 27-08 task 1 repeats 27-07's @Nested conflict verbatim: the action text says to add the prompt-path fixtures 'in a nested class', while the SAME task's criterion 2 requires all five fixture groups present BY NAME in TEST-...ParameterCarrierRedactionTest.xml. Unsatisfiable against a nested layout. Recorded separately from entry 19 because it is a SECOND occurrence in the same phase after the first was already logged - the pattern was not carried forward into the next plan's authoring. Measured after flattening: all seven promptPath... methods present by name, tests=25 skipped=0 failures=0 errors=0. | open |  | 2026-08-25T10:55:54.139Z |  |
+| 23 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieCarrierInventoryTest.kt |  | Plan 27-08 task 2 premise falsified: the action text declares ROUTED_THROUGH and CLASSIFIED_NON_CARRYING as maps from path -> reason. MEASURED: 6 of the 11 carrier files have accessors with DIFFERENT dispositions (McpToolExecutorImpl alone routes headers through sanitizeHeaders, parameters through sanitizeParameters, raw messages through the redactIfNeeded choke point, and mode-gates its cookie jar), so a path-only key forces four answers into one string and makes assertion 1's 'exactly one of the two maps' meaningless for exactly the files that matter most. Resolved by keying on a CarrierSite(path, accessor) PAIR; the residual granularity limit is stated in the KDoc as an explicitly weaker fifth bound. All four assertions green; red probes A, B and C each fail the assertion the plan named. | open |  | 2026-08-25T10:55:58.043Z |  |
+| 24 | 27 | deviation | src/main/kotlin/com/six2dez/burp/aiagent/redact/Redaction.kt |  | Plan 27-08 baseline C4 differed from the tree: the plan measured cookieTypedParamRegex's comment at Redaction.kt:628-639 with the regex at :640 (taken at commit 389cbbd). MEASURED on the 27-08 worktree (based on a20290f, which includes 27-07's merge): comment at :678-689, regex at :690 - a +50 line shift caused by 27-07 adding isCookieParameterType and COOKIE_PARAMETER_TYPE_NAME with their KDoc ABOVE this rule. Explained BEFORE any constant depending on it was written; nothing in 27-08 is keyed on a line number. Recorded because the same +50 shift silently rotted clause (3) of T-26-02-01 in 26-SECURITY.md, whose citations Redaction.kt:158 and :91 now land inside COMMENTS (the declarations are at :293 and :125) - plan 27-09 clause (5) notes that without editing clause (3). | open |  | 2026-08-25T10:56:09.231Z |  |
+| 25 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-08-PLAN.md |  | Plan 27-08 task 2 red probe A prediction incomplete: criterion 4 asks only that assertion (1) everyCookieByteCarrierSiteIsRoutedOrClassified go RED and name the path under NEW. MEASURED failures=2, not 1 - assertion (2) theMeasuredPerFilePerAccessorCountsArePinned ALSO went red, on its 'set of FILES' limb, because the probe introduced a whole new FILE (scanner/AiScanCheck.kt) rather than merely a new call in a known one. Assertion (1) did name the path exactly as required. Reported rather than smoothed over, per the WINDOWS 13 precedent. Probe restored via git checkout; file byte-clean. | open |  | 2026-08-25T10:56:13.265Z |  |
+| 26 | 27 | deviation | .planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md |  | Plan 27-08's authored threat register falsified by its own measurement: T-27-08-07 was assigned severity medium at plan-authoring time, BEFORE measurement 1 existed. MEASURED severity is LOW, on the decisive caller-echo property - request_parse and params_extract parse a raw request string supplied BY THE CALLER, so the AI agent already held those bytes. 27-08 recorded the disagreement rather than resolving it and routed the choice to 27-09. Plan 27-09 filed it as AR-27-07 at the MEASURED low, stated the disagreement in the register row, and routed the remaining DISPOSITION question (widen SENSITIVE_WORDS against WR-01's measured 32 false positives, or keep the residual) to 27-HUMAN-UAT.md test 8. Recorded so no later reader silently inherits either number. | open |  | 2026-08-25T10:56:22.727Z |  |
+| 27 | 27 | deviation | .planning/ROADMAP.md |  | Plan 27-09 baseline R13 differed from the tree. The plan states the phase 27 plans counter was REPAIRED at plan time to '9 plans - 6 executed, 3 planned'. MEASURED at execution time: it reads '8/9 plans executed - 6 executed, 3 planned' - STILL two contradictory counters in one line, the leading figure having been advanced to 8/9 by the waves 7-8 merges while the trailing clause stayed at the plan-time value. There are 9 PLAN files on disk. Plan 27-09's criterion 6 requires exactly ONE counter matching that number, but the counter is an execution-tracking field the execute-phase orchestrator owns and overwrites after the executor returns, so the executor did not edit it. Recorded here so the contradiction is not lost between the two owners. | open |  | 2026-08-25T10:56:26.885Z |  |
+| 28 | 27 | deviation | .planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md |  | Plan 27-09 baseline R2 conflates BYTES with CHARACTERS. It records the T-26-02-01 row's 'character length' as 11400, which is what wc -c reports - a BYTE count. MEASURED character length of the same line: 11320, because the row contains multi-byte UTF-8 (em dashes, ellipses, curly quotes). 11320 is exactly the figure 27-06's own read-back recorded ('5,633 -> 11,320 chars'), so the two rounds agree once the units are named. The byte-prefix gate was run on characters and PASSED (cell body 11231 -> 18263 chars, 7032 appended). Recorded because a gate quoting a number in the wrong unit is one edit away from a false FAIL, and because 26-SECURITY.md is a file where every count is load-bearing. | open |  | 2026-08-25T10:56:36.329Z |  |
+| 29 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-09-PLAN.md |  | Plan 27-09 baseline R4 conflates APPEARANCE with DEFINITION. It records the AR-27- ids 'defined anywhere under .planning/' as AR-27-01..AR-27-05. MEASURED: grep for AR-27-[0-9]+ under .planning/ returns AR-27-01 through AR-27-08 BEFORE any edit by this plan - AR-27-06 already appeared at ROADMAP.md:444 and in 27-09-PLAN.md itself, and AR-27-08 throughout 27-08-SUMMARY.md. None of the three was DEFINED (26-SECURITY.md contained zero occurrences of AR-27-06). The baseline as literally worded was therefore already false when written. This is 26-SECURITY.md standing rule (i) - presence is not width - applied to the register's own identifiers, and it is why AR-27-05's row opens 'if any earlier draft cited this identifier, nothing stood behind it'. AR-27-06/07/08 are now defined with evidence sections. | open |  | 2026-08-25T10:56:41.567Z |  |
 
 ````json
 [
@@ -250,6 +261,138 @@ last_updated: 2026-08-24T20:54:48.137Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-24T20:54:48.137Z",
+    "resolved_at": null
+  },
+  {
+    "id": 19,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/ParameterCarrierRedactionTest.kt",
+    "line": null,
+    "description": "Plan 27-07 task 1 premise falsified: the plan directs the new suite to follow SerializedEmissionRedactionTest's @Nested layout, while its OWN acceptance criterion 1 requires every test method present by name in TEST-...ParameterCarrierRedactionTest.xml. JUnit writes each @Nested class to its own TEST-<outer>$<Inner>.xml, so the criterion was unsatisfiable against the mandated layout no matter how green the suite was. Measured after flattening: tests=18 failures=0 errors=0 in the single expected XML, all 18 names present. WINDOWS 11/13/14/15 class - a criterion counting a population the artifact does not contain.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:55:31.312Z",
+    "resolved_at": null
+  },
+  {
+    "id": 20,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/ParameterCarrierRedactionTest.kt",
+    "line": null,
+    "description": "Plan 27-07 task 1 criterion 5 unsatisfiable as written: it requires reverting the request_parse branch and confirming the task's behavioural probes go RED. They CANNOT. Every producer begins HttpRequest.httpRequest(content), a Montoya static factory needing Burp's internal ObjectFactory that cannot run in a pure-JVM test (McpToolScopeEnforcementTest records the same constraint), so the task-1 probes drive sanitizeParameters directly and never reach the production branch - the suite would stay green with the sanitizer correct and never called. Resolved by pulling the producer-ownership pin forward from task 2 into task 1. Measured: red probe 2 fails the pin with the expected message; restored green.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:55:41.532Z",
+    "resolved_at": null
+  },
+  {
+    "id": 21,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-07-PLAN.md",
+    "line": null,
+    "description": "Plan 27-07 task 2 criterion 5 prediction falsified: it expected BOTH the behavioural probe and the producer-ownership pin to go RED when a sanitizer call is dropped from ONE producer. MEASURED: only the pin did - 1 of 18 red, run twice (delegating stub, then a genuine bypass constructing ParsedParam raw), failing theProducerInventoryIsExactlyFourAndEveryOneRoutesThroughTheSanitizer with 'McpToolLegacy.kt carries 1 sanitizeParameters( calls, not 2 ==> expected: <2> but was: <1>'. The behavioural probes are structurally incapable of detecting a producer unwiring. Reported as a finding rather than assumed, per the WINDOWS 13 precedent of a probe failing a different assertion than predicted. Note also that JUnit stops a method at its first failed assertion, so the pin's HELPERS_FILE count assertion never ran.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:55:45.682Z",
+    "resolved_at": null
+  },
+  {
+    "id": 22,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/ParameterCarrierRedactionTest.kt",
+    "line": null,
+    "description": "Plan 27-08 task 1 repeats 27-07's @Nested conflict verbatim: the action text says to add the prompt-path fixtures 'in a nested class', while the SAME task's criterion 2 requires all five fixture groups present BY NAME in TEST-...ParameterCarrierRedactionTest.xml. Unsatisfiable against a nested layout. Recorded separately from entry 19 because it is a SECOND occurrence in the same phase after the first was already logged - the pattern was not carried forward into the next plan's authoring. Measured after flattening: all seven promptPath... methods present by name, tests=25 skipped=0 failures=0 errors=0.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:55:54.139Z",
+    "resolved_at": null
+  },
+  {
+    "id": 23,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieCarrierInventoryTest.kt",
+    "line": null,
+    "description": "Plan 27-08 task 2 premise falsified: the action text declares ROUTED_THROUGH and CLASSIFIED_NON_CARRYING as maps from path -> reason. MEASURED: 6 of the 11 carrier files have accessors with DIFFERENT dispositions (McpToolExecutorImpl alone routes headers through sanitizeHeaders, parameters through sanitizeParameters, raw messages through the redactIfNeeded choke point, and mode-gates its cookie jar), so a path-only key forces four answers into one string and makes assertion 1's 'exactly one of the two maps' meaningless for exactly the files that matter most. Resolved by keying on a CarrierSite(path, accessor) PAIR; the residual granularity limit is stated in the KDoc as an explicitly weaker fifth bound. All four assertions green; red probes A, B and C each fail the assertion the plan named.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:55:58.043Z",
+    "resolved_at": null
+  },
+  {
+    "id": 24,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/main/kotlin/com/six2dez/burp/aiagent/redact/Redaction.kt",
+    "line": null,
+    "description": "Plan 27-08 baseline C4 differed from the tree: the plan measured cookieTypedParamRegex's comment at Redaction.kt:628-639 with the regex at :640 (taken at commit 389cbbd). MEASURED on the 27-08 worktree (based on a20290f, which includes 27-07's merge): comment at :678-689, regex at :690 - a +50 line shift caused by 27-07 adding isCookieParameterType and COOKIE_PARAMETER_TYPE_NAME with their KDoc ABOVE this rule. Explained BEFORE any constant depending on it was written; nothing in 27-08 is keyed on a line number. Recorded because the same +50 shift silently rotted clause (3) of T-26-02-01 in 26-SECURITY.md, whose citations Redaction.kt:158 and :91 now land inside COMMENTS (the declarations are at :293 and :125) - plan 27-09 clause (5) notes that without editing clause (3).",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:56:09.231Z",
+    "resolved_at": null
+  },
+  {
+    "id": 25,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-08-PLAN.md",
+    "line": null,
+    "description": "Plan 27-08 task 2 red probe A prediction incomplete: criterion 4 asks only that assertion (1) everyCookieByteCarrierSiteIsRoutedOrClassified go RED and name the path under NEW. MEASURED failures=2, not 1 - assertion (2) theMeasuredPerFilePerAccessorCountsArePinned ALSO went red, on its 'set of FILES' limb, because the probe introduced a whole new FILE (scanner/AiScanCheck.kt) rather than merely a new call in a known one. Assertion (1) did name the path exactly as required. Reported rather than smoothed over, per the WINDOWS 13 precedent. Probe restored via git checkout; file byte-clean.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:56:13.265Z",
+    "resolved_at": null
+  },
+  {
+    "id": 26,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md",
+    "line": null,
+    "description": "Plan 27-08's authored threat register falsified by its own measurement: T-27-08-07 was assigned severity medium at plan-authoring time, BEFORE measurement 1 existed. MEASURED severity is LOW, on the decisive caller-echo property - request_parse and params_extract parse a raw request string supplied BY THE CALLER, so the AI agent already held those bytes. 27-08 recorded the disagreement rather than resolving it and routed the choice to 27-09. Plan 27-09 filed it as AR-27-07 at the MEASURED low, stated the disagreement in the register row, and routed the remaining DISPOSITION question (widen SENSITIVE_WORDS against WR-01's measured 32 false positives, or keep the residual) to 27-HUMAN-UAT.md test 8. Recorded so no later reader silently inherits either number.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:56:22.727Z",
+    "resolved_at": null
+  },
+  {
+    "id": 27,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/ROADMAP.md",
+    "line": null,
+    "description": "Plan 27-09 baseline R13 differed from the tree. The plan states the phase 27 plans counter was REPAIRED at plan time to '9 plans - 6 executed, 3 planned'. MEASURED at execution time: it reads '8/9 plans executed - 6 executed, 3 planned' - STILL two contradictory counters in one line, the leading figure having been advanced to 8/9 by the waves 7-8 merges while the trailing clause stayed at the plan-time value. There are 9 PLAN files on disk. Plan 27-09's criterion 6 requires exactly ONE counter matching that number, but the counter is an execution-tracking field the execute-phase orchestrator owns and overwrites after the executor returns, so the executor did not edit it. Recorded here so the contradiction is not lost between the two owners.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:56:26.885Z",
+    "resolved_at": null
+  },
+  {
+    "id": 28,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md",
+    "line": null,
+    "description": "Plan 27-09 baseline R2 conflates BYTES with CHARACTERS. It records the T-26-02-01 row's 'character length' as 11400, which is what wc -c reports - a BYTE count. MEASURED character length of the same line: 11320, because the row contains multi-byte UTF-8 (em dashes, ellipses, curly quotes). 11320 is exactly the figure 27-06's own read-back recorded ('5,633 -> 11,320 chars'), so the two rounds agree once the units are named. The byte-prefix gate was run on characters and PASSED (cell body 11231 -> 18263 chars, 7032 appended). Recorded because a gate quoting a number in the wrong unit is one edit away from a false FAIL, and because 26-SECURITY.md is a file where every count is load-bearing.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:56:36.329Z",
+    "resolved_at": null
+  },
+  {
+    "id": 29,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-09-PLAN.md",
+    "line": null,
+    "description": "Plan 27-09 baseline R4 conflates APPEARANCE with DEFINITION. It records the AR-27- ids 'defined anywhere under .planning/' as AR-27-01..AR-27-05. MEASURED: grep for AR-27-[0-9]+ under .planning/ returns AR-27-01 through AR-27-08 BEFORE any edit by this plan - AR-27-06 already appeared at ROADMAP.md:444 and in 27-09-PLAN.md itself, and AR-27-08 throughout 27-08-SUMMARY.md. None of the three was DEFINED (26-SECURITY.md contained zero occurrences of AR-27-06). The baseline as literally worded was therefore already false when written. This is 26-SECURITY.md standing rule (i) - presence is not width - applied to the register's own identifiers, and it is why AR-27-05's row opens 'if any earlier draft cited this identifier, nothing stood behind it'. AR-27-06/07/08 are now defined with evidence sections.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-25T10:56:41.567Z",
     "resolved_at": null
   }
 ]

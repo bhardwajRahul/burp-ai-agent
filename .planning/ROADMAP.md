@@ -47,6 +47,7 @@ Everything else in this milestone is real but was found by reading: an agent loo
 - [x] **Phase 25: Secondary Hardening** — Stop leaking the MCP token to unverified port holders; teach SsrfGuard the alternate IP notations (completed 2026-08-22)
 - [ ] **Phase 26: Coverage, Static-Analysis Debt & Docs** — Allowlist shell escaping, raise coverage on security paths, shrink the detekt baseline, publish the advisory
 - [ ] **Phase 27: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity** — Close gap: PRIV-05 — mirror the cookie name-variant fix into `sanitizeHeaders`, so the MCP tool path strips `X-Cookie` / `Cookie2` / `Set-Cookie2` / `X-Original-Cookie` / `X-Forwarded-Cookie` the way the prompt path already does
+- [ ] **Phase 28: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`** — Close `AR-27-08`: a COOKIE-typed injection point's value reaches the `scanner_issues` tool result through `AuditIssue.detail()` and survives STRICT and BALANCED (measured by plan 27-08 with a firing positive control; medium, latent behind three preconditions). Closes `InjectionPointExtractor.kt:29` in the same phase — the predicate is only meaningful as part of the route it feeds. Opened 2026-08-25 by plan 27-09 because phase 27 completes with PRIV-05 NOT satisfied and a deferral without an owner is round four, pre-arranged
 
 ## Phase Details
 
@@ -443,6 +444,89 @@ content, so they ECHO a cookie the caller already holds; the maintainer chose to
 
 - [ ] 27-09-PLAN.md — Records, third time: T-26-02-01 clause (5), AR-27-06 defined, computed `threats_open` with its population stated, standing rule (iv) on rendering-keyed versus source-keyed controls (wave 9)
 
+**PHASE 27 COMPLETES WITH PRIV-05 NOT SATISFIED (2026-08-25, recorded by plan 27-09).** Stated here,
+in the phase record, rather than only in a SUMMARY. The goal line above is round-one text and is
+deliberately **not rewritten** — it is qualified in place by this paragraph, on the same
+append-and-amend terms `26-SECURITY.md` is kept under.
+
+**What phase 27 DID close:** the COOKIE-typed parameter carrier, at the producer — one type-keyed
+predicate (`Redaction.isCookieParameterType`) and one shared sanitizer
+(`McpToolHelpers.sanitizeParameters`) now gate all four MCP producers plus the bounty-prompt
+resolver — and an accessor-keyed carrier inventory now exists (`CookieCarrierInventoryTest`: 5
+accessors, 72 sites, 11 files, four blind axes named in its own KDoc).
+
+**What phase 27 leaves OPEN, by design and with an owner:** `AR-27-08`, the transitive issue-detail
+carrier — a COOKIE-typed injection point's value reaching the `scanner_issues` tool result through
+`AuditIssue.detail()`, **measured as surviving STRICT and BALANCED**, severity medium, latent behind
+three preconditions — together with the one unconverted cookie-type predicate at
+`InjectionPointExtractor.kt:29` whose value feeds it. **Both are owned by Phase 28 below.** The
+deferral is deliberate: a fix without its own red probe and source-cited reachability analysis is the
+same-day closure pattern that has now failed three times in this phase.
+
+**The `- [x] **PRIV-05**` tick at `REQUIREMENTS.md:23` is wrong for the third time and is NOT
+corrected by this phase.** `REQUIREMENTS.md` is untouched (0 added, 0 removed). Re-deriving the tick
+is the milestone owner's job, from the clauses of `26-SECURITY.md` T-26-02-01 rather than from any
+sentence phase 27 wrote about itself — a phase that grades its own homework produces exactly the
+record this phase spent nine plans repairing.
+
+### Phase 28: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`
+
+**Goal:** Close `AR-27-08`. A COOKIE-typed injection point's value reaches the `scanner_issues` MCP
+tool result through `AuditIssue.detail()` and **survives `Redaction.apply` in STRICT and in
+BALANCED**, emitted verbatim — measured by plan 27-08 with a positive control that fired on the same
+payload (a real `Cookie:` header in the same `IssueDetails` object became `Cookie: [STRIPPED]` in the
+same STRICT output in which the detail-line sentinel survived). **This is the one finding in the
+phase-27 series that carries BURP-HELD proxied traffic** — a real session cookie the operator's
+browser sent — rather than caller-echoed content, and there is no privacy mode in which the field is
+protected. **Mechanism, already measured so this phase does not have to re-derive it:**
+`IssueUtils.formatIssueDetailHtml` (`util/IssueUtils.kt:51-63`) joins `detailLines` with `<br>`, so
+the blob carries **no newline at all** and the logical-line cookie rules have nothing to bind to; the
+rendered shape is `Original Value: <value>`, not `name=<value> (COOKIE)`, so `cookieTypedParamRegex`
+cannot key on it; and the enclosing JSON key is `detail`, which is not in `SENSITIVE_WORDS`.
+**Reachability, cited at source:** the write is unconditional and NOT privacy-mode gated
+(`scanner/ActiveAiScanner.kt:1239`); a confirmation is required first (`:1172-1176`, `:1183`); the
+mode is Active AI scanning, opt-in and defaulting to `false` (`config/AgentSettings.kt:127`); a
+COOKIE-typed point CAN reach that line because the target loop filters on vuln CLASS only, never on
+`point.type` (`:232-246`, `:1684`); and it leaves via `detail = detail()` at
+`mcp/schema/Serialization.kt:14`.
+
+**This phase closes `AR-27-08` AND `InjectionPointExtractor.kt:29` TOGETHER, and that pairing is the
+point.** That file's line 29 writes its own cookie-parameter predicate,
+`request.parameters().filter { it.type().name == "COOKIE" }`, and was left **byte-unchanged** by both
+plan 27-07 (baseline B9) and plan 27-08 — deliberately, not by omission. Its two consumers differ:
+`AdaptivePayloadEngine.kt:52` is CONTROLLED (it substitutes `[REDACTED_VALUE]` under any non-`OFF`
+mode), while `ActiveAiScanner.kt:1239` is UNCONTROLLED and is this finding. **Converting the
+predicate alone would produce a tidier file and an unchanged leak** — it would make the route LOOK
+addressed, which is the exact failure mode `26-SECURITY.md` T-26-02-01 now records three times. The
+predicate is only meaningful as part of the route it feeds.
+
+**Why this was deferred out of phase 27 rather than fixed there:** plan 27-08's `T-27-08-06` was
+dispositioned **TRANSFER, not mitigate** — that plan MEASURED the route and applied no control to it,
+and calling a measurement a mitigation is the overclaim vocabulary phase 27 exists to correct. A fix
+needs its own red probe and its own reachability analysis, which is closure-phase work.
+
+**Requirements**: PRIV-05
+**Depends on:** Phase 27
+**Success Criteria** (what must be TRUE):
+
+1. A COOKIE-typed injection point's `originalValue` does not appear in the `scanner_issues` tool
+   result in STRICT or BALANCED. Cookie NAMES may remain; VALUES must not.
+2. Under `OFF` the value still appears — so the fix is proven to be policy-driven and not an
+   unconditional rewrite.
+3. A red probe reverting the control turns a NAMED assertion red, and the specific assertion and its
+   failure message are recorded — not "the suite went red".
+4. `InjectionPointExtractor.kt:29` is resolved in the same phase as the route, with its two
+   consumers' differing dispositions preserved (`AdaptivePayloadEngine.kt:52` already controls its
+   own path and must not be double-redacted into a misleading prompt).
+5. `26-SECURITY.md`'s `AR-27-08` row is amended — append-and-amend, prior text byte-prefix intact —
+   and `threats_open` is recomputed rather than asserted.
+6. `ResponseAnalyzer`'s narrow transitive tail is examined in the same pass: a MATCHED substring of a
+   vuln-class signature, capped at 80 chars, can be written into `VulnConfirmation.evidence`, which
+   `ActiveAiScanner.kt:1246` places in the SAME `AuditIssue` detail as this finding.
+
+**Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
+measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
+
 ---
 
 ## Progress
@@ -469,3 +553,5 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 - Interactive custom-pattern sample tester (deferred from PRIV-04, v0.9.0).
 - BApp Store submission #231 — stalled; revisit when it moves.
 - MCP tool-result header entry-list: `sanitizeHeaders` returns `Map<String, String>`, so byte-identically-named headers collapse to one entry (three `Set-Cookie` headers surface as one). Privacy-safe — every collapsed entry was already `[STRIPPED]` — but it costs analysis signal on a normal HTTP response. Deferred from Phase 27 as accepted residual `AR-27-03` via `CP-27-02-01` (one-way: changing it breaks the `request_parse` / `response_parse` result schema of the shipped 1.0.0, across 4 call sites and 2 models).
+- **`AR-27-08` — the issue-detail cookie carrier, OWNED BY PHASE 28 (opened 2026-08-25 by plan 27-09).** A COOKIE-typed injection point's value reaches the `scanner_issues` tool result through `AuditIssue.detail()` and **survives `Redaction.apply` in STRICT and BALANCED**, measured by plan 27-08 with a positive control that fired on the same payload. Severity **medium**: it carries Burp-held proxied traffic and defeats STRICT outright (aggravating), but is latent behind three preconditions — an opt-in active scanner defaulting to `false`, a finding reaching `confirmed`, and a `scanner_issues` call (mitigating). **Closed together with `InjectionPointExtractor.kt:29`**, the one unconverted cookie-type predicate, byte-unchanged by plans 27-07 and 27-08 — fixing the predicate alone would produce a tidier file and an unchanged leak. **Why deferred rather than fixed in phase 27:** plan 27-08's `T-27-08-06` was dispositioned TRANSFER, not mitigate — it measured the route and applied no control, and a fix without its own red probe and reachability analysis is the same-day closure pattern that has failed three times. Full evidence: `26-SECURITY.md` AR-27-08 and `27-08-SUMMARY.md` measurement 2. **Phase 27 completes with PRIV-05 NOT satisfied; this is its named owner.**
+- **`T-27-06-06` — the user-facing STRICT host-anonymisation overclaim, STILL UNACTIONED (restated here 2026-08-25 because it keeps nearly being lost).** `README.md:247` and `SPEC.md:80,86` state STRICT host anonymisation without the exclusion `AR-27-04` records: it does **not** apply to the raw HTTP message or the `url` field emitted by `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`. **The loss risk, measured rather than assumed:** `.planning/BACKLOG.md` does not exist in this repository (re-checked 2026-08-25), so until this line the item lived only in a phase-26 register and phase-27 SUMMARYs — the two documents a docs maintainer is least likely to open. Also carried in `27-HUMAN-UAT.md` test 4. Plans 27-06 and 27-09 both scoped themselves to record files and both recorded it as deliberately unactioned: a change to what SHIPS is not a record repair. **Until it lands, `AR-27-04` is accepted AND the documentation still overclaims.**
