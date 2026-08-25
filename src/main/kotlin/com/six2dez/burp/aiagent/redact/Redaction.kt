@@ -675,13 +675,47 @@ object Redaction {
                 if (flattened.startsWith("===")) " $flattened" else flattened
             }
 
-    // (PRIV-05) SC2 / D-09: a COOKIE-typed parameter line — the second entry point of the same
-    // leak, reached through request.parameters(). Parameters are emitted as "name=value (TYPE)"
-    // where TYPE is the Montoya HttpParameterType name (formatParamLine in
-    // scanner/PassiveAiScannerPrompts.kt), so keying on the semantic type label rather than on a
-    // section header makes this rule CONTEXT-FREE: it survives a section rename and works wherever
-    // the shape appears. The asymmetry with the section rule above is deliberate — that section has
-    // no discriminator other than its header, whereas a parameter line carries one in its own text.
+    // (PRIV-05) SC2 / D-09: a COOKIE-typed parameter line, AS THE PASSIVE SCANNER RENDERS ONE.
+    //
+    // (a) THE ONE RENDERED SHAPE THIS RULE MATCHES. `name=value (TYPE)`, where TYPE is the Montoya
+    // HttpParameterType name. That string is built by `formatParamLine` in
+    // scanner/PassiveAiScannerPrompts.kt, whose ONLY producer in src/main/kotlin is the
+    // `formatParamLine(p.name(), value, p.type().name)` expression in
+    // scanner/PassiveAiScannerAnalysis.kt. The text reaches this rule only because
+    // PassiveAiScannerPrompts.redactScanMetadata calls Redaction.apply on the assembled metadata
+    // blob. One shape, one producer, one path in.
+    //
+    // (b) THIS REPOSITORY OWNS THAT SHAPE, so this repository can disable this rule by editing it.
+    // Change the separator, drop the space before the parenthesis, or lower-case the type label in
+    // formatParamLine and the rule stops firing — with no compile error and no failure outside the
+    // fixtures written for it. That is a property of a rendering-keyed rule, not a defect being
+    // repaired here. The fixtures that DO fail if the shape moves are the prompt-path preservation
+    // group in mcp/tools/ParameterCarrierRedactionTest.kt, including an RFC 6265 DQUOTE-wrapped
+    // value.
+    //
+    // (c) THE PARAMETER CARRIER'S OTHER RENDERINGS ARE NOT REACHED BY THIS RULE, and are owned
+    // elsewhere. The MCP tools render the same Burp-parsed COOKIE parameters two other ways — as
+    // JSON in `request_parse`, and as `type=… name=… value=…` lines in `params_extract` — and
+    // neither is this shape, nor does either pass through Redaction.apply at all. Their owner is
+    // the TYPE-KEYED control added by phase 27 plan 27-07: `Redaction.isCookieParameterType` in
+    // this file, applied by `McpToolHelpers.sanitizeParameters` at the producer. For the parameter
+    // carrier outside the passive-scanner prompt, read that pair — not this rule.
+    //
+    // (d) CORRECTION, 2026-08-25, phase 27 plan 27-08. The previous text of this comment said the
+    // rule was "reached through request.parameters()", and that keying on the type label made it
+    // CONTEXT-FREE so it "works wherever the shape appears". The first is true of the DATA and
+    // false of the RULE: request.parameters() also feeds the two MCP tools named in (c), which this
+    // rule never sees. The second overstates "context-free": the rule is free of the SECTION
+    // context, not of the requirement that the text arrive in this one rendering through
+    // Redaction.apply. That gap between documented reach and actual reach is how two live MCP tools
+    // emitted COOKIE parameter values verbatim across three rounds of this phase while this rule
+    // sat measured-green at the site it was written for. The rule was correct throughout and its
+    // pattern is byte-unchanged; only the claim about it was wrong.
+    //
+    // What survives that correction UNALTERED, because it is still true:
+    //
+    // The asymmetry with the section rule above is deliberate — that section has no discriminator
+    // other than its header, whereas a parameter line carries one in its own text.
     //
     // The context-free "^name=value$" alternative was rejected on CAPABILITY, not merely on
     // over-redaction: the trailing type suffix defeats the end anchor, so it cannot satisfy SC2 at

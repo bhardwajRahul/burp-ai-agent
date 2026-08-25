@@ -8,6 +8,7 @@ import com.six2dez.burp.aiagent.mcp.McpRequestLimiter
 import com.six2dez.burp.aiagent.mcp.McpToolContext
 import com.six2dez.burp.aiagent.redact.PrivacyMode
 import com.six2dez.burp.aiagent.redact.Redaction
+import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import kotlinx.serialization.encodeToString
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -41,6 +42,13 @@ import java.io.File
  * Nothing here says PRIV-05 is closed, and nothing here is evidence about a URL- or BODY-typed
  * parameter whose VALUE carries a token — that is D-27-20's deliberate pass-through, measured by
  * plan 27-08 task 3, not asserted either way here.
+ *
+ * TWO CONTROLS LIVE IN THIS FILE, AND THEY ARE NOT INTERCHANGEABLE (added by plan 27-08 task 1).
+ * The `promptPath…` methods below the "the PROMPT PATH, preserved" banner are the ONLY ones that
+ * drive `Redaction.apply`; they pin the passive scanner's `name=value (TYPE)` rendering, which
+ * `Redaction.cookieTypedParamRegex` owns and which already worked. Every other method drives
+ * [sanitizeParameters], which owns the two MCP renderings the regex cannot reach. Neither group is
+ * evidence for the other's path, and deleting one because the other exists reopens a different half.
  *
  * SENTINEL DISCIPLINE (the reason an absence assertion here cannot pass for some other rule's
  * reason). Every sentinel is a bare lowercase alphabetic word:
@@ -304,6 +312,154 @@ class ParameterCarrierRedactionTest {
             )
         }
     }
+
+    // ── 27-08 task 1: the PROMPT PATH, preserved ────────────────────────────────────────
+    //
+    // EVERYTHING BELOW THIS LINE GUARDS A DIFFERENT PATH FROM EVERYTHING ABOVE IT. The probes above
+    // drive `sanitizeParameters`, the type-keyed control that owns the two MCP renderings. The
+    // probes below drive the REAL `Redaction.apply` over the PASSIVE SCANNER's `name=value (TYPE)`
+    // rendering — the one shape `Redaction.cookieTypedParamRegex` matches, produced by
+    // `formatParamLine` (scanner/PassiveAiScannerPrompts.kt) from
+    // `PassiveAiScannerAnalysis.kt`'s parameters() mapping. Two carriers, two controls, two
+    // mechanisms; they are neighbours in this file so nobody deletes one believing the other covers
+    // it.
+    //
+    // WHY THESE ARE HERE AND NOT IN A `@Nested` CLASS, as plan 27-08 task 1's action text suggests.
+    // JUnit writes each `@Nested` inner class to its OWN `TEST-<outer>$<Inner>.xml`. The same task's
+    // acceptance criterion 2 requires all five fixture groups present BY NAME in
+    // `TEST-…ParameterCarrierRedactionTest.xml`, which a nested layout makes unsatisfiable no matter
+    // how green the suite is — the identical conflict 27-07 recorded as its own deviation 1 and the
+    // `WINDOWS.md` 11/13/14/15 class. The grouping is carried by the method-name prefix
+    // `promptPath…` and by this banner instead.
+    //
+    // WHY THESE FIXTURES ARE MANDATORY RATHER THAN DECORATIVE. `WINDOWS.md` records a
+    // quote-terminated tail in this phase that leaked on RFC 6265 DQUOTE-wrapped cookie values and
+    // would have SHIPPED GREEN, because no fixture in the suite carried a quote. Group (iii) below
+    // is that fixture. It asserts on the FULL output string, not merely on the sentinel's absence,
+    // so a mangled tail fails it too.
+    //
+    // ATTRIBUTION. Every parameter NAME below is drawn from outside `Redaction.SENSITIVE_WORDS`
+    // (`abtestbucket`, `layoutpref`, `themechoice`), so `formBodyParamRegex` — whose `(^|[?&])`
+    // anchor does reach a bare line — cannot claim any of these lines. Group (iv) is the live
+    // control for that: the identical shape under a non-COOKIE label must survive STRICT untouched.
+    // A pass in groups (i)/(iii)/(v) is therefore attributable to `cookieTypedParamRegex` and to
+    // nothing else in the rule set.
+
+    @Test
+    fun promptPathCanonicalCookieParamLineIsRedactedUnderStrict() {
+        // Group (i), STRICT. The name and the trailing type label survive; only the value changes.
+        assertEquals(
+            "layoutpref=$REDACTED_MARKER (COOKIE)",
+            redactPromptText("layoutpref=${Sentinel.PROMPT_CANONICAL_STRICT.value} (COOKIE)", PrivacyMode.STRICT),
+            "the passive scanner's canonical COOKIE parameter line must be redacted under STRICT, " +
+                "with name and type label written back verbatim",
+        )
+    }
+
+    @Test
+    fun promptPathCanonicalCookieParamLineIsRedactedUnderBalanced() {
+        // Group (i), BALANCED. BALANCED strips cookies too; only host anonymisation differs.
+        assertEquals(
+            "layoutpref=$REDACTED_MARKER (COOKIE)",
+            redactPromptText("layoutpref=${Sentinel.PROMPT_CANONICAL_BALANCED.value} (COOKIE)", PrivacyMode.BALANCED),
+            "the passive scanner's canonical COOKIE parameter line must be redacted under BALANCED",
+        )
+    }
+
+    @Test
+    fun promptPathCanonicalCookieParamLineIsUntouchedUnderOff() {
+        // Group (ii). This is what makes the two assertions above measurements of the POLICY rather
+        // than of some unconditional rewrite: the identical input is byte-identical out under OFF.
+        val input = "layoutpref=${Sentinel.PROMPT_CANONICAL_OFF.value} (COOKIE)"
+        assertEquals(
+            input,
+            redactPromptText(input, PrivacyMode.OFF),
+            "OFF must not strip cookies, or groups (i) and (iii) prove nothing about the policy",
+        )
+    }
+
+    @Test
+    fun promptPathDquoteWrappedCookieValueIsRedactedUnderStrict() {
+        // Group (iii), STRICT — THE REGRESSION CLASS WINDOWS.md RECORDS. RFC 6265 permits a
+        // DQUOTE-wrapped cookie-value, so `layoutpref="value" (COOKIE)` is a legal rendering. The
+        // assertion is on the WHOLE string: a rule that swallowed the closing quote, or left it
+        // stranded after the marker, fails here even though the sentinel would be absent either way.
+        assertEquals(
+            "layoutpref=$REDACTED_MARKER (COOKIE)",
+            redactPromptText(
+                "layoutpref=\"${Sentinel.PROMPT_QUOTED_STRICT.value}\" (COOKIE)",
+                PrivacyMode.STRICT,
+            ),
+            "an RFC 6265 DQUOTE-wrapped cookie value must be redacted whole under STRICT, leaving no " +
+                "stranded quote in the output",
+        )
+    }
+
+    @Test
+    fun promptPathDquoteWrappedCookieValueIsRedactedUnderBalanced() {
+        // Group (iii), BALANCED.
+        assertEquals(
+            "layoutpref=$REDACTED_MARKER (COOKIE)",
+            redactPromptText(
+                "layoutpref=\"${Sentinel.PROMPT_QUOTED_BALANCED.value}\" (COOKIE)",
+                PrivacyMode.BALANCED,
+            ),
+            "an RFC 6265 DQUOTE-wrapped cookie value must be redacted whole under BALANCED",
+        )
+    }
+
+    @Test
+    fun promptPathNonCookieTypeLabelIsUntouchedInEveryMode() {
+        // Group (iv), and the ATTRIBUTION CONTROL for the whole prompt-path block. The shape is
+        // identical to group (i) in every respect but the type label. If this ever goes red, the
+        // rule has become a blanket line strip and groups (i)/(iii)/(v) stop being evidence about a
+        // COOKIE-keyed control.
+        val input = "abtestbucket=${Sentinel.PROMPT_NON_COOKIE_LABEL.value} (URL)"
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED, PrivacyMode.OFF)) {
+            assertEquals(
+                input,
+                redactPromptText(input, mode),
+                "cookieTypedParamRegex is keyed on the COOKIE label: a URL-typed line must be " +
+                    "byte-identical in $mode",
+            )
+        }
+    }
+
+    @Test
+    fun promptPathMultiParameterBlockRedactsOnlyTheCookieLineAndPreservesOrder() {
+        // Group (v). The real emitted blob is many lines, so the single-line fixtures above do not
+        // by themselves show that the (?m) anchors bind per line rather than swallowing neighbours.
+        val input =
+            listOf(
+                "abtestbucket=${Sentinel.PROMPT_MULTI_URL.value} (URL)",
+                "layoutpref=${Sentinel.PROMPT_MULTI_COOKIE.value} (COOKIE)",
+                "themechoice=${Sentinel.PROMPT_MULTI_BODY.value} (BODY)",
+            ).joinToString(separator = "\n")
+
+        val expected =
+            listOf(
+                "abtestbucket=${Sentinel.PROMPT_MULTI_URL.value} (URL)",
+                "layoutpref=$REDACTED_MARKER (COOKIE)",
+                "themechoice=${Sentinel.PROMPT_MULTI_BODY.value} (BODY)",
+            ).joinToString(separator = "\n")
+
+        assertEquals(
+            expected,
+            redactPromptText(input, PrivacyMode.STRICT),
+            "only the COOKIE-typed line may change, and the three lines must keep their order",
+        )
+    }
+
+    /**
+     * The prompt path's redacting call, driven exactly as `PassiveAiScannerPrompts.redactScanMetadata`
+     * drives it: the REAL [Redaction.apply] with [RedactionPolicy.fromMode], never a copy of the
+     * pattern. `recordMapping` is left at its production default so nothing about the fixture is
+     * softer than the shipped call.
+     */
+    private fun redactPromptText(
+        text: String,
+        mode: PrivacyMode,
+    ): String = Redaction.apply(text, RedactionPolicy.fromMode(mode), stableHostSalt = "px-prompt-path-salt-$mode")
 
     // ── the producer pin: the behavioural probes above cannot reach the branch ───────────
 
@@ -571,6 +727,19 @@ class ParameterCarrierRedactionTest {
         LINE_BALANCED("paramnovember"),
         LINE_OFF("paramoscar"),
         LINE_URL_CONTROL("parampapa"),
+
+        // 27-08 task 1 — the PROMPT PATH preservation group. A distinct `prompt` stem rather than
+        // `param`, so a reader of a failure message can tell instantly which of the two carriers,
+        // and therefore which of the two controls, the probe was measuring.
+        PROMPT_CANONICAL_STRICT("promptalfa"),
+        PROMPT_CANONICAL_BALANCED("promptbravo"),
+        PROMPT_CANONICAL_OFF("promptcharlie"),
+        PROMPT_QUOTED_STRICT("promptdelta"),
+        PROMPT_QUOTED_BALANCED("promptecho"),
+        PROMPT_NON_COOKIE_LABEL("promptfoxtrot"),
+        PROMPT_MULTI_COOKIE("promptgolf"),
+        PROMPT_MULTI_URL("prompthotel"),
+        PROMPT_MULTI_BODY("promptindia"),
     }
 
     private companion object {
@@ -579,6 +748,12 @@ class ParameterCarrierRedactionTest {
         // The same literal sanitizeHeaders writes for a stripped cookie HEADER (D-27-18): one
         // vocabulary across both fields of one request_parse result.
         const val STRIPPED_MARKER = "[STRIPPED]"
+
+        // The DIFFERENT literal `cookieTypedParamRegex` writes on the prompt path. The two markers
+        // are deliberately not unified: `[STRIPPED]` means "the producer never emitted this value"
+        // and `[REDACTED]` means "the value was emitted and then rewritten at the choke point".
+        // Collapsing them would erase which control acted.
+        const val REDACTED_MARKER = "[REDACTED]"
 
         const val MAIN_SOURCE_ROOT = "src/main/kotlin"
         const val TOOLS_PACKAGE = "com/six2dez/burp/aiagent/mcp/tools"
