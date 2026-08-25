@@ -527,15 +527,35 @@ class CookieCarrierInventoryTest {
          * The disposition of the transitive issue-detail carrier, recorded HERE because this is where a
          * reader of the InjectionPointExtractor classification needs it.
          *
-         * PROVISIONAL while plan 27-08 task 2 stands alone. Task 3 measures the route and replaces this
-         * constant with the classification its measurement supports. A registry that guessed the answer
-         * before running the probe would be the assumption this phase keeps paying for, one iteration
-         * smaller.
+         * MEASURED by plan 27-08 task 3, not inferred. The probe itself is deliberately NOT committed:
+         * a green assertion under `src/` that a sensitive value survives STRICT is the artifact
+         * `26-SECURITY.md` exists to stop producing. Its full source, exact commands and verbatim
+         * output for all three modes are in `27-08-SUMMARY.md`, so the measurement stays re-runnable
+         * without living in the tree.
+         *
+         * NOT FIXED HERE, and that is a decision rather than an oversight: a fix without its own red
+         * probe is the same-day closure pattern that has failed three times in this phase. Plan 27-09
+         * files it and opens a named successor.
          */
         const val ISSUE_DETAIL_CARRIER_DISPOSITION =
-            "MEASURED-IN-27-08-TASK-3: whether a cookie sentinel embedded in the `Original Value:` line " +
-                "survives Redaction.apply on the serialized IssueDetails shape, and under what " +
-                "reachability conditions, is not yet measured. Do not read this entry as either a leak " +
-                "or a clean result until task 3 replaces this text."
+            "UNCONTROLLED, MEASURED 2026-08-25 (AR-27-08, severity MEDIUM). A cookie sentinel in the " +
+                "`Original Value:` line SURVIVES Redaction.apply on the serialized IssueDetails shape " +
+                "under STRICT and BALANCED alike. The POSITIVE CONTROL fired on the same payload — a " +
+                "`Cookie:` header inside requestResponses[0].request became `Cookie: [STRIPPED]` in the " +
+                "same output — so the null result is attributable to REACH, not to a broken probe. " +
+                "MECHANISM: IssueUtils.formatIssueDetailHtml joins detailLines with `<br>`, so the blob " +
+                "carries NO newline for the logical-line cookie rules to key on, and its shape is " +
+                "`Original Value: <v>`, not `name=<v> (COOKIE)`, so cookieTypedParamRegex cannot key on " +
+                "it either. The enclosing JSON key is `detail`, which is not in SENSITIVE_WORDS. " +
+                "REACHABILITY, cited at source: ActiveAiScanner.kt:1239 writes the value with NO " +
+                "privacy-mode gate; handleResult at :1174 calls it only when `confirmation.confirmed`, " +
+                "so the route is CONFIRMED-FINDING-ONLY; active AI scanning is opt-in and defaults off " +
+                "(AgentSettings.kt:127); a COOKIE-typed point DOES reach it, because :232-246 turns " +
+                "every InjectionPoint from InjectionPointExtractor.extract into a target with no filter " +
+                "on point.type. SEVERITY REASONING: aggravating — it carries BURP-HELD proxied traffic " +
+                "rather than caller-echoed content, and it defeats STRICT outright; mitigating — it is " +
+                "LATENT behind an opt-in feature, a confirmed finding, and a scanner_issues call. " +
+                "Medium, not high, because it is unreachable in the default posture; not low, because " +
+                "when reachable it puts a real session cookie past STRICT."
     }
 }
