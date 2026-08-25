@@ -118,11 +118,39 @@ class BountyPromptTagResolver {
         val params =
             rr.request().parameters().take(80).joinToString("\n") { param ->
                 val rawValue = param.value().take(500)
+                // (PRIV-05) D-27-21 — the cookie TYPE gate, added ALONGSIDE the pre-existing
+                // `sensitiveParamName` NAME filter, never instead of it. The two answer DIFFERENT
+                // questions — "does this name look sensitive" versus "is this parameter a cookie" —
+                // and the name filter does not match e.g. PHPSESSID, so removing either narrows the
+                // control. This site is the one carrier in its class that would hold BURP-HELD
+                // request data rather than caller-echoed content, which is why it is fixed now
+                // rather than recorded as latent.
+                //
+                // The type gate is FIRST so it wins when both apply: a cookie is stripped, not
+                // merely token-redacted, matching what sanitizeHeaders and sanitizeParameters write
+                // for the same bytes on the MCP path. One vocabulary across all three carriers.
+                //
+                // UNADOPTED ALTERNATIVE, recorded rather than left as an omission: routing this tag
+                // value through `Redaction.apply`, which is the shape every SIBLING tag above uses.
+                // Rejected here because it would bring the WHOLE rule set to bear on this block — a
+                // strictly larger behaviour change, on dead code, in a plan scoped to the cookie
+                // class — and because buildRequestParameters already renders the `name=value (TYPE)`
+                // shape that `Redaction.cookieTypedParamRegex` covers, so the two approaches would
+                // produce two controls for one class at one site. That divergence is the defect this
+                // phase keeps paying for.
+                //
+                // WIDER DEFECT AT THIS SITE, recorded and deliberately NOT fixed here: because the
+                // tag value never passes `Redaction.apply`, a JWT, bearer token or secret carried in
+                // a URL- or BODY-typed parameter VALUE reaches the prompt verbatim in EVERY mode —
+                // the name filter keys on the parameter NAME, not the value. That is outside
+                // PRIV-05's cookie wording, it is latent while this class stays uninstantiated
+                // (re-measured at execution time: zero instantiations in src/main/kotlin), and plan
+                // 27-09 records it as a named residual.
                 val safeValue =
-                    if (policy.redactTokens && sensitiveParamName.containsMatchIn(param.name())) {
-                        "[REDACTED]"
-                    } else {
-                        rawValue
+                    when {
+                        policy.stripCookies && Redaction.isCookieParameterType(param.type().name) -> "[STRIPPED]"
+                        policy.redactTokens && sensitiveParamName.containsMatchIn(param.name()) -> "[REDACTED]"
+                        else -> rawValue
                     }
                 "${param.name()}=$safeValue (${param.type().name})"
             }
