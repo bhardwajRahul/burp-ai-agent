@@ -235,30 +235,166 @@ class ParameterCarrierRedactionTest {
         )
     }
 
+    // ── carrier 2: the params_extract line shape ────────────────────────────────────────
+
+    @Test
+    fun cookieSentinelDoesNotSurviveTheParamsExtractLineShapeUnderStrict() {
+        val line = paramsExtractLines(PrivacyMode.STRICT, "px-strict-salt", cookieParam("wibble", Sentinel.LINE_STRICT.value))
+
+        assertFalse(line.contains(Sentinel.LINE_STRICT.value), "the cookie value reached the params_extract line: $line")
+        assertEquals("type=COOKIE name=wibble value=$STRIPPED_MARKER", line, "the line shape must be preserved around the marker")
+    }
+
+    @Test
+    fun cookieSentinelDoesNotSurviveTheParamsExtractLineShapeUnderBalanced() {
+        val line = paramsExtractLines(PrivacyMode.BALANCED, "px-balanced-salt", cookieParam("wibble", Sentinel.LINE_BALANCED.value))
+
+        assertFalse(line.contains(Sentinel.LINE_BALANCED.value), "the cookie value reached the params_extract line: $line")
+    }
+
+    @Test
+    fun cookieSentinelDoesSurviveTheParamsExtractLineShapeUnderOff() {
+        val line = paramsExtractLines(PrivacyMode.OFF, "px-off-salt", cookieParam("wibble", Sentinel.LINE_OFF.value))
+
+        assertEquals(
+            "type=COOKIE name=wibble value=${Sentinel.LINE_OFF.value}",
+            line,
+            "OFF must leave the line shape untouched, or the two probes above prove nothing",
+        )
+    }
+
+    @Test
+    fun nonCookieParamsExtractLinesAreUnchangedInEveryMode() {
+        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED, PrivacyMode.OFF)) {
+            val line =
+                paramsExtractLines(
+                    mode,
+                    "px-noncookie-salt-$mode",
+                    paramOfType(HttpParameterType.URL, "search", Sentinel.LINE_URL_CONTROL.value),
+                )
+
+            assertEquals(
+                "type=URL name=search value=${Sentinel.LINE_URL_CONTROL.value}",
+                line,
+                "a URL-typed parameter's rendered line must be byte-identical in $mode",
+            )
+        }
+    }
+
+    @Test
+    fun everyHttpParameterTypeRendersTheSameTokenThroughNameAsThroughToString() {
+        // THE PRESERVATION PROOF FOR THIS REFACTOR, and the reason it exists rather than being
+        // asserted in prose. Both params_extract producers used to render the type token via the
+        // Montoya enum's `toString()`; they now render `ParsedParam.type`, which is
+        // `HttpParameterType.name`. Those are the same token ONLY while no constant overrides
+        // `toString()`. WINDOWS.md records what a format change costs when no fixture pins the OLD
+        // correct behaviour — a quote-terminated tail that leaked on RFC 6265 DQUOTE-wrapped values
+        // and would have shipped green.
+        //
+        // IF THIS GOES RED, DO NOT WEAKEN IT. A Montoya constant that overrides toString() is a real
+        // behaviour difference in the emitted line: keep the original accessor at the affected site
+        // and record the finding.
+        assertTrue(HttpParameterType.entries.isNotEmpty(), "the enum walk found no constants — the fixture is vacuous")
+        HttpParameterType.entries.forEach { type ->
+            assertEquals(
+                type.name,
+                type.toString(),
+                "HttpParameterType.$type overrides toString(), so switching the params_extract type " +
+                    "token from toString() to name() is NOT shape-preserving for this constant",
+            )
+        }
+    }
+
     // ── the producer pin: the behavioural probes above cannot reach the branch ───────────
 
     @Test
-    fun theRequestParseProducerRoutesThroughTheSanitizer() {
-        // WHY THIS IS A SOURCE SCAN AND NOT AN END-TO-END CALL. The `request_parse` branch begins
-        // `HttpRequest.httpRequest(input.content)`, a Montoya STATIC FACTORY that needs Burp's
+    fun theProducerInventoryIsExactlyFourAndEveryOneRoutesThroughTheSanitizer() {
+        // WHY THIS IS A SOURCE SCAN AND NOT AN END-TO-END CALL. Every one of the four producers
+        // begins `HttpRequest.httpRequest(content)`, a Montoya STATIC FACTORY that needs Burp's
         // internal ObjectFactory and cannot run in a pure-JVM test — `McpToolScopeEnforcementTest`
         // records the same constraint at its own site. So the probes above prove the SANITIZER, and
-        // this pin proves the PRODUCER is wired to it. Without this assertion the suite would stay
+        // this pin proves the PRODUCERS are wired to it. Without this assertion the suite would stay
         // green with `sanitizeParameters` correct and never called, which is precisely the
         // "verified at the site it was written for" failure this phase exists to repair.
-        val calls = codeLines(MODERN_EXECUTOR).filter { it.text.contains(SANITIZER_CALL) }
+        //
+        // ── THE BOUND OF THIS PIN, stated where a reader meets it ──
+        //
+        // It sees ONE CALL SHAPE (`sanitizeParameters(`) in TWO NAMED FILES. A fifth producer written
+        // in a different shape, or in a third file, is INVISIBLE to it and leaves it GREEN. It is a
+        // tripwire over a measured inventory, not a proof of coverage — plan 27-08 builds the wider
+        // mechanism and states its own, different bound.
+        //
+        // THE WORKED EXAMPLE of that blindness, named rather than left abstract so a reader can go
+        // and look at it: `scanner/InjectionPointExtractor.kt:29` writes its own
+        // `it.type().name == "COOKIE"` cookie-parameter test in a THIRD file. It is measured by
+        // baseline B9, it is deliberately NOT converted (D-27-17 — its value feeds the issue-detail
+        // route that plan 27-08 task 3 measures and plan 27-09 files), and this pin cannot see it. A
+        // bound stated with a live example is a bound; a bound stated abstractly is the sentence
+        // three prior rounds of this phase also wrote.
+        val perFile = PRODUCER_FILES.associateWith { path -> codeLines(path).count { it.text.contains(SANITIZER_CALL) } }
 
-        assertTrue(
-            calls.isNotEmpty(),
-            "$MODERN_EXECUTOR no longer calls `$SANITIZER_CALL`. Its request_parse branch is emitting " +
-                "parameter values with no cookie control — the exact state 27-VERIFICATION-2.md recorded.",
-        )
+        perFile.forEach { (path, count) ->
+            assertEquals(
+                EXPECTED_PRODUCERS_PER_EXECUTOR,
+                count,
+                "$path carries $count `$SANITIZER_CALL` calls, not $EXPECTED_PRODUCERS_PER_EXECUTOR. Each executor " +
+                    "registers exactly the tools in $PARAMETER_PRODUCER_TOOL_NAMES, and each must route its " +
+                    "parameter values through the sanitizer. A missing call is a live cookie leak; an extra " +
+                    "one means a new producer that this inventory has not been re-measured against.",
+            )
+        }
         assertEquals(
-            0,
-            codeLines(MODERN_EXECUTOR).count { it.text.contains(PARSED_PARAM_CONSTRUCTION) },
-            "$MODERN_EXECUTOR constructs `$PARSED_PARAM_CONSTRUCTION` itself. `sanitizeParameters` is the " +
-                "sole producer of ParsedParam by design (D-27-17); a second producer is how the " +
-                "control gets bypassed without anyone editing the sanitizer.",
+            EXPECTED_PRODUCERS,
+            perFile.values.sum(),
+            "the measured parameter-producer inventory has drifted from the pinned total. Per file: $perFile",
+        )
+
+        // The split is asserted against the tool-name set rather than restated as a second literal,
+        // so the count and the names cannot disagree with each other.
+        assertEquals(
+            EXPECTED_PRODUCERS,
+            PARAMETER_PRODUCER_TOOL_NAMES.size * PRODUCER_FILES.size,
+            "the producer count and the producer tool-name set disagree: " +
+                "${PARAMETER_PRODUCER_TOOL_NAMES.size} names across ${PRODUCER_FILES.size} executors",
+        )
+        PRODUCER_FILES.forEach { path ->
+            PARAMETER_PRODUCER_TOOL_NAMES.forEach { tool ->
+                assertTrue(
+                    codeLines(path).any { it.text.contains("\"$tool\"") },
+                    "$path no longer registers the `$tool` tool, so the pinned inventory of " +
+                        "$EXPECTED_PRODUCERS no longer describes the tree",
+                )
+            }
+        }
+
+        // What makes the sanitizer the SOLE producer rather than merely a popular one.
+        PRODUCER_FILES.forEach { path ->
+            assertEquals(
+                0,
+                codeLines(path).count { it.text.contains(PARSED_PARAM_CONSTRUCTION) },
+                "$path constructs `$PARSED_PARAM_CONSTRUCTION` itself. `sanitizeParameters` is the sole " +
+                    "producer of ParsedParam by design (D-27-17); a second producer is how the control " +
+                    "gets bypassed without anyone editing the sanitizer.",
+            )
+        }
+        assertEquals(
+            1,
+            codeLines(HELPERS_FILE).count { it.text.contains(PARSED_PARAM_CONSTRUCTION) },
+            "$HELPERS_FILE must hold exactly one `$PARSED_PARAM_CONSTRUCTION` construction — the one inside " +
+                "sanitizeParameters. Zero means the sanitizer stopped producing; more than one means it " +
+                "grew a second, unguarded path.",
+        )
+
+        // The two surviving direct readers of a Montoya parameter value, classified. `find_reflected`
+        // emits name, type and an occurrence count — the value is a search needle and is never
+        // rendered — which is why it is outside this control rather than a hole in it (T-27-07-07).
+        val directReaders = PRODUCER_FILES.associateWith { path -> codeLines(path).count { it.text.contains(RAW_VALUE_READ) } }
+        assertEquals(
+            EXPECTED_DIRECT_VALUE_READERS_PER_EXECUTOR,
+            directReaders.values.toSet().singleOrNull(),
+            "each executor must retain exactly $EXPECTED_DIRECT_VALUE_READERS_PER_EXECUTOR direct `$RAW_VALUE_READ` " +
+                "read — the find_reflected needle. Measured: $directReaders. More means a producer slipped " +
+                "back past the sanitizer.",
         )
     }
 
@@ -266,32 +402,40 @@ class ParameterCarrierRedactionTest {
     fun theProducerScanIsNonVacuous() {
         // Copied from CookieHeaderRuleOwnershipTest.theOwnershipScanIsNonVacuous. A repository-state
         // test that goes green when it cannot find the repository is worse than the grep it replaced.
-        val lines = codeLines(MODERN_EXECUTOR)
-        assertTrue(
-            lines.size >= MIN_EXPECTED_EXECUTOR_LINES,
-            "the scan read only ${lines.size} code lines from $MODERN_EXECUTOR — it is not reaching the " +
-                "repository, so the pin above proves nothing",
-        )
+        // Note mainSourceRoot() THROWS rather than returning null, so resolving the root is itself
+        // the first assertion.
+        (PRODUCER_FILES + HELPERS_FILE).forEach { path ->
+            val lines = codeLines(path)
+            assertTrue(
+                lines.size >= MIN_EXPECTED_LINES.getValue(path),
+                "the scan read only ${lines.size} code lines from $path, below the floor of " +
+                    "${MIN_EXPECTED_LINES.getValue(path)} — it is looking at the wrong file, or the file it " +
+                    "pins has been gutted, so the pin above proves nothing",
+            )
+        }
 
         // Comment stripping proven live: this file's own KDoc and comments name every symbol the scan
         // looks for, and an unfiltered scan would count that prose as evidence.
         assertTrue(isCommentOnly("    // $SANITIZER_CALL"), "the comment filter no longer recognises a line comment")
         assertTrue(isCommentOnly("     * $SANITIZER_CALL"), "the comment filter no longer recognises a KDoc body line")
         assertTrue(
-            lines.none { isCommentOnly(it.text) },
+            PRODUCER_FILES.none { path -> codeLines(path).any { isCommentOnly(it.text) } },
             "a comment-only line reached the producer scan",
         )
 
-        // And the needle proven live against a known positive, so a count of zero cannot pass as
+        // Every needle proven live against a known positive, so a count of zero cannot pass as
         // agreement with a pinned zero.
         assertTrue(
             "parameters = sanitizeParameters(request.parameters(), context),".contains(SANITIZER_CALL),
             "the scan needle `$SANITIZER_CALL` no longer matches its own known-positive fixture",
         )
         assertTrue(
-            "ParsedParam(type = param.type().name, name = param.name(), value = param.value())"
-                .contains(PARSED_PARAM_CONSTRUCTION),
+            "ParsedParam(type = typeName, name = param.name(), value = value)".contains(PARSED_PARAM_CONSTRUCTION),
             "the scan needle `$PARSED_PARAM_CONSTRUCTION` no longer matches its own known-positive fixture",
+        )
+        assertTrue(
+            "val value = param.value()".contains(RAW_VALUE_READ),
+            "the scan needle `$RAW_VALUE_READ` no longer matches its own known-positive fixture",
         )
     }
 
@@ -348,6 +492,21 @@ class ParameterCarrierRedactionTest {
             body = null,
             bodyLength = 0,
         )
+
+    /**
+     * The `params_extract` line shape, built by the SAME expression both producers use so the probe
+     * moves with the format instead of asserting against a shape that is no longer emitted. The
+     * expression is duplicated here rather than extracted into production code on purpose: an
+     * extracted formatter would make this test assert that a function equals itself.
+     */
+    private fun paramsExtractLines(
+        mode: PrivacyMode,
+        salt: String,
+        vararg parameters: ParsedHttpParameter,
+    ): String =
+        sanitizeParameters(parameters.toList(), contextWith(mode, salt)).joinToString(separator = "\n") { param ->
+            "type=${param.type} name=${param.name} value=${param.value}"
+        }
 
     private fun cookieParam(
         name: String,
@@ -406,6 +565,12 @@ class ParameterCarrierRedactionTest {
         SERIALIZED_BALANCED("paramjuliett"),
         SERIALIZED_OFF("paramkilo"),
         SHAPE_STRICT("paramlima"),
+
+        // 27-07 task 2 — the params_extract line carrier.
+        LINE_STRICT("parammike"),
+        LINE_BALANCED("paramnovember"),
+        LINE_OFF("paramoscar"),
+        LINE_URL_CONTROL("parampapa"),
     }
 
     private companion object {
@@ -418,11 +583,40 @@ class ParameterCarrierRedactionTest {
         const val MAIN_SOURCE_ROOT = "src/main/kotlin"
         const val TOOLS_PACKAGE = "com/six2dez/burp/aiagent/mcp/tools"
         const val MODERN_EXECUTOR = "$TOOLS_PACKAGE/McpToolExecutorImpl.kt"
+        const val LEGACY_EXECUTOR = "$TOOLS_PACKAGE/McpToolLegacy.kt"
+        const val HELPERS_FILE = "$TOOLS_PACKAGE/McpToolHelpers.kt"
 
-        /** Measured at ~1050 code lines. The floor catches a scan that reaches nothing, not drift. */
-        const val MIN_EXPECTED_EXECUTOR_LINES = 600
+        /**
+         * The two executor files that carry every measured parameter producer. Keyed by PATH and
+         * COUNT, never by line number, so the pin does not rot the first time a file above one of
+         * these sites is reformatted (WINDOWS.md 11/13/14/15).
+         */
+        val PRODUCER_FILES = listOf(MODERN_EXECUTOR, LEGACY_EXECUTOR)
+
+        /**
+         * MEASURED, not assumed. Before this plan:
+         *   grep -c 'param.value()' McpToolExecutorImpl.kt McpToolLegacy.kt  ->  3 + 3 = 6
+         *   grep -c 'ParsedParam('  McpToolExecutorImpl.kt McpToolLegacy.kt  ->  1 + 1 = 2
+         * Two tools per executor read a parameter VALUE for rendering: request_parse and
+         * params_extract. find_reflected is the third reader in each file and is NOT a producer —
+         * it emits name, type and an occurrence count, never the value (T-27-07-07).
+         */
+        const val EXPECTED_PRODUCERS = 4
+        const val EXPECTED_PRODUCERS_PER_EXECUTOR = 2
+        const val EXPECTED_DIRECT_VALUE_READERS_PER_EXECUTOR = 1
+
+        val PARAMETER_PRODUCER_TOOL_NAMES = setOf("request_parse", "params_extract")
+
+        /** Floors catch a walk that reaches nothing or a gutted file — not drift. */
+        val MIN_EXPECTED_LINES =
+            mapOf(
+                MODERN_EXECUTOR to 600,
+                LEGACY_EXECUTOR to 400,
+                HELPERS_FILE to 300,
+            )
 
         const val SANITIZER_CALL = "sanitizeParameters("
         const val PARSED_PARAM_CONSTRUCTION = "ParsedParam("
+        const val RAW_VALUE_READ = "param.value()"
     }
 }
