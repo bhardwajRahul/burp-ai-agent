@@ -452,6 +452,13 @@ T-27-07-04 and the two named residuals recorded in `BountyPromptTagResolver.kt`.
 `27-VERIFICATION-2.md`. It should stay routed to `27-HUMAN-UAT.md` where it remains legible as
 unanswered, per D-27-23.
 
+## Self-Check: PASSED
+
+- `src/test/kotlin/.../mcp/tools/ParameterCarrierRedactionTest.kt` — FOUND on disk (30,776 bytes)
+- `.planning/phases/27-.../27-07-SUMMARY.md` — FOUND on disk (26,763 bytes)
+- Commits `76049e0`, `f4a243e`, `838751a`, `4a585da` — all FOUND in `git log`
+- Working tree clean; no untracked or deleted files
+
 ---
 *Phase: 27-priv-05-gap-closure-sanitize-headers*
 *Completed: 2026-08-25*
