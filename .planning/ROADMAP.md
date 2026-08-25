@@ -395,7 +395,7 @@ reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Depends on:** Phase 26
 **Gap closure (2026-08-24):** `27-VERIFICATION.md` scored 7/9 and failed the two truths the goal rests on. `Serialization.kt` embeds a RAW HTTP message in a JSON string, `toolJson.encodeToString` escapes every CRLF to a literal two-character sequence, and both cookie rules are line-anchored `(?im)^…$` — so the CANONICAL `Cookie:` and `Set-Cookie:` headers leak verbatim in STRICT and BALANCED through `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`, across 14 measured emission sites with no `sanitizeHeaders` in front. Strictly broader than the variant-spelling defect that created the phase. `AR-27-01` is reclassified from accepted residual to live finding. Plans 27-04 to 27-06 close it; the maintainer chose to fix rather than to scope PRIV-05 down.
 
-**Plans:** 6/6 plans executed (3/6 executed)
+**Plans:** 9 plans — 6 executed, 3 planned (gap closure round 3, `27-VERIFICATION-2.md`)
 
 Plans:
 **Wave 1**
@@ -422,6 +422,27 @@ Plans:
 
 - [x] 27-06-PLAN.md — Append-and-amend the records: T-26-02-01 clause (4), AR-27-01 reclassified, AR-27-02 superseded, AR-27-04 opened with quoted evidence, computed `threats_open`, milestone-audit heading qualified (wave 6)
 
+**Gap closure round 3 (2026-08-25):** `27-VERIFICATION-2.md` scored 8/9. Waves 4-6 closed the carrier
+they named, and PRIV-05's "by any path" wording is still not true: a THIRD carrier of the same cookie
+bytes was never enumerated. Burp parses `Cookie:` into `HttpParameterType.COOKIE` **parameters**, and
+`request_parse` returns those values verbatim three lines below the `sanitizeHeaders` call that had just
+stripped the header — the control defeated on its own output, in one JSON object — while `params_extract`
+has no cookie control at all. `cookieTypedParamRegex`, the rule written for this leak class, is bound to
+the passive scanner's ` (COOKIE)` suffix and reaches neither MCP shape. Both tools take caller-supplied
+content, so they ECHO a cookie the caller already holds; the maintainer chose to fix.
+
+**Wave 7** *(gap closure round 3)*
+
+- [ ] 27-07-PLAN.md — Close the COOKIE-typed parameter carrier at the producer: one owned predicate, one shared TYPE-KEYED sanitizer, four MCP producers plus the bounty-prompt producer rewired, red probes through the real serializer (wave 7)
+
+**Wave 8** *(gap closure round 3 — blocked on Wave 7)*
+
+- [ ] 27-08-PLAN.md — The carrier mechanism: enumerate what CARRIES cookie bytes by source accessor rather than by rendering; narrow a KDoc that claimed reach it never had; measure two neighbouring questions instead of assuming them (wave 8)
+
+**Wave 9** *(gap closure round 3 — blocked on Wave 8)*
+
+- [ ] 27-09-PLAN.md — Records, third time: T-26-02-01 clause (5), AR-27-06 defined, computed `threats_open` with its population stated, standing rule (iv) on rendering-keyed versus source-keyed controls (wave 9)
+
 ---
 
 ## Progress
@@ -439,7 +460,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
 | 26. Coverage, Static-Analysis Debt & Docs | 7/7 | In Progress|  |
-| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 6/6 | In Progress|  |
+| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 6/9 | In Progress|  |
 
 ## Backlog
 
