@@ -350,8 +350,15 @@ object McpToolExecutor {
                         "params_extract" -> {
                             val input = decode<ExtractParams>(normalizedArgs)
                             val request = HttpRequest.httpRequest(input.content)
-                            request.parameters().joinToString(separator = "\n") { param ->
-                                "type=${param.type()} name=${param.name()} value=${param.value()}"
+                            // (PRIV-05) D-27-17: the line shape reads its three fields off the
+                            // SANITIZED ParsedParam rather than off the Montoya parameter, so the
+                            // cookie control cannot be bypassed by the formatter. `type` is
+                            // HttpParameterType.name where it used to be the enum's toString();
+                            // ParameterCarrierRedactionTest's enum-parity fixture is what proves
+                            // those are the same token for every constant, so the rendered line is
+                            // byte-identical for a non-cookie type.
+                            sanitizeParameters(request.parameters(), context).joinToString(separator = "\n") { param ->
+                                "type=${param.type} name=${param.name} value=${param.value}"
                             }
                         }
                         "diff_requests" -> {
@@ -367,10 +374,11 @@ object McpToolExecutor {
                                     path = request.path(),
                                     url = maybeAnonymizeUrl(request.url(), context),
                                     headers = sanitizeHeaders(request.headers(), context),
-                                    parameters =
-                                        request.parameters().map { param ->
-                                            ParsedParam(type = param.type().name, name = param.name(), value = param.value())
-                                        },
+                                    // (PRIV-05) D-27-17: this field and the `headers` field one line
+                                    // above carry the SAME cookie bytes — Burp parses `Cookie:` into
+                                    // COOKIE-typed parameters — and they were controlled three rounds
+                                    // apart. Deleting either call re-opens the leak on the sibling.
+                                    parameters = sanitizeParameters(request.parameters(), context),
                                     body = if (input.includeBody) request.bodyToString() else null,
                                     bodyLength = request.body().length(),
                                 )

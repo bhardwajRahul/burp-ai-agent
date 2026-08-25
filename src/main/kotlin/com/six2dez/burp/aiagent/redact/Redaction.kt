@@ -293,6 +293,56 @@ object Redaction {
     fun isCookieHeaderName(name: String): Boolean = name.lowercase(Locale.ROOT).contains(COOKIE_NAME_TOKEN)
 
     /**
+     * (PRIV-05) 27-07 / D-27-17 — is this Montoya parameter TYPE the cookie carrier?
+     *
+     * Burp parses the `Cookie:` header into `HttpParameterType.COOKIE` parameters, so
+     * `HttpRequest.parameters()` hands back the SAME bytes that `isCookieHeaderName` guards one
+     * field over. In `request_parse` the two carriers sit inside one JSON object: `headers` was
+     * cookie-stripped while `parameters` returned the identical value verbatim. This predicate is
+     * the type-side half of that pair.
+     *
+     * The key is the parameter TYPE — a value Burp gives us — never a rendered string. That is the
+     * property the three prior rounds of this phase lacked: `cookieTypedParamRegex` is keyed to the
+     * passive scanner's `name=value (COOKIE)` shape and is silently defeated by any producer that
+     * renders the same data differently. Reformat either MCP tool's output and THIS control still
+     * fires.
+     *
+     * Exact comparison, deliberately NOT the `contains` test `isCookieHeaderName` uses, and not
+     * `COOKIE_NAME_TOKEN`. A header NAME is author-chosen, so `X-Cookie` and `Set-Cookie2` are real
+     * spellings a substring test must reach. A parameter TYPE is a CLOSED Burp enum: a substring
+     * test buys nothing there and would match a future constant that merely contains the token.
+     * `Locale.ROOT` for the same measured reason recorded above `isCookieHeaderName`.
+     *
+     * Takes a `String` rather than the Montoya enum so this predicate stays callable from `redact/`,
+     * which is deliberately Montoya-free at its API edge, and so it is unit-testable with no host API.
+     *
+     * TWO BOUNDS, stated here because deleting either re-opens a claim this phase has already been
+     * refuted on three times:
+     *
+     * 1. This answers the TYPE question ONLY. A parameter whose NAME looks cookie-ish (`session_id`
+     *    in a URL query) but whose type is URL or BODY is NOT matched here, and is not in PRIV-05's
+     *    cookie wording — see [com.six2dez.burp.aiagent.mcp.tools.sanitizeParameters]'s KDoc and D-27-20.
+     *
+     * 2. This predicate owns the cookie-type question for the THREE producers plan 27-07 rewires —
+     *    `McpToolExecutorImpl`, `McpToolLegacy` and `BountyPromptTagResolver`. It is NOT the only
+     *    cookie-type test in `src/main/kotlin`. `scanner/InjectionPointExtractor.kt:29` writes its
+     *    own `it.type().name == "COOKIE"` filter and is deliberately NOT converted (D-27-17): its
+     *    value feeds `InjectionPoint.originalValue` and from there the issue-detail route, which
+     *    plan 27-08 task 3 measures and plan 27-09 files. Swapping the predicate there would change
+     *    nothing about that route's disclosure while making the route look addressed. Cookie-type
+     *    PREDICATES in the tree therefore go from 1 to 2, not from N to 1.
+     */
+    fun isCookieParameterType(typeName: String): Boolean = typeName.trim().uppercase(Locale.ROOT) == COOKIE_PARAMETER_TYPE_NAME
+
+    /**
+     * The `HttpParameterType.COOKIE` constant NAME, owned here beside the predicate that compares
+     * against it rather than written inline at the comparison. Same discipline as
+     * [COOKIE_SECTION_HEADER]: the literal has one home, so a reader auditing "what does this
+     * control key on" finds one answer.
+     */
+    private const val COOKIE_PARAMETER_TYPE_NAME = "COOKIE"
+
+    /**
      * The passive scanner's dedicated cookie-section header.
      *
      * Public, and owned HERE in the redactor rather than in the emitter, because

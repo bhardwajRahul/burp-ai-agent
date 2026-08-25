@@ -347,6 +347,57 @@ internal fun sanitizeHeaders(
     return sanitized
 }
 
+/**
+ * (PRIV-05) 27-07 / D-27-17 — the cookie control on the PARAMETER carrier, the sibling field of the
+ * one [sanitizeHeaders] guards.
+ *
+ * Sited directly beneath [sanitizeHeaders] on purpose: `request_parse` emits both into ONE JSON
+ * object, and for three rounds of this phase the `headers` map was cookie-stripped while the
+ * `parameters` array handed the identical cookie bytes straight back. Two controls on two fields of
+ * one object are read together or one of them is forgotten again.
+ *
+ * TYPE-KEYED, never shape-keyed. The decision is taken on [Redaction.isCookieParameterType] over
+ * the Montoya `HttpParameterType` name, so neither MCP output format — the serialized `ParsedParam`
+ * nor `params_extract`'s `type=… name=… value=…` line — can be reformatted into defeating it. The
+ * shape-bound alternative is `Redaction.cookieTypedParamRegex`, which is keyed to the passive
+ * scanner's `name=value (COOKIE)` rendering and is measurably blind to both MCP shapes today.
+ *
+ * THIS IS THE ONLY PRODUCER OF [ParsedParam] IN THE REPOSITORY. That is not a stylistic preference:
+ * a second producer is how the control gets bypassed without anyone editing this function.
+ * `ParameterCarrierRedactionTest`'s producer-ownership pin fails if one appears in either executor.
+ *
+ * The substitution is a `when` over the type classification rather than a single `if`, so D-27-20's
+ * extension point is visible in the code. The non-cookie branch is a DELIBERATE pass-through today:
+ * URL-, BODY-, JSON-, XML-, MULTIPART_ATTRIBUTE- and every other typed parameter carries its value
+ * verbatim in every mode, exactly as before this function existed. PRIV-05's wording is about cookie
+ * values; a URL- or BODY-typed parameter named `access_token` may well survive `request_parse`'s
+ * JSON shape (`jsonSecretKeyRegex` keys on the JSON KEY, which here is the literal `value`, so it
+ * cannot fire). That is a different requirement class, it is NOT assumed either way here, and plan
+ * 27-08 task 3 MEASURES it and records the result verbatim. Widening the shared sensitive-key
+ * vocabulary to reach it was already measured expensive — 32 false positives, WR-01.
+ *
+ * Order and arity are preserved: N parameters in, N out, same sequence, so a caller diffing two
+ * results still sees positional correspondence.
+ */
+internal fun sanitizeParameters(
+    parameters: List<burp.api.montoya.http.message.params.ParsedHttpParameter>,
+    context: McpToolContext,
+): List<ParsedParam> {
+    val policy = RedactionPolicy.fromMode(context.privacyMode)
+    return parameters.map { param ->
+        val typeName = param.type().name
+        val value =
+            when {
+                // The cookie carrier. Same marker sanitizeHeaders writes for a stripped cookie
+                // HEADER, so a reader of one request_parse result meets one vocabulary in both fields.
+                policy.stripCookies && Redaction.isCookieParameterType(typeName) -> "[STRIPPED]"
+                // D-27-20: every other type passes through. Deliberate, measured by plan 27-08 task 3.
+                else -> param.value()
+            }
+        ParsedParam(type = typeName, name = param.name(), value = value)
+    }
+}
+
 internal fun maybeAnonymizeUrl(
     rawUrl: String,
     context: McpToolContext,
