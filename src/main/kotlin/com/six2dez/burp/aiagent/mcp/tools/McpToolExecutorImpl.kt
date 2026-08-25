@@ -367,10 +367,11 @@ object McpToolExecutor {
                                     path = request.path(),
                                     url = maybeAnonymizeUrl(request.url(), context),
                                     headers = sanitizeHeaders(request.headers(), context),
-                                    parameters =
-                                        request.parameters().map { param ->
-                                            ParsedParam(type = param.type().name, name = param.name(), value = param.value())
-                                        },
+                                    // (PRIV-05) D-27-17: this field and the `headers` field one line
+                                    // above carry the SAME cookie bytes — Burp parses `Cookie:` into
+                                    // COOKIE-typed parameters — and they were controlled three rounds
+                                    // apart. Deleting either call re-opens the leak on the sibling.
+                                    parameters = sanitizeParameters(request.parameters(), context),
                                     body = if (input.includeBody) request.bodyToString() else null,
                                     bodyLength = request.body().length(),
                                 )
