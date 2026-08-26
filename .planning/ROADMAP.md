@@ -396,7 +396,7 @@ reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Depends on:** Phase 26
 **Gap closure (2026-08-24):** `27-VERIFICATION.md` scored 7/9 and failed the two truths the goal rests on. `Serialization.kt` embeds a RAW HTTP message in a JSON string, `toolJson.encodeToString` escapes every CRLF to a literal two-character sequence, and both cookie rules are line-anchored `(?im)^…$` — so the CANONICAL `Cookie:` and `Set-Cookie:` headers leak verbatim in STRICT and BALANCED through `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`, across 14 measured emission sites with no `sanitizeHeaders` in front. Strictly broader than the variant-spelling defect that created the phase. `AR-27-01` is reclassified from accepted residual to live finding. Plans 27-04 to 27-06 close it; the maintainer chose to fix rather than to scope PRIV-05 down.
 
-**Plans:** 13/16 plans executed
+**Plans:** 14/16 plans executed
 
 Plans:
 **Wave 1**
@@ -514,7 +514,7 @@ them. **Round 5 does NOT close PRIV-05, and every plan in it says so.**
 
 **Wave 14** *(gap closure round 5 — blocked on Wave 13)*
 
-- [ ] 27-14-PLAN.md — The content-destruction regression: narrow the third logical-line start to a JSON string VALUE open, state the cost of the start round 4 added where a reader meets the rule, repair the gate whose fixture could not observe it, and name the array-element residual it buys (wave 14)
+- [x] 27-14-PLAN.md — The content-destruction regression: narrow the third logical-line start to a JSON string VALUE open, state the cost of the start round 4 added where a reader meets the rule, repair the gate whose fixture could not observe it, and name the array-element residual it buys (wave 14)
 
 **Wave 15** *(gap closure round 5 — blocked on Wave 14)*
 
@@ -671,7 +671,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
 | 26. Coverage, Static-Analysis Debt & Docs | 7/7 | In Progress|  |
-| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 13/13 | In Progress|  |
+| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 14/16 | In Progress|  |
 
 ## Backlog
 
