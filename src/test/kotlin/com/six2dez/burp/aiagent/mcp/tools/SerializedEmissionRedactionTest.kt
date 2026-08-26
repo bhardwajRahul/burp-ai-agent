@@ -319,6 +319,126 @@ class SerializedEmissionRedactionTest {
         }
     }
 
+    // ── carrier 4: a header at the OPEN of a JSON string, the third logical-line start ────
+
+    /**
+     * (PRIV-05) Phase 27 plan 27-11. The start boundary the round-3 verification measured as
+     * missing — and the one gap in this phase where the CANONICAL spelling, not a variant and not an
+     * underscore name, defeated the strongest privacy mode.
+     *
+     * `logicalLineHeaderRule`'s escaped branch required a PRECEDING escaped newline. A header that is
+     * the FIRST content of a JSON string value has neither a real `^` nor a preceding escaped
+     * newline, so no branch of the composed rules could reach it at all. Measured on the shipped
+     * classes in round 3:
+     *
+     * ```
+     * {"notes":"Cookie: a=SECRET1\r\nX: y"}  STRICT ->  unchanged            (the gap)
+     * {"notes":"X: y\r\nCookie: a=SECRET9"}  STRICT ->  Cookie: [STRIPPED]   (control fired)
+     * ```
+     *
+     * `HttpRequestResponse.notes` is what makes this reachable rather than theoretical: it carries
+     * analyst annotations, so its first characters are whatever the analyst typed. The `request`
+     * field always begins `GET / HTTP/1.1`, which is why the 14 pinned emission sites' PRIMARY
+     * payload was never affected — and why this survived three rounds of verification unseen.
+     *
+     * SCOPE OF WHAT THIS NESTED CLASS PROVES: that the composed rules now REACH a header at a JSON
+     * string open, and that reaching it does not let a match run past that string's closing quote.
+     * It says nothing about the FOURTH start — a leading-whitespace or obs-folded header line —
+     * which is MEASURED still unmatched and filed as `AR-27-09`. See `Redaction.kt`'s rationale
+     * block for that bound stated where a reader meets the rule.
+     */
+    @Nested
+    inner class JsonStringOpenBoundary {
+        @Test
+        fun aCanonicalCookieAtTheOpenOfAJsonStringDoesNotSurviveStrict() {
+            val serialized = toolJson.encodeToString(notesCarrier(cookieFirstNotes(Sentinel.JSON_STRING_OPEN_STRICT)))
+
+            assertTrue(
+                serialized.contains("\"notes\":\"Cookie:"),
+                "fixture guard: the cookie header must really be the FIRST content of the notes " +
+                    "string. If it is not, this probe silently tests the escaped-newline branch that " +
+                    "already shipped and proves nothing (got: $serialized)",
+            )
+
+            val redacted = contextWith(PrivacyMode.STRICT, "json-string-open-strict-salt").redactIfNeeded(serialized)
+
+            assertFalse(
+                redacted.contains(Sentinel.JSON_STRING_OPEN_STRICT.value),
+                "a canonical Cookie value at the OPEN of a JSON string must not survive STRICT (got: $redacted)",
+            )
+            assertTrue(
+                redacted.contains(Sentinel.BENIGN_CONTROL.value),
+                "negative control: the non-cookie header in the same notes value must survive, so a " +
+                    "pass cannot be produced by blanket destruction of the field (got: $redacted)",
+            )
+            assertSameJsonShape(serialized, redacted)
+        }
+
+        @Test
+        fun aCanonicalCookieAtTheOpenOfAJsonStringDoesNotSurviveBalanced() {
+            val serialized = toolJson.encodeToString(notesCarrier(cookieFirstNotes(Sentinel.JSON_STRING_OPEN_BALANCED)))
+
+            assertTrue(
+                serialized.contains("\"notes\":\"Cookie:"),
+                "fixture guard: the cookie header must really be the FIRST content of the notes string (got: $serialized)",
+            )
+
+            val redacted = contextWith(PrivacyMode.BALANCED, "json-string-open-balanced-salt").redactIfNeeded(serialized)
+
+            assertFalse(
+                redacted.contains(Sentinel.JSON_STRING_OPEN_BALANCED.value),
+                "BALANCED sets stripCookies too, so the value must not survive there either (got: $redacted)",
+            )
+            assertTrue(
+                redacted.contains(Sentinel.BENIGN_CONTROL.value),
+                "negative control on the BALANCED probe (got: $redacted)",
+            )
+            assertSameJsonShape(serialized, redacted)
+        }
+
+        /**
+         * THE POSITIVE CONTROL, and the reason the two probes above are a statement about the rule's
+         * REACH rather than a dead fixture. Same header, same field, same modes — only the POSITION
+         * differs: here it follows an escaped newline, the boundary the escaped branch already had.
+         *
+         * EXPECTED GREEN BOTH BEFORE AND AFTER the boundary change, and that is the whole point. A
+         * red run in which this ALSO failed would mean the fixture was wrong and the probes proved
+         * nothing; a red run in which ONLY the probes failed — which is what was recorded — means the
+         * rule could not REACH that position. Without this test the two probes above are
+         * unfalsifiable, so it is not redundant coverage of the shipped branch.
+         */
+        @Test
+        fun theSameCookieHeaderAfterAnEscapedNewlineIsStrippedInBothRedactingModes() {
+            val notes =
+                "X-Request-Id: ${Sentinel.BENIGN_CONTROL.value}\r\n" +
+                    "Cookie: wibble=${Sentinel.JSON_STRING_OPEN_CONTROL.value}"
+            val serialized = toolJson.encodeToString(notesCarrier(notes))
+
+            assertTrue(
+                serialized.contains("\\r\\nCookie:"),
+                "fixture guard: the control's cookie header must follow an ESCAPED newline, or it is " +
+                    "not testing the branch that shipped (got: $serialized)",
+            )
+
+            listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED).forEach { mode ->
+                val redacted = contextWith(mode, "json-string-open-control-salt-$mode").redactIfNeeded(serialized)
+
+                assertFalse(
+                    redacted.contains(Sentinel.JSON_STRING_OPEN_CONTROL.value),
+                    "$mode: the escaped-newline branch shipped working — if THIS fails the fixture is " +
+                        "wrong and the probes above prove nothing (got: $redacted)",
+                )
+                assertTrue(
+                    redacted.contains("Cookie: [STRIPPED]"),
+                    "$mode: the control must produce the name-preserving replacement (got: $redacted)",
+                )
+                assertSameJsonShape(serialized, redacted)
+            }
+        }
+
+        private fun cookieFirstNotes(sentinel: Sentinel): String = "Cookie: wibble=${sentinel.value}\r\nX-Request-Id: ${Sentinel.BENIGN_CONTROL.value}"
+    }
+
     // ── the named hazards of this rule shape, each gated rather than reasoned about ───────
 
     @Nested
@@ -747,6 +867,19 @@ class SerializedEmissionRedactionTest {
         )
 
     /**
+     * The `notes` carrier. `toSerializableForm()` fills this field from `annotations().notes()`, so
+     * unlike `request` its first characters are whatever an ANALYST typed rather than a request
+     * line — which is what makes a header at the open of a JSON string reachable rather than
+     * theoretical. It is the field the round-3 verification named.
+     */
+    private fun notesCarrier(notes: String): HttpRequestResponse =
+        HttpRequestResponse(
+            request = "GET /basket HTTP/1.1\r\nAccept: text/html\r\n\r\n",
+            response = null,
+            notes = notes,
+        )
+
+    /**
      * A REAL multi-line message. This deliberately never touches `toolJson`: its purpose is to pin
      * the branch that shipped, the one that only ever sees genuine CRLFs. No `Host:` header, so the
      * expectation is a plain literal rather than a salt-dependent anonymised host.
@@ -821,6 +954,14 @@ class SerializedEmissionRedactionTest {
         AUTH_OFF_MODE("sentinelwhiskey"),
         AUTH_BACKSLASH_TAIL("sentinelxray"),
         AUTH_REAL_MULTILINE_QUOTE("sentinelyankee"),
+
+        // (PRIV-05) 27-11. The JSON-string-open family. Each is a bare lowercase alphabetic word
+        // like every entry above, and each was checked NON-SUBSTRING against every other entry —
+        // `everySentinelInThisFileIsDistinct` enforces both halves, because a sentinel contained in
+        // a longer one lets an absence assertion pass while the longer value leaks.
+        JSON_STRING_OPEN_STRICT("sentinelzulu"),
+        JSON_STRING_OPEN_BALANCED("sentinelnorth"),
+        JSON_STRING_OPEN_CONTROL("sentinelsouth"),
         BENIGN_CONTROL("benignidcontrolvalue"),
     }
 
