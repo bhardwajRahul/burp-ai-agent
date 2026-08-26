@@ -263,3 +263,213 @@ from `AR-27-04`'s auto-selected default.
 
 **What the answer does NOT settle.** It disposed of the PARAMETER carrier only. `AR-27-08` and
 `AR-27-07` are separate dispositions and are open above, as tests 7 and 8.
+
+---
+
+# CARRY-FORWARD — 2026-08-26 (plan 27-13; appended, nothing above is edited)
+
+## NINE ITEMS ARE STILL UNANSWERED. NOTHING IN ROUND 4 ANSWERED ANY OF THEM.
+
+**Why no `checkpoint:decision` was raised for any of them — unchanged, and re-stated because it is
+the reason this section exists at all.** `.planning/config.json` still carries `mode: yolo`, which
+AUTO-SELECTS blocking checkpoints. Raising a checkpoint under this run mode produces an
+auto-selected answer filed as though a maintainer had weighed it — which is exactly the artifact
+`26-SECURITY.md` warns about for `AR-27-04`. **So the items live HERE, legible as open.** The
+corollary from the 2026-08-25 section still binds: **the absence of checkpoints in plans 27-10
+through 27-13 is not evidence of an absence of open questions.** It is the opposite.
+
+**A note on this file's frontmatter, handled exactly as the 2026-08-25 section handled it.** Its
+`updated:` and `source:` fields still read `2026-08-24` and `[27-VERIFICATION.md]`. They are
+deliberately NOT corrected, and the reason is the same one: plan 27-13's acceptance criterion
+requires **zero removed lines** in this file under the robust diff form, and editing a frontmatter
+value removes a line. The staleness is recorded here rather than silently left. **THE TRUE STATE:
+this file was amended on 2026-08-26 by plan 27-13, drawing on `27-VERIFICATION-3.md`,
+`27-10-SUMMARY.md`, `27-11-SUMMARY.md` and `27-12-SUMMARY.md`.**
+
+### The nine, by number, with their status after round 4
+
+Referenced by number rather than re-opened, so nothing above is duplicated or edited.
+
+| # | Item | Where it is stated | Status after round 4 |
+|---|------|--------------------|----------------------|
+| 1 | Live-Burp reproduction of the raw-serialization cookie leak (STRICT, then BALANCED) | test 1 above | **UNANSWERED.** Still `[pending]`. Round 4 ran no live Burp. |
+| 2 | Re-test after the gap-closure fix lands | test 2 above | **UNANSWERED.** Still `[pending]`. |
+| 3 | Does Montoya `parameters()` really yield COOKIE entries in a live Burp? | test 3 above | **UNANSWERED.** Still `[pending]`. The Montoya half remains unexecuted inside a live Burp; `HttpRequest.httpRequest()` still cannot run in a pure-JVM test. |
+| 4 | `T-27-06-06` — the user-facing STRICT host-anonymisation overclaim in `README.md` and `SPEC.md` | test 4 above | **UNANSWERED and STILL UNACTIONED.** Deliberately so: a change to what SHIPS is not a record repair, and plan 27-13 scoped itself to record files for the same reason plans 27-06 and 27-09 did. **The loss risk is unchanged** — `.planning/BACKLOG.md` still does not exist, re-checked 2026-08-26. |
+| 5 | Live-Burp confirmation that the wave-7 parameter fix holds end to end | test 5 above | **UNANSWERED.** Still `[pending]`. |
+| 6 | Live confirmation of the `AR-27-08` issue-detail route with its three scan preconditions | test 6 above | **UNANSWERED.** Still `[pending]`, and still expected to REPRODUCE on the current build — `AR-27-08` is untouched by round 4 and owned by Phase 28. |
+| 7 | DISPOSITION — accept `AR-27-08` at medium, or escalate it | test 7 above | **UNANSWERED.** Still `[pending]`. |
+| 8 | DISPOSITION — `AR-27-07`, widen `SENSITIVE_WORDS` or keep the residual | test 8 above | **UNANSWERED.** Still `[pending]`. WR-01's measured 32 false positives are unchanged. |
+| 9 | DECIDE `AR-27-04` with a HUMAN in the loop | `27-VERIFICATION-3.md` `human_verification` item 2 | **UNANSWERED.** See the restatement at the foot of this section — round 4 removed its two green STRICT pins and that supplied no human judgment. |
+
+**Round 4 answered NONE of these nine.** It closed two control axes and repaired the records; it ran
+no live Burp, made no risk decision on a shipped release posture, and edited no user-facing
+documentation.
+
+---
+
+## THE TWO DECISIONS THIS ROUND — MAINTAINER-MADE, recorded WITH their provenance
+
+Recorded here, and not merely acted on, because **a later reader must be able to tell a human
+decision from a harness default at a glance.** That is the entire point of recording provenance, and
+this file already carries the counter-example.
+
+### DECISION 1 — the underscore cookie-header name class: **FIX, by widening the NAME CLASS**
+
+**Decided by the MAINTAINER, BEFORE planning of round 4 began.**
+
+**The question**, as posed by `27-VERIFICATION-3.md` `human_verification` item 1: either widen
+`COOKIE_NAME_PART` to `[A-Za-z0-9_-]*` and flip the pinning test, or accept the leak as a numbered,
+owned residual in `26-SECURITY.md` with its measured probe output.
+
+**The answer: FIX — and the DIRECTION is part of the decision, not an implementation detail.**
+**Widen the REGEX side; NEVER narrow the predicate.** Narrowing `Redaction.isCookieHeaderName` to
+match the regexes would restore symmetry and would SHRINK what `McpToolHelpers.sanitizeHeaders`
+strips on the MCP tool-result path — the exact direction that reopened this phase in round 1. Acted
+on by plan 27-10 on 2026-08-26: one token, `[A-Za-z0-9-]*` → `[A-Za-z0-9_-]*`, the entire non-comment
+production delta of that plan.
+
+### DECISION 2 — the JSON-string-open boundary: **IN SCOPE for round 4**
+
+**Decided by the MAINTAINER, BEFORE planning of round 4 began.**
+
+**The question**, as posed by `27-VERIFICATION-3.md` `human_verification` item 4: decide whether the
+JSON-string-open and leading-whitespace boundary blind spots in `logicalLineHeaderRule` are in scope
+for a follow-up, given that a CANONICAL `Cookie:` header was measured surviving STRICT in both
+shapes with the positive control firing on the same run.
+
+**The answer: the JSON-string-open start is IN SCOPE for this round; the leading-whitespace /
+obs-fold start is NOT.** Acted on by plan 27-11 on 2026-08-26, which added `JSON_STRING_OPEN` as the
+third recognised logical-line start. The fourth start was measured, named, and deferred **inside**
+that stated scope rather than discovered after it — it is now `AR-27-09`, and item 10 below is where
+its disposition is decided.
+
+### THE CONTRAST, WRITTEN OUT RATHER THAN LEFT TO BE INFERRED
+
+**`AR-27-04`'s disposition is the opposite kind of artifact, and `26-SECURITY.md` says so in its own
+bold paragraph:** it was **AUTO-SELECTED BY THE CONFIGURED RUN MODE (`mode: yolo`) AND NOT
+MAINTAINER-CHOSEN.** That register instructs a future auditor to read it as **a recorded default,
+not as a human having weighed the release posture.**
+
+**Decisions 1 and 2 above are the opposite: made by a person, before planning, and no
+`checkpoint:decision` was involved in either.** A reader comparing the two must be able to tell them
+apart at a glance, and that is why both are labelled rather than merely acted on.
+
+**THE HONEST WEIGHT OF THE CITATIONS, because provenance recorded at the wrong strength is the same
+defect one level up.** The independent, non-planner-authored records of these two decisions are:
+`27-VERIFICATION-3.md`, which POSES both questions with their options; `27-10-SUMMARY.md`, whose
+"Decisions Made" section records **"Widen the regex, never narrow the predicate — the maintainer's
+stated direction"** as an execution-time observation; and `27-11-SUMMARY.md`, which records the
+fourth start as "deliberately out of this round's scope". **The round-4 note in `ROADMAP.md` is NOT
+independent corroboration** — it is written by plan 27-13, the same plan writing this section, and a
+record citing itself proves nothing. Compare the ANSWERED item at the foot of the 2026-08-25 section,
+which could cite a `ROADMAP.md` sentence written in a PRIOR round. This one cannot, and says so.
+
+---
+
+## TWO NEW DISPOSITION ITEMS — both are JUDGMENTS, not investigations
+
+Both residuals below are already MEASURED. Nothing further needs to be found out; what is needed is
+a decision, and each carries the two things to weigh.
+
+### 10. NEW, a DISPOSITION rather than a test — `AR-27-09`, accept at LOW or pull the one-token fix forward
+
+expected: A recorded human decision. Plan 27-13 filed **`AR-27-09`** in `26-SECURITY.md` at severity
+**LOW**: the FOURTH logical-line start — a header line preceded by leading horizontal whitespace, or
+an obs-folded continuation line — which `logicalLineHeaderRule` still cannot recognise.
+
+**MEASURED** (`27-11-SUMMARY.md`, "The Indented-Header Measurement", driven through a throwaway
+`jshell` harness against the freshly compiled classes): `GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n`
+survives **BYTE-UNCHANGED under STRICT and under BALANCED**, with the un-indented control stripped to
+`Cookie: [STRIPPED]` on the same run. Note that this is **one mode WIDER than `27-VERIFICATION-3.md`
+recorded** — plan 27-11 re-measured rather than copying the round-3 prediction forward.
+
+**THE TWO THINGS TO WEIGH, both already measured, so this is a judgment and not an investigation:**
+
+- **Aggravating:** it defeats STRICT outright and BALANCED too, and it is the CANONICAL `Cookie:`
+  name — no variant spelling and no unusual character is needed to reach it.
+- **Mitigating, and the reason it is filed at `low`:** **no measured emission site in this repository
+  indents a header line.** The 14 pinned serialized-emission sites emit a machine-generated message
+  `toString()` at column 0, and `buildScanMetadataText` `appendLine`s each admitted header at column
+  0.
+- **The one thing that is NOT measured, stated so the `low` is checkable rather than trusted:**
+  whether an indented header line can reach the composer through analyst-authored free text in
+  `HttpRequestResponse.notes` — the same field plan 27-11's own fix was measured on, and a field
+  whose content this repository constrains nowhere. If the answer is yes, `low` is wrong.
+
+**The alternative is cheap and is written down:** the one-token fix is `^[ \t]*` in place of `^` on
+the real-line branch, it widens only in the OVER-redacting direction, and it is already recorded in
+`Redaction.kt` beside the residual and pinned from source by `LogicalLineBoundaryScopeTest`.
+
+why_human: A scope/risk decision on a shipped 1.0.0 release, and the `low` severity rests on an
+unmeasured reachability judgment about a free-text field. Recorded here rather than raised as a
+checkpoint, for the reason at the head of this section.
+result: [pending]
+
+### 11. NEW, a DISPOSITION rather than a test — `AR-27-10`, accept at LOW or widen to the full RFC 9110 tchar set
+
+expected: A recorded human decision. Plan 27-13 filed **`AR-27-10`** in `26-SECURITY.md` at severity
+**LOW**: the residual difference set between the bare-contains predicate and the widened name class.
+
+**MEASURED** (`27-10-SUMMARY.md` §6, with the covered class read out of `Redaction.kt` at test time
+rather than re-typed): `ALL_RFC9110_TCHARS` = **77**, `COVERED_TCHARS` = **64**,
+`NOT_COVERED_TCHARS` = **13** — the characters `!` `#` `$` `%` `&` `'` `*` `+` `.` `^` `` ` ``
+`|` `~`. A header name carrying one of those is still ADMITTED onto the outbound prompt by
+`Redaction.isCookieHeaderName` and still NOT matched by either cookie regex: the same fail-open shape
+the underscore class had, on a different character set.
+
+**THE TWO THINGS TO WEIGH, both already measured, so this is a judgment and not an investigation:**
+
+- **Aggravating:** the mechanism is not hypothetical — it was measured end-to-end on `_` (nine names,
+  both modes, pre-fix and post-fix) before plan 27-10 closed that one character. The 13 remaining
+  characters sit in the identical position `_` occupied for three rounds.
+- **Mitigating, and the reason it is filed at `low`:** **no leak was measured for any of the
+  thirteen.** What is measured is the PARTITION and the MECHANISM; the carry-over to these
+  characters is INFERRED, and the row labels it as inferred. None of the thirteen appears in a header
+  name this repository, its tests, or ordinary HTTP practice has been observed to carry — but that is
+  a judgment about convention, not a measurement.
+- **The cost of the fix, which is why widening is a judgment and not an obvious yes:** widening
+  `COOKIE_NAME_PART` to the full tchar set makes both cookie regexes match names like `X.Cookie` and
+  `` `cookie` ``, over-redacting in a direction nobody has measured against a benign-header corpus.
+  **WR-01 in `CONCERNS.md` records a measured 32-false-positive cost from a widening that looked
+  equally harmless.** The opposite direction — narrowing the predicate to the same class — is
+  PROHIBITED for the reason in decision 1 above.
+
+why_human: A scope/risk decision on a shipped 1.0.0 release, and the `low` severity rests explicitly
+on an inferred half that is labelled as inferred. Recorded here rather than raised as a checkpoint,
+for the reason at the head of this section.
+result: [pending]
+
+---
+
+## RESTATED — `AR-27-04` STILL OWES A HUMAN DECISION, and round 4 did not supply one
+
+This is item 9 of the nine above, restated in full because the thing round 4 DID do to `AR-27-04` is
+easy to mistake for progress on it.
+
+**What round 4 did:** plan 27-12 **DELETED** the two green
+`assertTrue(… .contains("api.example.com"))` assertions under `PrivacyMode.STRICT` that had pinned
+this residual, and re-pointed the pass-through they measured at an `assertEquals` byte-identity
+fixture under `PrivacyMode.OFF` — the one policy under which pass-through is correct. They were
+deleted rather than inverted because the behaviour they described **still ships**.
+
+**What round 4 did NOT do, and this is the whole point:** it did not decide `AR-27-04`.
+
+- The FINDING is unchanged: `Host:` and `SiteMapEntry.url` still reach an AI backend un-anonymised
+  under STRICT on the serialized emission shape. `hostHeaderRegex` is still excluded from
+  `logicalLineHeaderRule`; `maybeAnonymizeUrl` is still not threaded into the two serializers.
+- The SEVERITY is unchanged at MEDIUM and the status is unchanged at OPEN.
+- **The PROVENANCE of its disposition is unchanged and is NOT upgraded by this round's activity.** It
+  was auto-selected by `mode: yolo`. **Removing a green pin is a test-artifact repair. It supplies no
+  human judgment about a release posture, and nothing in round 4 should be read as having supplied
+  one.**
+
+**A privacy-control bypass on a shipped 1.0.0 accepted by the harness is not an accepted risk.** The
+decision is either a fix (route `hostHeaderRegex` through the composer **and** thread
+`maybeAnonymizeUrl` into `toSiteMapEntry` / `toSerializableForm` — half of that fix alone produces a
+payload whose `request` is anonymised and whose `url` is not) or a maintainer-signed acceptance. It
+is still owed.
+
+why_human: A privacy-control bypass on a shipped release posture, currently accepted by the harness
+rather than by a person. Carried unchanged from `27-VERIFICATION-3.md` `human_verification` item 2.
+result: [pending]
