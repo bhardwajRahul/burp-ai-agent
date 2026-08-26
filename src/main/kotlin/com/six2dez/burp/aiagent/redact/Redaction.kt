@@ -114,9 +114,22 @@ object Redaction {
     private val bearerRegex = Regex("(?i)bearer\\s+[A-Za-z0-9\\-\\._~\\+\\/]+=*")
     private val basicAuthRegex = Regex("(?i)basic\\s+[A-Za-z0-9\\+\\/=]+")
 
-    // W-A: an RFC 9110 field-name is a token; the subset that occurs in practice for cookie-bearing
-    // headers is [A-Za-z0-9-]. Used as the "rest of the name" either side of the literal "cookie".
-    private const val COOKIE_NAME_PART = "[A-Za-z0-9-]*"
+    // W-A: an RFC 9110 field-name is a token. Used as the "rest of the name" either side of the
+    // literal "cookie".
+    //
+    // (PRIV-05) 27-10: this class was [A-Za-z0-9-]* until plan 27-10 — the value BEFORE the widening,
+    // recorded here as history, not as what ships. '_' is a legal RFC 9110 tchar and names carrying it
+    // occur (my_cookie, X_Cookie, session_cookie were all measured reaching an AI backend verbatim
+    // under STRICT and BALANCED). THE WIDTH RULE, and the reason it points in this direction: this
+    // class must be AT LEAST AS WIDE as whatever isCookieHeaderName admits, because one of that
+    // predicate's three consumers — PassiveAiScannerFilters.sanitizeHeadersForPrompt — is an ADMITTER,
+    // not a redactor. A name the predicate claims but this class cannot match is put on the outbound
+    // prompt and then not removed. Widen this constant to close such a gap; never narrow the predicate.
+    //
+    // THE BOUND, so the next reader does not over-read the fix: this class is still NARROWER than the
+    // full tchar set. The thirteen remaining tchars (! # $ % & ' * + . ^ ` | ~) are enumerated in
+    // CookieHeaderNameWidthTest.NOT_COVERED_TCHARS and filed as AR-27-10.
+    private const val COOKIE_NAME_PART = "[A-Za-z0-9_-]*"
 
     // (PRIV-05) D-27-01: the ONE lowercase literal that says what "a cookie header" is named. Both
     // regexes below and isCookieHeaderName are composed from it, so a rename is a compile-wide change
