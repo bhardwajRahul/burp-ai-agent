@@ -473,3 +473,149 @@ is still owed.
 why_human: A privacy-control bypass on a shipped release posture, currently accepted by the harness
 rather than by a person. Carried unchanged from `27-VERIFICATION-3.md` `human_verification` item 2.
 result: [pending]
+
+
+---
+
+# ROUND 5 — 2026-08-26 (plans 27-14, 27-15, 27-16)
+
+## ELEVEN ITEMS ARE STILL UNANSWERED. NOTHING IN ROUND 5 ANSWERED ANY OF THEM.
+
+Items **1 through 11** above are carried forward **UNCHANGED**. Round 5 ran no live Burp, actioned no
+shipped documentation, and made no disposition on any residual. It closed a correctness regression
+this phase itself shipped and a defect in its own security record. **A round that repairs its own
+mistakes has not answered a single question a human still owes an answer to**, and this heading is
+here so that cannot be misread by scanning.
+
+| # | Item | Status after round 5 |
+|---|---|---|
+| 1 | Live-Burp reproduction of the raw-serialization cookie leak (STRICT, then BALANCED) | **UNANSWERED.** Still `[pending]`. Round 5 ran no live Burp. |
+| 2 | Re-test after the gap-closure fix lands | **UNANSWERED.** Still `[pending]`. |
+| 3 | Does Montoya `parameters()` really yield COOKIE entries in a live Burp? | **UNANSWERED.** Still `[pending]`. `HttpRequest.httpRequest()` still cannot run in a pure-JVM test. |
+| 4 | `T-27-06-06` — the STRICT host-anonymisation overclaim in `README.md` and `SPEC.md` | **UNANSWERED and STILL UNACTIONED.** Deliberately: a change to what SHIPS is not a record repair, and plan 27-16 scoped itself to record files for the same reason 27-06, 27-09 and 27-13 did. **The loss risk is unchanged** — `.planning/BACKLOG.md` still does not exist, re-checked 2026-08-26. |
+| 5 | Live-Burp confirmation that the wave-7 parameter fix holds end to end | **UNANSWERED.** Still `[pending]`. |
+| 6 | Live confirmation of the `AR-27-08` issue-detail route | **UNANSWERED.** Still `[pending]`, and still expected to REPRODUCE — `AR-27-08` is untouched by round 5 and owned by Phase 28. |
+| 7 | DISPOSITION — accept `AR-27-08` at medium, or escalate it | **UNANSWERED.** Still `[pending]`. |
+| 8 | DISPOSITION — `AR-27-07`, widen `SENSITIVE_WORDS` or keep the residual | **UNANSWERED.** Still `[pending]`. |
+| 9 | DECIDE `AR-27-04` with a HUMAN in the loop | **UNANSWERED, and NOT relitigated by round 5.** Its disposition is unchanged, its provenance is unchanged, and no plan in round 5 touched its row. |
+| 10 | DISPOSITION — `AR-27-09`, accept at LOW or pull the one-token fix forward | **UNANSWERED.** Still `[pending]`. Re-measured by the verifier and holding exactly as recorded. |
+| 11 | DISPOSITION — `AR-27-10`, accept at LOW or widen to the full RFC 9110 tchar set | **UNANSWERED.** Still `[pending]`. |
+
+---
+
+## ANSWERED BY FIX — `27-VERIFICATION-4.md` `human_verification` item 1, the bare-quote disposition
+
+**The question that was open.** `27-VERIFICATION-4.md` gap 1 found that the third logical-line start
+round 4 shipped was a BARE DOUBLE QUOTE presented as a JSON string open, and asked whether to narrow
+it or to keep it and accept the blast radius.
+
+**It is ANSWERED BY FIX, not by a decision recorded and deferred.** Plan 27-14 narrowed
+`Redaction.JSON_STRING_OPEN` from `"\""` to `":\""` — a JSON string VALUE open — at
+`Redaction.kt:333`. **The measurement, quoted:** on a 1714-character `proxy_http_history`-shaped
+payload, characters destroyed went from **1589 to 0** and content markers from **0 of 40 to 40 of
+40**, byte-identical `false → true`, in STRICT and BALANCED alike; all five measured non-JSON false
+positives went byte-identical (shape 5 excepted, for a reason external to the boundary and recorded
+in `27-14-SUMMARY.md`); and round 4's own target was NOT un-fixed — all three PROBE C cases still
+produce `Cookie: [STRIPPED]` in both columns and both modes.
+
+**THE PROVENANCE OF THAT DECISION, RECORDED AT THE STRENGTH THE ARTIFACTS SUPPORT AND NO HIGHER.**
+This is the paragraph that matters, and it is deliberately weaker than a signature:
+
+- The narrowing was **DIRECTED BY THE ROUND-5 PLANNING BRIEF** — `27-14-PLAN.md` names it as the
+  task, so the executor selected nothing.
+- It was **INDEPENDENTLY MEASURED TWICE, by records this round did not write**: `27-REVIEW-2.md`
+  CR-03 and `27-VERIFICATION-4.md` gap 1. Both measured the same over-match and both showed the
+  narrowing removes every measured false positive while keeping both `notes` carriers closed. That
+  is real corroboration and it is why this item is answerable at all.
+- **`.planning/config.json` still carries `mode: yolo`, and `gsd-tools query check auto-mode`
+  reported `false` for this run** — a combination this project has already recorded as producing
+  auto-approved gates. **No human answered any checkpoint during round 5.**
+- **Therefore: whether a MAINTAINER PERSONALLY CHOSE to narrow rather than to keep the bare quote is
+  NOT CODEBASE-VERIFIABLE.** It is not claimed here. What is claimed is that the change was directed
+  and twice independently measured — which is a statement about EVIDENCE, not about AUTHORITY.
+- **The provenance question is therefore carried as a confirmation item in its own right**, exactly
+  as `27-VERIFICATION-4.md` item 4 carried the equivalent question for round 4. See the confirmation
+  item immediately below.
+
+**Why this distinction is worth a paragraph rather than a footnote.** `AR-27-04`'s disposition is on
+record as auto-selected by `mode: yolo` and NOT maintainer-chosen, and `26-SECURITY.md` instructs a
+future auditor to read it as a recorded default rather than as a human weighing a release posture.
+The whole value of this file is that a reader can tell those two kinds of artifact apart at a glance.
+Claiming a signature no artifact corroborates would collapse that distinction — and it would collapse
+it in the direction that flatters this round.
+
+### 12a. CONFIRMATION ITEM — was the narrowing a maintainer's choice, or a harness default?
+
+why_human: The fix is measured and the measurement is not in doubt. What is in doubt is the
+PROVENANCE: the run was configured `mode: yolo`, no human answered any checkpoint, and no artifact
+under `.planning/` can establish that a person chose narrowing over keeping the bare quote. A
+maintainer either confirms the choice was theirs, or records that it was a directed default that they
+now endorse — the two read identically in a diff and differently in an audit.
+result: [pending]
+
+---
+
+## 12. NEW, a DISPOSITION rather than a test — `AR-27-11`, accept the array-element start or widen the boundary
+
+This is a **JUDGMENT, not an investigation.** The residual is already measured in both directions and
+its reachability has been enumerated at source. Nothing further needs to be found out.
+
+**THE FINDING.** After round 5's narrowing, a header at the open of a JSON ARRAY ELEMENT string is
+not a recognised logical-line start: an array element opens on a bracket-quote or comma-quote
+sequence, and the boundary now recognises a colon-quote sequence. **Measured, both columns, STRICT
+and BALANCED identical:** `{"tags":["Cookie: a=SECRET8"]}` was `{"tags":["Cookie: [STRIPPED]"]}` under
+the bare quote and is **byte-unchanged** after. Filed as `AR-27-11`, OPEN at LOW.
+
+**WHAT WAS MEASURED ABOUT ITS REACH, because that is what the two options weigh against each other.**
+`mcp/schema/Serialization.kt` declares **ZERO** `List<String>` fields — its two list fields are arrays
+of OBJECTS, whose string members open at `:"` and ARE covered — multi-item tool results are joined
+with `\n\n` and carry no JSON array wrapper, and the five `List<String>` models under
+`McpToolModels.kt` are INPUT-only. **Exactly one carrier can emit an arbitrary JSON array of strings
+through `Redaction.apply`:** the D-03 outbound-privacy redaction of model-authored `argsJson` in
+`McpToolExecutorImpl.routeExternalToolCall`, forwarded to a third-party external MCP server. The
+remote tool schemas on that path are not owned by this repository and are **UNMEASURED**. And the
+residual is narrower than "arrays are uncovered": a realistic raw HTTP message inside an array element
+is STILL stripped, because its header follows an escaped newline, which IS a recognised start —
+measured, with two positive controls firing in the same run.
+
+**OPTION A — ACCEPT at LOW.** The residual stays filed, cited in `Redaction.kt`, pinned from source by
+`LogicalLineBoundaryScopeTest.THIRD_OPEN_FINDING`, and owned here.
+*For:* no emission field this repository owns is a JSON array of strings; the one carrier that can be
+is model-authored; the realistic shape on that carrier is already covered; and no widening has been
+measured against the benign corpus this quarter.
+*Against:* it defeats STRICT **and** BALANCED on the plain canonical `Cookie:` name with no variant
+spelling required, and the unmeasured remote half is unmeasured rather than absent.
+
+**OPTION B — WIDEN the boundary to recognise the array-element open.** Add `[\"` and `,\"` as two
+further FIXED-WIDTH lookbehind alternatives beside `:\"`, preserving the composer's measured 2.4x
+fixed-width look-back argument by construction.
+*For:* it closes the residual at the control rather than in a record, and the fix is the same shape
+and the same cost as the one already shipped.
+*Against:* it is a WIDENING, and this phase has already paid once for a widening that looked harmless
+— `WR-01` records 32 measured false positives, and the bare quote itself destroyed 93% of a tool
+result. **It must not be applied without its own red probe over the benign-payload corpus**, which is
+precisely why plan 27-16 wrote the fix down and did not apply it.
+
+**THE ASYMMETRY WORTH STATING PLAINLY:** option A leaves a measured under-redaction on a
+model-authored carrier; option B risks an unmeasured over-redaction on every carrier. This phase's own
+history contains one costly example of each, which is why this is a person's call and not an
+executor's.
+
+why_human: A privacy-boundary residual created by this round's own fix, with one measured carrier and
+one unmeasured remote half. Accepting it sets a release posture; closing it widens a redaction rule
+that has already been measured over-firing once at 93% of a payload. Neither is a defensible harness
+default.
+result: [pending]
+
+---
+
+## `AR-27-04` IS UNCHANGED BY ROUND 5, AND ROUND 5 DID NOT TOUCH IT
+
+Recorded because a records round is exactly where a deferral quietly gets relitigated. `AR-27-04`'s
+row in `26-SECURITY.md` is **byte-unchanged** by plans 27-14, 27-15 and 27-16. The finding is
+unchanged, the severity is unchanged at MEDIUM, the status is unchanged at OPEN, and **the provenance
+of its disposition — auto-selected by `mode: yolo`, not maintainer-chosen — is unchanged and is NOT
+upgraded by anything round 5 did.** It is still owed, as item 9 above.
+
+`AR-27-08` and `InjectionPointExtractor.kt:29` are likewise untouched and still owned by Phase 28, and
+`T-27-06-06` is untouched.

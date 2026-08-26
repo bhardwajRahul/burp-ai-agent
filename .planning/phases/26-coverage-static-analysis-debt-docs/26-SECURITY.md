@@ -1267,7 +1267,26 @@ parenthesis does not follow the identifier on its line, created by plan 27-15's 
 measured live on this tree, one of them inside the sweep file itself, and **0** multi-line signatures
 — the plan anticipated the multi-line shape and the measurement found the other one, so the axis
 names BOTH shapes with BOTH counts. **Owner: the sweep's own KDoc**, where it is enumerated inside
-the machine-checked `STATED_BLIND_AXES = 13`.
+the machine-checked `STATED_BLIND_AXES = 13`. **(3) A RED `detekt` GATE** — plan 27-15's three new
+raw-string fixtures each tripped `MayBeConst`, and neither 27-15's own verification command nor the
+wave-9 post-merge gate ran `detekt`, so a red gate was merged unseen. FIXED by plan 27-16 (three
+`const val`s; no behaviour change, no `detekt-baseline.xml` growth). **(4) A RED
+`jacocoTestCoverageVerification` GATE** — the `redact` package's BRANCH ratio is **0.9278** against a
+**0.930** floor. Bisected rather than assumed: the pre-round-5 tree passes at **0.9330** (13 missed /
+116 covered), the round-5 base and the final tree fail at **0.9278** (14 / 115), and exactly ONE
+branch flipped — `if (remainingMs <= 0L)` at `Redaction.kt:1628`, the WALL-CLOCK budget-exhaustion
+guard on the same `SafeRegex` 50 ms deadline path as the documented `RedactionTest` flake. Covered in
+1 of 1 pre-round-5 runs and missed in 2 of 2 round-5 runs; **whether the cause is 27-14's narrowing
+making the composed regexes cheap enough that the deadline stops firing incidentally, or ambient CPU
+load, is NOT established by three samples and is NOT claimed.** The floor has ONE branch of headroom
+either way, so it is partly met by a timing-dependent branch. **DELIBERATELY NOT FIXED by a records
+plan:** the honest options are a deterministic test for that branch, or lowering a QUAL-06 floor —
+and lowering a floor to turn a red gate green is the laundering this register exists to stop.
+**Owner: the maintainer.** **Entries (3) and (4) are on this list ONLY because plan 27-16's
+acceptance criteria required `./gradlew check` to be run at all, where the two waves before it gated
+on `ktlintCheck test`. A residual list whose contents depend on which gate a plan happened to run is
+this clause's own blindness, observed one level up — and it is recorded rather than smoothed,
+because the round that wrote clause (vii) does not get to be the exception to it.**
 
 *Residuals ROUND 5 INHERITED.* `AR-27-04` (MEDIUM, open, **still owed a HUMAN decision** and
 deliberately NOT relitigated by round 5); `AR-27-08` and `InjectionPointExtractor.kt:29` (owned by

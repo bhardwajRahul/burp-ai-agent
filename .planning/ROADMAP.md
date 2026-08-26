@@ -396,7 +396,7 @@ reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Depends on:** Phase 26
 **Gap closure (2026-08-24):** `27-VERIFICATION.md` scored 7/9 and failed the two truths the goal rests on. `Serialization.kt` embeds a RAW HTTP message in a JSON string, `toolJson.encodeToString` escapes every CRLF to a literal two-character sequence, and both cookie rules are line-anchored `(?im)^…$` — so the CANONICAL `Cookie:` and `Set-Cookie:` headers leak verbatim in STRICT and BALANCED through `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`, across 14 measured emission sites with no `sanitizeHeaders` in front. Strictly broader than the variant-spelling defect that created the phase. `AR-27-01` is reclassified from accepted residual to live finding. Plans 27-04 to 27-06 close it; the maintainer chose to fix rather than to scope PRIV-05 down.
 
-**Plans:** 15/16 plans executed
+**Plans:** 16/16 plans executed
 
 Plans:
 **Wave 1**
@@ -503,14 +503,41 @@ comment, no summary and no security record, and no test gated it — the one gat
 caught it uses a fixture whose cookie value is the LAST content of its string. This is the first
 defect in the series that fails SAFE for privacy and breaks CORRECTNESS instead. **(2) The mechanism
 written to make round 4's third claim durable is blind on an axis it does not enumerate.**
-`RedactingPolicySurvivalSweepTest.FUNCTION_DECLARATION` cannot see **136 of 1779 declaration lines,
-67 of them backtick-named `@Test` methods across 9 files** including one in the redaction package, so
+`RedactingPolicySurvivalSweepTest.FUNCTION_DECLARATION` cannot see **133 of 1781 declaration lines
+— 136 of 1784 on the paren-optional population `27-REVIEW-2` CR-01 counted — 67 of them backtick-named
+`@Test` methods across 9 files** including one in the redaction package, so
 "fails CI on the next such pin" is false for the more idiomatic Kotlin naming style — and
 `26-SECURITY.md` clause (vi) cites that enumeration as the check's stated bound, so the register
 itself carries a claim wider than its control, which is verbatim the failure clause (vi) exists to
 prevent. `27-REVIEW-2.md`'s three blockers were all independently confirmed by the verifier; CR-02
 (no positive gate on the `fileWalk` to `detect` composition) is folded in. Plans 27-14 to 27-16 close
 them. **Round 5 does NOT close PRIV-05, and every plan in it says so.**
+
+**What round 5 MEASURED (2026-08-26, recorded by plan 27-16 from `27-14-SUMMARY.md` and
+`27-15-SUMMARY.md`, every number re-read against the tree rather than carried forward from this
+note).** **(1) THE NARROWING.** `JSON_STRING_OPEN` went from `"\""` to `":\""` at `Redaction.kt:333`.
+On the 1714-character `proxy_http_history` payload: OUT length **125 → 1714**, characters destroyed
+**1589 → 0**, content markers **0 of 40 → 40 of 40**, byte-identical **false → true**. The pre-fix
+output still parsed as JSON with its sibling `notes` field byte-identical, which is why every existing
+shape assertion passed while 93% of the payload was gone. All five measured non-JSON false positives
+went byte-identical after the edit **except probe shape 5**, whose fixture carries the literal
+`Bearer ` and is claimed by the unrelated shipped `bearerRegex` independently of any boundary; plan
+27-14 added shape 5b (the same prose minus that token) as the clean proof and reported shape 5
+honestly rather than declaring it passed. Round 4's own target was NOT un-fixed: all three PROBE C
+cases produce `Cookie: [STRIPPED]` in both columns and both modes. **(2) THE DECLARATION GATE.** The
+six-shape survival pin went **1 of 6 → 6 of 6**; the pre-round historical corpus still reports
+**EXACTLY 3** hits under the same three identifiers; the current tree still reports **0** qualified
+over **151** files, and the unqualified arithmetic is unchanged BY the widening at 9 = 7 + 1 + 1 —
+so the widening bought scope without buying noise, and nothing was narrowed to keep the hit set
+empty. **(3) THE WALK COMPOSITION.** **1 / 2 / 0** hits across the shipped walk and its two
+neutralisations, and in the blank-everything run that test was the ONLY failing test in the class
+with the other 13 green — the silently-vacuous pass in full. All **151** files now walk without
+throwing, so **0** end inside a raw string. **One count in the note above was CORRECTED IN PLACE
+rather than left to stand beside its refutation:** it paired 136 invisible declarations with a
+population of 1779; plan 27-15 re-measured on the tree with 27-14 landed and found **133 of 1781** on
+the population that requires the opening parenthesis to follow the identifier and **136 of 1784** on
+the paren-optional population CR-01 counted, the 3-line difference being extension-receiver
+declarations. Both are recorded; see `.planning/WINDOWS.md`.
 
 **Wave 14** *(gap closure round 5 — blocked on Wave 13)*
 
@@ -522,7 +549,7 @@ them. **Round 5 does NOT close PRIV-05, and every plan in it says so.**
 
 **Wave 16** *(gap closure round 5 — blocked on Wave 15)*
 
-- [ ] 27-16-PLAN.md — Records, fifth time: T-26-02-01 clause (7), AR-27-11 defined from a measurement, recomputed `threats_open` with its population restated, and standing rule clause (vii) — a residual list must enumerate what the round INTRODUCED, not only what it inherited (wave 16)
+- [x] 27-16-PLAN.md — Records, fifth time: T-26-02-01 clause (7), AR-27-11 defined from a measurement, recomputed `threats_open` with its population restated, and standing rule clause (vii) — a residual list must enumerate what the round INTRODUCED, not only what it inherited (wave 16)
 
 **PHASE 27 COMPLETES WITH PRIV-05 NOT SATISFIED (2026-08-25, recorded by plan 27-09).** Stated here,
 in the phase record, rather than only in a SUMMARY. The goal line above is round-one text and is
@@ -590,6 +617,94 @@ so the paragraph is recorded as ANSWERED and is deliberately NOT deleted — a p
 a correction is worth more on the record than a silence where the correction used to be needed.
 `REQUIREMENTS.md` remains untouched by round 4 as it was by 27-03, 27-06 and 27-09 (0 added, 0
 removed), and PRIV-05 stays unticked because `AR-27-08` is open and owned by Phase 28.
+
+**AMENDED 2026-08-26 (plan 27-16) — APPENDED, NOT REWRITTEN, and SPLIT, because `26-SECURITY.md`
+standing-rule clause (vii) now requires a residual list to enumerate what the round INTRODUCED and
+not only what it INHERITED, with the two visibly separated. The paragraph above is round 4's list and
+stands unedited; this is round 5's, and the reason the split exists is that round 4's list — six
+entries, every one real and correctly owned — contained no residual round 4 itself created.**
+
+***Residuals ROUND 5 INTRODUCED.*** **(1) `AR-27-11`** — the JSON-ARRAY-ELEMENT logical-line start,
+created by plan 27-14's narrowing of `JSON_STRING_OPEN` to a colon-quote sequence. A header at the
+open of an array-element string is no longer a recognised start. **OPEN at LOW, MEASURED in both
+columns** (`{"tags":["Cookie: a=SECRET8"]}` was `Cookie: [STRIPPED]` under the bare quote and is
+byte-unchanged after), with its REACHABILITY measured this round rather than assumed:
+`mcp/schema/Serialization.kt` declares **zero** `List<String>` fields, multi-item results carry no
+JSON array wrapper, the five `List<String>` models under `McpToolModels.kt` are input-only, and
+exactly **one** carrier can emit an arbitrary array of strings through `Redaction.apply` — the D-03
+outbound-privacy redaction of model-authored `argsJson` in
+`McpToolExecutorImpl.routeExternalToolCall`, whose REMOTE schemas are not owned here and are
+**UNMEASURED** and labelled as such. Bounded `low` because a realistic raw HTTP message inside an
+array element is STILL stripped: its header follows an escaped newline, which IS a recognised start —
+measured, with two positive controls firing in the same run. **Owner: the maintainer**, item 12 of
+`27-HUMAN-UAT.md`. **(2) The sweep's AXIS 9** — a declaration whose opening parenthesis does not
+follow the identifier on its line, created by plan 27-15's widening of `FUNCTION_DECLARATION`, which
+also requires that parenthesis. **3** extension-receiver declarations measured live on this tree, one
+of them inside the sweep file itself, and **0** multi-line signatures — the plan anticipated the
+multi-line shape and the measurement found the other one, so the axis names BOTH shapes with BOTH
+counts. **Owner: the sweep's own KDoc**, inside the machine-checked `STATED_BLIND_AXES = 13`.
+**(3) A RED `detekt` GATE, merged unseen — FIXED by plan 27-16.** Plan 27-15's three new raw-string
+fixtures each tripped `MayBeConst`, so `./gradlew detekt` failed on the round-5 base. **Neither plan
+27-15's own verification command nor the wave-9 post-merge gate ran `detekt`** — both ran
+`ktlintCheck test` — so a red gate was merged and nobody saw it. Closed by making the three fixtures
+`const val`: no behaviour change and no growth of `detekt-baseline.xml` (QUAL-07). **(4) A RED
+`jacocoTestCoverageVerification` GATE — MEASURED, BISECTED and DELIBERATELY NOT FIXED.** The `redact`
+package's BRANCH ratio is **0.9278** against a **0.930** floor. Bisected against the trees rather
+than guessed: the pre-round-5 tree `c2d980f` **PASSES at 0.9330** (13 missed / 116 covered); the
+round-5 base `87c1102` and the final 27-16 tree both **FAIL at 0.9278** (14 / 115). **Exactly ONE
+branch flipped, and it is `if (remainingMs <= 0L)` at `Redaction.kt:1628`** — the WALL-CLOCK
+budget-exhaustion guard, the same `SafeRegex` 50 ms deadline path as the documented `RedactionTest`
+flake. Covered in 1 of 1 pre-round-5 runs, missed in 2 of 2 round-5 runs. **Whether the cause is
+27-14's narrowing making the composed regexes cheap enough that the deadline stops firing
+incidentally, or ambient CPU load, is NOT established by three samples and is NOT claimed here.**
+The load-bearing fact either way: **the floor has ONE branch of headroom, and that branch is
+timing-dependent** — a coverage gate partly met by a race. **NOT fixed by this plan, and the reason
+is the reason:** the honest options are a DETERMINISTIC test for the budget-exhaustion branch, or
+lowering a QUAL-06 floor to turn a red gate green. The second is exactly the laundering this phase
+exists to prohibit, and the first is a test-design task that a records plan has no business doing
+same-day — which is the closure pattern that has already failed four times here. **Owner: the
+maintainer**, and both gates are in `.planning/WINDOWS.md`. **These two are in this list ONLY because
+plan 27-16's acceptance criteria required `./gradlew check` to be run. Round 5 would otherwise have
+closed with two red gates in its own tree and a residual list that named neither — which is clause
+(vii)'s worked example happening again inside the round that wrote clause (vii).**
+
+***Residuals ROUND 5 INHERITED, each carried forward with its owner UNCHANGED.*** **`AR-27-04`** —
+`Host:` and `SiteMapEntry.url` un-anonymised under STRICT. OPEN at MEDIUM, **still owed a HUMAN
+decision** (its recorded disposition was auto-selected by `mode: yolo`), **deliberately NOT
+relitigated by round 5**. Owner: the maintainer, item 9. **`AR-27-08` and
+`InjectionPointExtractor.kt:29`** — owned by Phase 28, untouched by round 5. **`AR-27-09`** — the
+leading-whitespace / obs-folded fourth start, OPEN at LOW, one-token fix written down. Owner: the
+maintainer, item 10. **`AR-27-10`** — the thirteen RFC 9110 tchars, OPEN at LOW, partition measured
+and carry-over labelled inferred. Owner: the maintainer, item 11. **The `CONCERNS.md` vendor
+auth-header class** — OPEN BY PROHIBITION, unchanged. **The sweep's vocabulary bound** — still a
+TRIPWIRE OVER A MEASURED VOCABULARY AND NOT A PROOF OF COVERAGE, now stating **THIRTEEN** axes it
+cannot see, machine-checked against its own enumeration rather than the eleven the paragraph above
+transcribed by hand.
+
+***What round 5 CLOSED, of round 4's six.*** **The sweep's declaration-shape blindness is CLOSED** at
+the gate (1 of 6 → 6 of 6, with the historical corpus still reporting exactly 3 hits). **The
+bare-quote logical-line start is CLOSED** — and it was never on round 4's list at all, which is the
+defect clause (vii) now names. **The other four residuals and the vendor auth-header class are
+UNCHANGED and keep their owners.** A shrinking count is not progress unless the record says which
+entries moved and why, so it does.
+
+**THIS LIST — SEVEN INHERITED ENTRIES AND FOUR INTRODUCED ONES, OF WHICH THREE REMAIN OPEN — IS
+STILL NOT A COMPLETENESS CLAIM.** Naming what is known to be open says nothing about what is not yet
+known, and this phase has now been refuted FIVE times by exactly the thing no list contained — the
+fifth time by a residual the round itself manufactured. Two of the four INTRODUCED entries above were
+found only because one plan in this round happened to run a gate the other two did not, which is a
+statement about luck and not about method. No sentence in this record may be read as implying
+otherwise.
+
+**RE-CONFIRMED 2026-08-26 AFTER ROUND 5 (plan 27-16): THE "PHASE 27 COMPLETES WITH PRIV-05 NOT
+SATISFIED" PARAGRAPH ABOVE STILL HOLDS, UNCHANGED, FOR THE FIFTH ROUND.** Round 5 closed a
+correctness regression this phase itself shipped and a defect in its own security record. It closed
+no carrier and no requirement. `REQUIREMENTS.md` is untouched across the whole round-5 commit range
+(0 added, 0 removed) and `REQUIREMENTS.md:23` still reads `- [ ] **PRIV-05**`. `AR-27-08` — the one
+finding in this series carrying Burp-held proxied traffic and surviving STRICT — is untouched by
+plans 27-14 through 27-16 and is still owned by Phase 28, together with
+`InjectionPointExtractor.kt:29`. A round that repairs its own regression and leaves the parent
+requirement refuted must say so, and this is the fifth round in which it does.
 
 ### Phase 28: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`
 
