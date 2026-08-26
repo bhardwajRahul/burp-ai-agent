@@ -183,6 +183,17 @@ internal fun PassiveAiScanner.sanitizeHeadersForPrompt(
             // `auth`/`token` conjuncts stay hand-written on purpose: they are the open-ended vendor
             // class CONCERNS.md records as deliberately deferred, and folding them in here would
             // quietly extend this phase into a class the maintainer decided not to close.
+            //
+            // (PRIV-05) 27-10 — POLARITY, stated where the predicate is actually consumed. This is
+            // the ADMITTING site: returning true PUTS the header into the outbound prompt, which
+            // Redaction.apply then has to strip. At the other two sites the same predicate is a
+            // REDACTOR, where being wide is fail-safe. HERE being wide is fail-OPEN, because a name
+            // this branch claims and Redaction's two cookie regexes cannot match is emitted and never
+            // removed. So any name admitted here MUST also be a name Redaction.apply can strip:
+            // Redaction.COOKIE_NAME_PART is the constant that has to move with this predicate, and
+            // widening one without the other reopens the leak. That is not hypothetical — before plan
+            // 27-10, COOKIE_NAME_PART excluded '_' while this branch admitted my_cookie, X_Cookie and
+            // session_cookie, and all three were measured reaching an AI backend under STRICT.
             if (name.contains("auth") || name.contains("token") || Redaction.isCookieHeaderName(header.name())) {
                 return@filter true
             }
