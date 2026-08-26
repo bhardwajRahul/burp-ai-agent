@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 29
+open_count: 38
 waived_count: 0
 fixed_count: 0
-total_count: 29
-last_updated: 2026-08-25T10:56:41.567Z
+total_count: 38
+last_updated: 2026-08-26T11:34:49.404Z
 ---
 
 # Broken Windows Ledger
@@ -44,6 +44,15 @@ last_updated: 2026-08-25T10:56:41.567Z
 | 27 | 27 | deviation | .planning/ROADMAP.md |  | Plan 27-09 baseline R13 differed from the tree. The plan states the phase 27 plans counter was REPAIRED at plan time to '9 plans - 6 executed, 3 planned'. MEASURED at execution time: it reads '8/9 plans executed - 6 executed, 3 planned' - STILL two contradictory counters in one line, the leading figure having been advanced to 8/9 by the waves 7-8 merges while the trailing clause stayed at the plan-time value. There are 9 PLAN files on disk. Plan 27-09's criterion 6 requires exactly ONE counter matching that number, but the counter is an execution-tracking field the execute-phase orchestrator owns and overwrites after the executor returns, so the executor did not edit it. Recorded here so the contradiction is not lost between the two owners. | open |  | 2026-08-25T10:56:26.885Z |  |
 | 28 | 27 | deviation | .planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md |  | Plan 27-09 baseline R2 conflates BYTES with CHARACTERS. It records the T-26-02-01 row's 'character length' as 11400, which is what wc -c reports - a BYTE count. MEASURED character length of the same line: 11320, because the row contains multi-byte UTF-8 (em dashes, ellipses, curly quotes). 11320 is exactly the figure 27-06's own read-back recorded ('5,633 -> 11,320 chars'), so the two rounds agree once the units are named. The byte-prefix gate was run on characters and PASSED (cell body 11231 -> 18263 chars, 7032 appended). Recorded because a gate quoting a number in the wrong unit is one edit away from a false FAIL, and because 26-SECURITY.md is a file where every count is load-bearing. | open |  | 2026-08-25T10:56:36.329Z |  |
 | 29 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-09-PLAN.md |  | Plan 27-09 baseline R4 conflates APPEARANCE with DEFINITION. It records the AR-27- ids 'defined anywhere under .planning/' as AR-27-01..AR-27-05. MEASURED: grep for AR-27-[0-9]+ under .planning/ returns AR-27-01 through AR-27-08 BEFORE any edit by this plan - AR-27-06 already appeared at ROADMAP.md:444 and in 27-09-PLAN.md itself, and AR-27-08 throughout 27-08-SUMMARY.md. None of the three was DEFINED (26-SECURITY.md contained zero occurrences of AR-27-06). The baseline as literally worded was therefore already false when written. This is 26-SECURITY.md standing rule (i) - presence is not width - applied to the register's own identifiers, and it is why AR-27-05's row opens 'if any earlier draft cited this identifier, nothing stood behind it'. AR-27-06/07/08 are now defined with evidence sections. | open |  | 2026-08-25T10:56:41.567Z |  |
+| 30 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieHeaderNameParityTest.kt |  | Plan 27-10 plan-time claim about a file's contents refuted by the tree: the file-header 'WHICH GUARD COVERS WHICH MUTATION' block says a narrowing turns 'THIS test' red, which was unambiguous while the file held ONE behavioural test. MEASURED after task 1's rename plus task 2's additions: THREE tests in the file, and no way to tell which 'this test' meant — in the comment block whose whole job is telling a maintainer which guard covers which mutation. Resolved by naming the method in each bullet and adding a third bullet for the re-narrowing of COOKIE_NAME_PART, the one mutation the one-directional implication test structurally cannot see. | open |  | 2026-08-26T11:34:48.806Z |  |
+| 31 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieHeaderNameParityTest.kt |  | Plan 27-10 task 2 acceptance criterion requires the renamed underscore test to pass 'for all three underscore names', while the test as task 1 left it hardcoded val name = 'my_cookie'. MEASURED: 1 of the 3 names actually asserted on; X_Cookie and session_cookie would have been exercised only by the ONE-DIRECTIONAL invariant test, which a narrowing of COOKIE_NAME_PART cannot falsify — two corpus entries raising the floors and asserting nothing. Resolved by iterating PARITY_CORPUS.filter { contains('_') } under an exact-count guard EXPECTED_UNDERSCORE_NAMES = 3; measured corpus size 19 against floor 18, predicate positives 14 against floor 12. | open |  | 2026-08-26T11:34:48.883Z |  |
+| 32 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-11-PLAN.md |  | Plan 27-11 task 1 premise was too NARROW and was widened by task 3 rather than left: it wrote the AR-27-09 indented-header residual as MEASURED surviving under STRICT. MEASURED against the compiled classes at the end of round 4: GET / HTTP/1.1\\r\\n Cookie: a=SECRET5\\r\\n\\r\\n survives BYTE-UNCHANGED under STRICT *and* BALANCED — one mode WIDER than both the plan and 27-VERIFICATION-3.md recorded. The shipped source sentence was widened to match and plan 27-13 filed AR-27-09 at the measured two-mode width. Recorded because understating a residual is the same failure mode as overclaiming a fix, and this ledger already carries the opposite direction as entry 26. | open |  | 2026-08-26T11:34:48.952Z |  |
+| 33 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/SerializedEmissionRedactionTest.kt |  | Plan 27-11 task 2 premise not constructible on the carrier it named: the plan asks for a cookie header at the open of the notes value AND a sibling field after it, on HttpRequestResponse. MEASURED: HttpRequestResponse declares notes LAST, so there is no sibling field after it and the byte-identity over-match assertion would have had nothing to bite on. Resolved by moving one carrier deeper to IssueDetails, a real emission shape carrying the same notes followed by collaboratorInteractions and definition, where notes ends immediately after the cookie value so the tail's only terminator is the closing quote — the hardest form of the case. The plan's stated PROPERTY is met unchanged. | open |  | 2026-08-26T11:34:49.027Z |  |
+| 34 | 27 | deviation | .planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md |  | Line citations in T-26-02-01 rotted AGAIN, in the same class this ledger recorded as entry 24, and are now wrong in clauses (4) and (5) as well as (3). Clause (5) recorded isCookieHeaderName moving from Redaction.kt:158 to :293; MEASURED 2026-08-26 in plan 27-13 after the wave 10-11 merges it is at :391. Clause (4) cites the ADMITTING call site as PassiveAiScannerFilters.kt:186; MEASURED :197. Full measured set recorded in clause (6): COOKIE_NAME_PART :132, COOKIE_NAME_TOKEN :138, JSON_ESCAPED_NEWLINE :266, JSON_STRING_OPEN :277 (27-11-SUMMARY recorded :271 on its own pre-merge tree), logicalLineHeaderRule :312, cookieHeaderRegex :319, setCookieHeaderRegex :324, hostHeaderRegex :1992; McpToolHelpers.kt:336 has not moved. Clauses (3), (4) and (5) are preserved verbatim and clause (6) notes the rot instead of editing them. | open |  | 2026-08-26T11:34:49.099Z |  |
+| 35 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt |  | Plan 27-12 projection falsified: it states BENIGN_ACCESSORS accounts for 5 pre-existing hits. MEASURED on the 27-12 tree: 7 live functions. Cause identified rather than guessed — the two extra are plan 27-11's JSON-string-open probes aCanonicalCookieAtTheOpenOfAJsonStringDoesNotSurviveStrict and ...Balanced, which each carry their own assertTrue on Sentinel.BENIGN_CONTROL and which landed in 27-12's base between the plan being written and the plan executing. The measured 7 is what the KDoc records, with the projection and the reason for the gap beside it. NOTHING was narrowed to make them agree: no vocabulary entry narrowed, no ALLOWLIST key added, BENIGN_ACCESSORS still holds exactly ONE key. | open |  | 2026-08-26T11:34:49.175Z |  |
+| 36 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt |  | Plan 27-12 projection falsified, second figure with the same cause as the BENIGN_ACCESSORS entry: it states the unqualified vocabulary reports 7 hits on the post-fix tree. MEASURED: 9. The arithmetic closes on the measured numbers — 7 (BENIGN_ACCESSORS) + 1 (POSITION RULE) + 1 (NEGATION RULE) = 9 unqualified, and 9 minus 9 = 0 qualified, the measured hit set on the tree as shipped with an EMPTY ALLOWLIST. Filed separately from the BENIGN_ACCESSORS entry because it is a separately stated plan projection, and recorded so no later reader silently inherits the projected 7. Three other plan projections matched exactly: all four red-probe boundary values, the pre-round detector count of 3, and the post-fix qualified count of 0. | open |  | 2026-08-26T11:34:49.246Z |  |
+| 37 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt |  | Plan 27-12 threat T-27-12-09 predicted the self-scan failure MODE but not its CAUSE, and predicted the wrong number: it measured 2 self-hits on a mock. MEASURED on the real file: 5 self-hits, and noGreenTestAssertsASensitiveValueSurvivesARedactingPolicy failed with those same 5. Cause the plan's mechanism excluded — it assumed only fixture literals could toggle raw-string state, but dropRawStringInteriors toggled on EVERY line including comments, and the class KDoc quotes a bare triple quote while explaining the walk, an ODD toggle that inverted the skip for every line below it. A REAL bug, fixed by consulting isCommentOnly in the FILE WALK only. The KDoc triple quote was deliberately LEFT so the rule is not vacuous; measured after the fix: 0 self-hits with the skip, 5 without. | open |  | 2026-08-26T11:34:49.315Z |  |
+| 38 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-13-PLAN.md |  | GATE DEFECT, same family as entry 18 and applicable to any GSD plan reusing it. Plan 27-13 task 1 acceptance criterion 11 is 'git diff HEAD -- 26-SECURITY.md \| grep -c Reopening-2026-08-24 returns 0', intended to prove the 2026-08-24 reopening narrative is on no ADDED and no REMOVED line. Plain git diff emits three lines of CONTEXT, so any insertion within three lines of that heading prints it as a context line and the gate reads 1 while nothing was edited. OBSERVED 1. Both precise forms return 0: filtering to +/- lines returns 0, and git diff --unified=0 returns 0. Standing-rule clauses (v) and (vi) were anchored INSIDE the standing-rule section (after clause (iv)'s last line) rather than above the heading, which is also the structurally correct placement, and the residual 1 is a context line only. | open |  | 2026-08-26T11:34:49.404Z |  |
 
 ````json
 [
@@ -393,6 +402,114 @@ last_updated: 2026-08-25T10:56:41.567Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-25T10:56:41.567Z",
+    "resolved_at": null
+  },
+  {
+    "id": 30,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieHeaderNameParityTest.kt",
+    "line": null,
+    "description": "Plan 27-10 plan-time claim about a file's contents refuted by the tree: the file-header 'WHICH GUARD COVERS WHICH MUTATION' block says a narrowing turns 'THIS test' red, which was unambiguous while the file held ONE behavioural test. MEASURED after task 1's rename plus task 2's additions: THREE tests in the file, and no way to tell which 'this test' meant — in the comment block whose whole job is telling a maintainer which guard covers which mutation. Resolved by naming the method in each bullet and adding a third bullet for the re-narrowing of COOKIE_NAME_PART, the one mutation the one-directional implication test structurally cannot see.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:34:48.806Z",
+    "resolved_at": null
+  },
+  {
+    "id": 31,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieHeaderNameParityTest.kt",
+    "line": null,
+    "description": "Plan 27-10 task 2 acceptance criterion requires the renamed underscore test to pass 'for all three underscore names', while the test as task 1 left it hardcoded val name = 'my_cookie'. MEASURED: 1 of the 3 names actually asserted on; X_Cookie and session_cookie would have been exercised only by the ONE-DIRECTIONAL invariant test, which a narrowing of COOKIE_NAME_PART cannot falsify — two corpus entries raising the floors and asserting nothing. Resolved by iterating PARITY_CORPUS.filter { contains('_') } under an exact-count guard EXPECTED_UNDERSCORE_NAMES = 3; measured corpus size 19 against floor 18, predicate positives 14 against floor 12.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:34:48.883Z",
+    "resolved_at": null
+  },
+  {
+    "id": 32,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-11-PLAN.md",
+    "line": null,
+    "description": "Plan 27-11 task 1 premise was too NARROW and was widened by task 3 rather than left: it wrote the AR-27-09 indented-header residual as MEASURED surviving under STRICT. MEASURED against the compiled classes at the end of round 4: GET / HTTP/1.1\\r\\n Cookie: a=SECRET5\\r\\n\\r\\n survives BYTE-UNCHANGED under STRICT *and* BALANCED — one mode WIDER than both the plan and 27-VERIFICATION-3.md recorded. The shipped source sentence was widened to match and plan 27-13 filed AR-27-09 at the measured two-mode width. Recorded because understating a residual is the same failure mode as overclaiming a fix, and this ledger already carries the opposite direction as entry 26.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:34:48.952Z",
+    "resolved_at": null
+  },
+  {
+    "id": 33,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/SerializedEmissionRedactionTest.kt",
+    "line": null,
+    "description": "Plan 27-11 task 2 premise not constructible on the carrier it named: the plan asks for a cookie header at the open of the notes value AND a sibling field after it, on HttpRequestResponse. MEASURED: HttpRequestResponse declares notes LAST, so there is no sibling field after it and the byte-identity over-match assertion would have had nothing to bite on. Resolved by moving one carrier deeper to IssueDetails, a real emission shape carrying the same notes followed by collaboratorInteractions and definition, where notes ends immediately after the cookie value so the tail's only terminator is the closing quote — the hardest form of the case. The plan's stated PROPERTY is met unchanged.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:34:49.027Z",
+    "resolved_at": null
+  },
+  {
+    "id": 34,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md",
+    "line": null,
+    "description": "Line citations in T-26-02-01 rotted AGAIN, in the same class this ledger recorded as entry 24, and are now wrong in clauses (4) and (5) as well as (3). Clause (5) recorded isCookieHeaderName moving from Redaction.kt:158 to :293; MEASURED 2026-08-26 in plan 27-13 after the wave 10-11 merges it is at :391. Clause (4) cites the ADMITTING call site as PassiveAiScannerFilters.kt:186; MEASURED :197. Full measured set recorded in clause (6): COOKIE_NAME_PART :132, COOKIE_NAME_TOKEN :138, JSON_ESCAPED_NEWLINE :266, JSON_STRING_OPEN :277 (27-11-SUMMARY recorded :271 on its own pre-merge tree), logicalLineHeaderRule :312, cookieHeaderRegex :319, setCookieHeaderRegex :324, hostHeaderRegex :1992; McpToolHelpers.kt:336 has not moved. Clauses (3), (4) and (5) are preserved verbatim and clause (6) notes the rot instead of editing them.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:34:49.099Z",
+    "resolved_at": null
+  },
+  {
+    "id": 35,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt",
+    "line": null,
+    "description": "Plan 27-12 projection falsified: it states BENIGN_ACCESSORS accounts for 5 pre-existing hits. MEASURED on the 27-12 tree: 7 live functions. Cause identified rather than guessed — the two extra are plan 27-11's JSON-string-open probes aCanonicalCookieAtTheOpenOfAJsonStringDoesNotSurviveStrict and ...Balanced, which each carry their own assertTrue on Sentinel.BENIGN_CONTROL and which landed in 27-12's base between the plan being written and the plan executing. The measured 7 is what the KDoc records, with the projection and the reason for the gap beside it. NOTHING was narrowed to make them agree: no vocabulary entry narrowed, no ALLOWLIST key added, BENIGN_ACCESSORS still holds exactly ONE key.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:34:49.175Z",
+    "resolved_at": null
+  },
+  {
+    "id": 36,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt",
+    "line": null,
+    "description": "Plan 27-12 projection falsified, second figure with the same cause as the BENIGN_ACCESSORS entry: it states the unqualified vocabulary reports 7 hits on the post-fix tree. MEASURED: 9. The arithmetic closes on the measured numbers — 7 (BENIGN_ACCESSORS) + 1 (POSITION RULE) + 1 (NEGATION RULE) = 9 unqualified, and 9 minus 9 = 0 qualified, the measured hit set on the tree as shipped with an EMPTY ALLOWLIST. Filed separately from the BENIGN_ACCESSORS entry because it is a separately stated plan projection, and recorded so no later reader silently inherits the projected 7. Three other plan projections matched exactly: all four red-probe boundary values, the pre-round detector count of 3, and the post-fix qualified count of 0.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:34:49.246Z",
+    "resolved_at": null
+  },
+  {
+    "id": 37,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt",
+    "line": null,
+    "description": "Plan 27-12 threat T-27-12-09 predicted the self-scan failure MODE but not its CAUSE, and predicted the wrong number: it measured 2 self-hits on a mock. MEASURED on the real file: 5 self-hits, and noGreenTestAssertsASensitiveValueSurvivesARedactingPolicy failed with those same 5. Cause the plan's mechanism excluded — it assumed only fixture literals could toggle raw-string state, but dropRawStringInteriors toggled on EVERY line including comments, and the class KDoc quotes a bare triple quote while explaining the walk, an ODD toggle that inverted the skip for every line below it. A REAL bug, fixed by consulting isCommentOnly in the FILE WALK only. The KDoc triple quote was deliberately LEFT so the rule is not vacuous; measured after the fix: 0 self-hits with the skip, 5 without.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:34:49.315Z",
+    "resolved_at": null
+  },
+  {
+    "id": 38,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-13-PLAN.md",
+    "line": null,
+    "description": "GATE DEFECT, same family as entry 18 and applicable to any GSD plan reusing it. Plan 27-13 task 1 acceptance criterion 11 is 'git diff HEAD -- 26-SECURITY.md | grep -c Reopening-2026-08-24 returns 0', intended to prove the 2026-08-24 reopening narrative is on no ADDED and no REMOVED line. Plain git diff emits three lines of CONTEXT, so any insertion within three lines of that heading prints it as a context line and the gate reads 1 while nothing was edited. OBSERVED 1. Both precise forms return 0: filtering to +/- lines returns 0, and git diff --unified=0 returns 0. Standing-rule clauses (v) and (vi) were anchored INSIDE the standing-rule section (after clause (iv)'s last line) rather than above the heading, which is also the structurally correct placement, and the residual 1 is a context line only.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:34:49.404Z",
     "resolved_at": null
   }
 ]
