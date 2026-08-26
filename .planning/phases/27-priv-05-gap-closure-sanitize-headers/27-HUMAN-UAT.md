@@ -8,8 +8,8 @@ updated: 2026-08-26
 
 ## Current Test
 
-number: 6
-name: Live confirmation of the AR-27-08 issue-detail route, with its exact scan preconditions
+number: 8
+name: DISPOSITION — AR-27-07, widen SENSITIVE_WORDS or keep the residual
 awaiting: user response
 
 ## Tests
@@ -205,7 +205,12 @@ control are decisive about the REDACTION behaviour on the serialized shape. What
 repository establishes is that the three preconditions compose in a live Burp to put a COOKIE-typed
 value on that line — which is exactly the difference between a latent finding and a live one, and
 this phase has twice recorded a finding at the wrong severity for want of that distinction.
-result: [pending]
+result: pass
+note: CONFIRMED LIVE 2026-08-26. `pass` on this inverted item means the finding
+  REPRODUCED in a live Burp: all three preconditions composed, a COOKIE-typed value
+  reached the `detail` field while the sibling `requestResponses[0].request` showed
+  `Cookie: [STRIPPED]`. `AR-27-08` is therefore a LIVE chain, not a latent one —
+  which RAISES the stakes for Phase 28 rather than lowering them.
 
 ### 7. NEW, a DISPOSITION rather than a test — accept `AR-27-08` at medium, or escalate it
 expected: A recorded human decision. Plan 27-09 filed `AR-27-08` in `26-SECURITY.md` at the
@@ -221,7 +226,21 @@ path should carry an interim warning.
 
 why_human: A risk/scope decision on a shipped release. Recorded here rather than raised as a
 checkpoint for the reason at the head of this section.
-result: [pending]
+result: pass
+decision: ACCEPT AT MEDIUM — Phase 28 owns the fix, on the filed timeline.
+decided: 2026-08-26, by the maintainer, in response to an explicit either/or during UAT
+  (accept as filed / accept plus an interim active-scanner warning / escalate and pull
+  Phase 28 forward). The maintainer chose to accept as filed.
+provenance: This decision was taken AFTER item 6 confirmed the chain composes in a LIVE
+  Burp — so it accepts a CONFIRMED-live finding, not a latent one. The mitigating fact it
+  rests on is therefore 'three preconditions an operator can enable', not 'the chain may
+  not compose'. Recorded at that width deliberately: this phase has twice filed a finding
+  at the wrong severity for want of exactly that distinction.
+carries_forward: `AR-27-08` stays OPEN at medium; `scanner/InjectionPointExtractor.kt:29`
+  (the unconverted cookie-type predicate that feeds it) stays owned by Phase 28. No
+  interim warning was added to the active-scanner path — the option was offered and not
+  taken, so an operator enabling opt-in scanning is still NOT told that confirmed-finding
+  details bypass STRICT redaction.
 
 ### 8. NEW, a DISPOSITION rather than a test — `AR-27-07`, widen `SENSITIVE_WORDS` or keep the residual
 expected: A recorded human decision. **MEASURED** (`27-08-SUMMARY.md`, measurement 1, with a firing
@@ -765,8 +784,8 @@ result: [pending]
 ## Summary
 
 total: 14
-passed: 5
+passed: 7
 issues: 0
-pending: 9
+pending: 7
 skipped: 0
 blocked: 0
