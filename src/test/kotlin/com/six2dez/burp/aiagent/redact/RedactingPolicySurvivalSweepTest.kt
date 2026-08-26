@@ -462,6 +462,15 @@ class RedactingPolicySurvivalSweepTest {
                 }
                 if (startedInside) "" else line
             }
+        if (inside) {
+            throw AssertionError(
+                "unbalanced triple quotes in $sourceId: this source ENDS INSIDE a raw string, so " +
+                    "everything below the unbalanced quote was BLANKED by this walk. Any survival " +
+                    "pin in that tail was invisible, and this file's contribution to the tree scan " +
+                    "was a vacuous zero that no hit count could have revealed. Fix the FILE — " +
+                    "balance the quote — not this check, and do not exclude the file from the walk.",
+            )
+        }
         return walked
     }
 
@@ -683,11 +692,12 @@ class RedactingPolicySurvivalSweepTest {
         const val MIN_EXPECTED_TEST_FILES = 100
 
         // Without the raw-string skip this file flags itself once per survival pin its positive
-        // fixtures carry. MEASURED at execution time on this file after plan 27-15: 11 unskipped,
+        // fixtures carry. MEASURED at execution time on this file after plan 27-15: 14 unskipped,
         // 0 skipped. Plan 27-12 measured 5 here and wrote 5 down; the number is restated at what it
-        // now IS rather than left to go quietly stale — the four vocabulary fixtures still carry
-        // five pins between them (the host-pin fixture carries two), and DECLARATION_SHAPE_FIXTURE
-        // adds SIX more, one per declaration shape. 5 + 6 = 11, which is the whole of the movement.
+        // now IS rather than left to go quietly stale. The whole of the movement, itemised: the four
+        // vocabulary fixtures still carry five pins between them (the host-pin fixture carries two);
+        // DECLARATION_SHAPE_FIXTURE adds SIX, one per declaration shape; WALK_COMPOSITION_FIXTURE
+        // adds TWO, one per half; UNBALANCED_WALK_FIXTURE adds ONE. 5 + 6 + 2 + 1 = 14.
         // The floor stays well below the measurement for the same reason the file floor is 100: it
         // is here to catch a skip that has silently disarmed the detector, not to track a count.
         const val MIN_EXPECTED_UNSKIPPED_SELF_HITS = 2
