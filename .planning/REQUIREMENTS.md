@@ -20,7 +20,7 @@ Scope = the 17 findings of the 2026-08-05 deep code review of v0.9.2. Two of the
 
 ### Privacy & Redaction (PRIV) — core value
 
-- [x] **PRIV-05** (Finding 2, **high**): Cookie values do not reach an AI backend in STRICT or BALANCED mode by any path. Specifically, the passive scanner's `=== COOKIES ===` section — which today re-emits cookies as bare `name=value`, stripped of the `Cookie:` prefix that `cookieHeaderRegex` keys on — is redacted. Sensitive-key matching recognises real-world names (`JSESSIONID`, `PHPSESSID`, `connect.sid`, `auth_token`, `csrftoken`, `remember_me`) rather than only exact matches against the `SENSITIVE_KEYS` alternation. Covered by a test that asserts each of those names is redacted in both modes.
+- [ ] **PRIV-05** (Finding 2, **high**): Cookie values do not reach an AI backend in STRICT or BALANCED mode by any path. Specifically, the passive scanner's `=== COOKIES ===` section — which today re-emits cookies as bare `name=value`, stripped of the `Cookie:` prefix that `cookieHeaderRegex` keys on — is redacted. Sensitive-key matching recognises real-world names (`JSESSIONID`, `PHPSESSID`, `connect.sid`, `auth_token`, `csrftoken`, `remember_me`) rather than only exact matches against the `SENSITIVE_KEYS` alternation. Covered by a test that asserts each of those names is redacted in both modes.
 - [x] **PRIV-06** (Finding 5): Redaction never fails open. A payload above `MAX_REDACTION_BODY_CHARS` is truncated-and-redacted or refused — it is not passed through with body-level rules silently skipped. The behaviour when a user's custom patterns meet `PrivacyMode.OFF` is an explicit, documented decision rather than an emergent consequence of the `redactTokens` branch.
 
 ### Reliability & Concurrency (REL)
