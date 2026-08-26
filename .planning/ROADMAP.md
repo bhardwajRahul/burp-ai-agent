@@ -396,7 +396,7 @@ reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Depends on:** Phase 26
 **Gap closure (2026-08-24):** `27-VERIFICATION.md` scored 7/9 and failed the two truths the goal rests on. `Serialization.kt` embeds a RAW HTTP message in a JSON string, `toolJson.encodeToString` escapes every CRLF to a literal two-character sequence, and both cookie rules are line-anchored `(?im)^…$` — so the CANONICAL `Cookie:` and `Set-Cookie:` headers leak verbatim in STRICT and BALANCED through `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`, across 14 measured emission sites with no `sanitizeHeaders` in front. Strictly broader than the variant-spelling defect that created the phase. `AR-27-01` is reclassified from accepted residual to live finding. Plans 27-04 to 27-06 close it; the maintainer chose to fix rather than to scope PRIV-05 down.
 
-**Plans:** 13/13 plans executed
+**Plans:** 13/16 plans executed
 
 Plans:
 **Wave 1**
@@ -486,6 +486,43 @@ Plans 27-10 to 27-13 close them and repair the records.
 **Wave 13** *(gap closure round 4 — blocked on Wave 12)*
 
 - [x] 27-13-PLAN.md — Records, fourth time: T-26-02-01 clause (6), AR-27-09 and AR-27-10 defined from measurements, recomputed `threats_open` with its population restated, standing rule clauses (v) consumer polarity and (vi) green tests as evidence (wave 13)
+
+**Gap closure round 5 (2026-08-26):** `27-VERIFICATION-4.md` scored **29/33 must-haves** and failed
+four. **Round 4 closed all four things it targeted** — the underscore name class at the control, the
+two prohibited STRICT host pins, the "no green survival pin" claim as a re-swept fact, and the
+JSON-string-open carrier — and the verifier could falsify none of those closures. **What failed is two
+defects wearing four costumes, and both are the same shape: a stated scope wider than the thing that
+enforces it.** **(1) A NEW regression round 4 SHIPPED, not an inherited one.** `JSON_STRING_OPEN` is a
+BARE DOUBLE QUOTE composed as a lookbehind, so all three composer-built rules — `authHeaderRegex`
+included — now treat EVERY double quote as a logical-line start. On the primary serialized MCP
+emission path an escaped quote is consumed atomically by the value tail, so the tail runs to the JSON
+string's real closing quote: **1589 of 1714 characters destroyed on a realistic `proxy_http_history`
+payload, all 40 content markers gone, and the JSON left structurally valid** so every existing shape
+assertion passed. The same input produced NO MATCH in the round-3 state. It appeared in no source
+comment, no summary and no security record, and no test gated it — the one gate that could have
+caught it uses a fixture whose cookie value is the LAST content of its string. This is the first
+defect in the series that fails SAFE for privacy and breaks CORRECTNESS instead. **(2) The mechanism
+written to make round 4's third claim durable is blind on an axis it does not enumerate.**
+`RedactingPolicySurvivalSweepTest.FUNCTION_DECLARATION` cannot see **136 of 1779 declaration lines,
+67 of them backtick-named `@Test` methods across 9 files** including one in the redaction package, so
+"fails CI on the next such pin" is false for the more idiomatic Kotlin naming style — and
+`26-SECURITY.md` clause (vi) cites that enumeration as the check's stated bound, so the register
+itself carries a claim wider than its control, which is verbatim the failure clause (vi) exists to
+prevent. `27-REVIEW-2.md`'s three blockers were all independently confirmed by the verifier; CR-02
+(no positive gate on the `fileWalk` to `detect` composition) is folded in. Plans 27-14 to 27-16 close
+them. **Round 5 does NOT close PRIV-05, and every plan in it says so.**
+
+**Wave 14** *(gap closure round 5 — blocked on Wave 13)*
+
+- [ ] 27-14-PLAN.md — The content-destruction regression: narrow the third logical-line start to a JSON string VALUE open, state the cost of the start round 4 added where a reader meets the rule, repair the gate whose fixture could not observe it, and name the array-element residual it buys (wave 14)
+
+**Wave 15** *(gap closure round 5 — blocked on Wave 14)*
+
+- [ ] 27-15-PLAN.md — The sweep's declaration-shape blindness: widen the gate to both name spellings and any modifier prefix, bind the walk to the detector in the flagging direction, make the unbalanced-file blindness loud, and restate the bound in the register in the same change (wave 15)
+
+**Wave 16** *(gap closure round 5 — blocked on Wave 15)*
+
+- [ ] 27-16-PLAN.md — Records, fifth time: T-26-02-01 clause (7), AR-27-11 defined from a measurement, recomputed `threats_open` with its population restated, and standing rule clause (vii) — a residual list must enumerate what the round INTRODUCED, not only what it inherited (wave 16)
 
 **PHASE 27 COMPLETES WITH PRIV-05 NOT SATISFIED (2026-08-25, recorded by plan 27-09).** Stated here,
 in the phase record, rather than only in a SUMMARY. The goal line above is round-one text and is
