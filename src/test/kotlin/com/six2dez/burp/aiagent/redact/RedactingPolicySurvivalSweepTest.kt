@@ -39,9 +39,12 @@ import java.io.File
  * vocabulary of [SENSITIVE_VALUE_VOCABULARY], appearing inside a test function whose body names one
  * of [REDACTING_POLICY_MARKERS].
  *
- * WHAT THE SCAN CANNOT SEE. Eleven axes, named because a tripwire quoted wider than the vocabulary
- * it scans reproduces, one iteration smaller, the register-wider-than-control defect this whole
- * phase exists to repair.
+ * WHAT THE SCAN CANNOT SEE. THIRTEEN axes — the value of [STATED_BLIND_AXES] — named because a
+ * tripwire quoted wider than the vocabulary it scans reproduces, one iteration smaller, the
+ * register-wider-than-control defect this whole phase exists to repair. That count is
+ * MACHINE-CHECKED against this very enumeration by
+ * [theStatedBlindAxisCountMatchesTheEnumeration]: it can go stale only if a test goes red first,
+ * which is the property the previous eleven-axis claim did not have when it went stale.
  *
  *  1. A survival pinned with `assertEquals` rather than `assertTrue`.
  *  2. A survival pinned with the `in` operator instead of `.contains(`.
@@ -55,11 +58,29 @@ import java.io.File
  *     The ISOLATION UNIT IS A WHOLE `fun` BODY, BLANK LINES INCLUDED, from the declaration line to
  *     the first non-blank line at or above its indent (in Kotlin, the closing brace). Function-scoped
  *     isolation is the chosen bound and this is what it costs.
+ *  9. A survival pin on a declaration line whose OPENING PARENTHESIS does not follow the identifier
+ *     on that same line. [FUNCTION_DECLARATION] requires it there, and [detect] returns early on a
+ *     non-matching declaration line, so such a body is invisible ENTIRELY. Two shapes, both MEASURED
+ *     on this tree after plan 27-15's widening: an EXTENSION RECEIVER (`private fun
+ *     String.indentWidth()`) — 3 declarations, one of them in THIS file — and a MULTI-LINE SIGNATURE
+ *     whose parenthesis sits on the next line, 0 today. This axis is the PRICE OF THAT WIDENING and
+ *     it is named in the same change that created it, which is the discipline round 4 failed.
+ * 10. A survival pin combined with a NEGATED containment inside ONE compound `assertTrue`.
+ *     [assertsPresenceAt] computes negation from the `assertTrue(` opener to the containment under
+ *     test, so where the FIRST operand is negated every later containment in the same assertion
+ *     inherits that negation. `assertTrue(!a.contains(x) && b.contains(sentinel))` is therefore
+ *     invisible. Unlike axes 11-13 this is an OVER-FIRE of a rule rather than the price of one.
+ *     THE FIX, WRITTEN DOWN SO THE NEXT ENGINEER MEETS IT RATHER THAN RE-DERIVING IT: scope the
+ *     negation test to the operand IMMEDIATELY PRECEDING the call, bounded by the nearest `&&`,
+ *     `||` or comma, instead of to the whole span back to the opener. DELIBERATELY NOT APPLIED in
+ *     round 5: the negation rule is load-bearing for 1 measured live hit and changing it without its
+ *     own flip-pair fixture is how a detector gets quietly disarmed — the failure mode
+ *     [theBenignExclusionCannotSwallowARealSentinel] exists to prevent for the other exclusion.
  *
  * The remaining three are the price of the three exclusions built into the detector. Each is stated
  * as a COST, not as a feature:
  *
- *  9. A survival pin whose text lives INSIDE a triple-quoted raw string. The FILE WALK skips those
+ * 11. A survival pin whose text lives INSIDE a triple-quoted raw string. The FILE WALK skips those
  *     lines. That skip is not tidiness and it is not a self-file exclusion: EVERY fixture in this
  *     file is a verbatim copy of a real test function and therefore CARRIES ITS OWN `fun`
  *     DECLARATION LINE — that line is exactly what the isolation needs in order to isolate the
@@ -68,23 +89,37 @@ import java.io.File
  *     this; a line-based walk reads CONTENTS, not declarations. Without the skip this file flags
  *     ITSELF. The skip applies to every file the walk touches, and it is asserted non-vacuous in
  *     both directions by [theSweepFileItselfYieldsNoHits] and
- *     [theRawStringSkipIsWhyTheSelfScanIsClean].
- * 10. A survival pin positioned textually ABOVE the line that first names the policy. The POSITION
+ *     [theRawStringSkipIsWhyTheSelfScanIsClean] — and, since plan 27-15, in the FLAGGING direction
+ *     too by [theWalkPreservesRealCodeWhileSkippingRawStringInteriors], which is the one that
+ *     catches the skip growing to swallow real code.
+ * 12. A survival pin positioned textually ABOVE the line that first names the policy. The POSITION
  *     RULE reads those as PRE-REDACTION FIXTURE GUARDS, because nothing has been redacted yet at
  *     that point in the body.
- * 11. A genuinely sensitive value reached through the one accessor named in [BENIGN_ACCESSORS].
+ * 13. A genuinely sensitive value reached through the one accessor named in [BENIGN_ACCESSORS].
  *
- * THE THREE EXCLUSIONS ARE CONSTRUCTED INTO THE DETECTOR, NEVER INTO [ALLOWLIST]. MEASURED at
- * execution time by running this detector over `src/test/kotlin` as shipped: the vocabulary WITHOUT
- * the three exclusions reports 9 hits, every one of them a LEGITIMATE shape — 7 benign-control
- * assertions, 1 pre-redaction fixture guard, 1 negated containment. WITH the three exclusions it
- * reports 0. Run against the PRE-ROUND contents of the two files that carried the pins, WITH the
- * exclusions, it reports EXACTLY 3, and those 3 ARE the two host pins and the underscore pin.
+ * THE THREE EXCLUSIONS ARE CONSTRUCTED INTO THE DETECTOR, NEVER INTO [ALLOWLIST]. RE-MEASURED at
+ * execution time in plan 27-15, running this detector — as WIDENED by that plan — over the 151 `.kt`
+ * files of `src/test/kotlin`: the vocabulary WITHOUT the three exclusions reports 9 hits, every one
+ * of them a LEGITIMATE shape — 7 benign-control assertions, 1 pre-redaction fixture guard, 1 negated
+ * containment. WITH the three exclusions it reports 0. Run against the PRE-ROUND contents of the two
+ * files that carried the pins, WITH the exclusions, it reports EXACTLY 3, and those 3 ARE the two
+ * host pins and the underscore pin, under those same three identifiers.
+ *
+ * 9 / 7 / 1 / 1 / 0 / 3 are the numbers BEFORE the widening as well as after it. That equality is
+ * the load-bearing part of the measurement, not a footnote: widening the declaration gate to 133
+ * more declaration lines surfaced NOTHING new, so the widening bought scope without buying noise,
+ * and nothing was narrowed to keep the hit set empty. Separately measured and stated because it is
+ * easy to misread the 9: the raw occurrence count over the same population is 36, of which 27 are
+ * `assertFalse` containments that are not candidates under ANY reading — the `assertTrue`
+ * requirement is not one of the three exclusions, and counting them into the 9 would inflate the
+ * exclusions' apparent cost by a factor of four.
  *
  * The 7 is stated as MEASURED HERE and not as inherited: plan 27-12 projected 5, which was the count
  * before plan 27-11 added two more JSON-string-open probes that each carry a benign-control
- * assertion. The number is written down at what it actually is, because a stated bound wider or
- * narrower than the control it describes is the exact defect this phase exists to repair.
+ * assertion. Re-measured again after plan 27-14, which added tests but no eighth benign-control
+ * function: still 7, in 7 distinct live functions, all in `SerializedEmissionRedactionTest`. The
+ * number is written down at what it actually is, because a stated bound wider or narrower than the
+ * control it describes is the exact defect this phase exists to repair.
  *
  * Growing [ALLOWLIST] instead, or narrowing the vocabulary, is forbidden: both make an inconvenient
  * hit set empty without making the repository any safer.
@@ -384,6 +419,37 @@ class RedactingPolicySurvivalSweepTest {
         )
     }
 
+    // ── the stated bound, read back out of this file's own source ─────────────────────────
+
+    @Test
+    fun theStatedBlindAxisCountMatchesTheEnumeration() {
+        val source = sourceFile(SELF_PATH).readLines()
+        val kdocOpensAt = source.indexOfFirst { it.trimStart().startsWith("/**") }
+        val classAt = source.indexOfFirst { it.startsWith("class $SELF_CLASS") }
+
+        assertTrue(
+            kdocOpensAt in 0 until classAt,
+            "could not isolate the class KDoc region: opens at $kdocOpensAt, class declared at " +
+                "$classAt. The region bound is what makes this test read the ENUMERATION rather " +
+                "than every numbered list in the file.",
+        )
+
+        val enumerated = source.subList(kdocOpensAt, classAt).count { AXIS_ENTRY.containsMatchIn(it) }
+
+        assertEquals(
+            STATED_BLIND_AXES,
+            enumerated,
+            "the class KDoc states its bound as $STATED_BLIND_AXES blind axes and enumerates " +
+                "$enumerated. A stated bound that does not match the enumeration it describes is " +
+                "the EXACT defect this phase exists to repair, committed four times: the sweep's " +
+                "own eleven-axis claim went stale while `26-SECURITY.md` clause (vi) cited it as " +
+                "this check's stated bound, and nothing was red. This test is why that can no " +
+                "longer happen silently — the number in the register can go stale only if this " +
+                "goes red first. Fix whichever of the two is wrong; do NOT adjust the constant to " +
+                "match a miscounted enumeration.",
+        )
+    }
+
     // ── non-vacuity of the walk itself ────────────────────────────────────────────────────
 
     @Test
@@ -416,7 +482,7 @@ class RedactingPolicySurvivalSweepTest {
      * the literal's contents and its closing line do not.
      *
      * This is the one narrowing that makes the self-scan clean, and it is declared in the class KDoc
-     * as blind axis 9 rather than sold as a feature.
+     * as blind axis 11 rather than sold as a feature.
      */
     private fun fileWalk(file: File): List<String> = dropRawStringInteriors(relativePath(file), file.readLines())
 
@@ -685,6 +751,10 @@ class RedactingPolicySurvivalSweepTest {
     private companion object {
         const val TEST_SOURCE_ROOT = "src/test/kotlin"
         const val SELF_PATH = "com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt"
+        const val SELF_CLASS = "RedactingPolicySurvivalSweepTest"
+
+        /** A numbered entry in the class KDoc's blind-axis enumeration; continuation lines do not match. */
+        val AXIS_ENTRY = Regex("^\\s*\\*\\s+\\d+\\.\\s")
 
         // Measured at execution time: 151 .kt files under src/test/kotlin, this file included. The
         // floor is deliberately well below that — it is here to catch a walk that reaches nothing,
@@ -703,6 +773,19 @@ class RedactingPolicySurvivalSweepTest {
         const val MIN_EXPECTED_UNSKIPPED_SELF_HITS = 2
 
         const val EXPECTED_NEGATIVE_FIXTURES = 6
+
+        /**
+         * The number of numbered axis entries in this class's own KDoc, MACHINE-CHECKED against that
+         * enumeration by [theStatedBlindAxisCountMatchesTheEnumeration] rather than transcribed.
+         *
+         * This constant exists because the previous count did not have this property. Plan 27-12
+         * wrote "Eleven axes" into the KDoc, `26-SECURITY.md` standing-rule clause (vi) cited that
+         * eleven as the check's STATED BOUND, and the enumeration was already missing a live axis at
+         * the moment both were written. Nothing went red, because nothing was checking. A number
+         * transcribed by hand into two documents can only be kept honest by a third thing that reads
+         * the source — so this is that thing, and the register now cites a number a test enforces.
+         */
+        const val STATED_BLIND_AXES = 13
 
         // One hit per declaration shape in DECLARATION_SHAPE_FIXTURE. MEASURED against the SHIPPED
         // detector before this round's widening: 1 of 6 — only the plain-named control was seen.
