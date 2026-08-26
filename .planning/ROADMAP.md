@@ -607,6 +607,8 @@ assertion. **SIX NAMED RESIDUALS IS NOT A COMPLETENESS CLAIM.** Naming what is k
 nothing whatever about what is not yet known, and this phase has now been refuted four times by
 exactly the thing no list contained. No sentence in this record may be read as implying otherwise.
 
+***[SUPERSEDED 2026-08-26 by plan 27-17 — `AR-27-09` is CLOSED BY FIX, not open at LOW.]*** The paragraph above is preserved byte-for-byte as the record made while the finding was open; none of it is withdrawn. The LOW it carries rested on an explicitly UNMEASURED reachability claim, and the maintainer therefore decided the finding by FIX rather than by acceptance at UAT (`27-HUMAN-UAT.md` item 10, commit `ae3371a`). `Redaction.logicalLineHeaderRule`'s REAL-LINE branch now starts at `REAL_LINE_START = "^[ \t]*+"` instead of a bare `^`, so an indented header line and an obs-folded continuation line are recognised in STRICT and BALANCED across all three composed rules — measured before/after in the **"AR-27-09 — CLOSED BY FIX 2026-08-26"** section of `26-SECURITY.md`, gated by `IndentedLogicalLineStartTest` and by `LogicalLineBoundaryScopeTest.theRealLineStartRecognisesLeadingHorizontalWhitespace`, and mutation-proven in both directions. **This does NOT close PRIV-05**, which stays `[ ]`, and it leaves `AR-27-10` and `AR-27-11` open. `AR-27-09` is an `AR-` row, so it was always outside the `threats_open` population — the counter was recomputed and is unchanged at `0`.
+
 **The `- [x] **PRIV-05**` tick at `REQUIREMENTS.md:23` is wrong for the third time and is NOT
 corrected by this phase.** `REQUIREMENTS.md` is untouched (0 added, 0 removed). Re-deriving the tick
 is the milestone owner's job, from the clauses of `26-SECURITY.md` T-26-02-01 rather than from any
@@ -710,6 +712,8 @@ auth-header class** — OPEN BY PROHIBITION, unchanged. **The sweep's vocabulary
 TRIPWIRE OVER A MEASURED VOCABULARY AND NOT A PROOF OF COVERAGE, now stating **THIRTEEN** axes it
 cannot see, machine-checked against its own enumeration rather than the eleven the paragraph above
 transcribed by hand.
+
+***[SUPERSEDED 2026-08-26 by plan 27-17 — `AR-27-09` is CLOSED BY FIX, not open at LOW.]*** The paragraph above is preserved byte-for-byte as the record made while the finding was open; none of it is withdrawn. The LOW it carries rested on an explicitly UNMEASURED reachability claim, and the maintainer therefore decided the finding by FIX rather than by acceptance at UAT (`27-HUMAN-UAT.md` item 10, commit `ae3371a`). `Redaction.logicalLineHeaderRule`'s REAL-LINE branch now starts at `REAL_LINE_START = "^[ \t]*+"` instead of a bare `^`, so an indented header line and an obs-folded continuation line are recognised in STRICT and BALANCED across all three composed rules — measured before/after in the **"AR-27-09 — CLOSED BY FIX 2026-08-26"** section of `26-SECURITY.md`, gated by `IndentedLogicalLineStartTest` and by `LogicalLineBoundaryScopeTest.theRealLineStartRecognisesLeadingHorizontalWhitespace`, and mutation-proven in both directions. **This does NOT close PRIV-05**, which stays `[ ]`, and it leaves `AR-27-10` and `AR-27-11` open. `AR-27-09` is an `AR-` row, so it was always outside the `threats_open` population — the counter was recomputed and is unchanged at `0`.
 
 ***What round 5 CLOSED, of round 4's six.*** **The sweep's declaration-shape blindness is CLOSED** at
 the gate (1 of 6 → 6 of 6, with the historical corpus still reporting exactly 3 hits). **The

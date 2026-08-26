@@ -345,8 +345,13 @@ class SerializedEmissionRedactionTest {
      * SCOPE OF WHAT THIS NESTED CLASS PROVES: that the composed rules now REACH a header at a JSON
      * string open, and that reaching it does not let a match run past that string's closing quote.
      * It says nothing about the FOURTH start — a leading-whitespace or obs-folded header line —
-     * which is MEASURED still unmatched and filed as `AR-27-09`. See `Redaction.kt`'s rationale
-     * block for that bound stated where a reader meets the rule.
+     * which was filed as `AR-27-09` and is **CLOSED BY FIX as of plan 27-17**: the real-line branch
+     * now begins at `Redaction.REAL_LINE_START`, so that start IS recognised, in STRICT and BALANCED
+     * across all three composed rules. The behavioural gates for it live in
+     * `redact/IndentedLogicalLineStartTest`, NOT here — this nested class is still scoped to the
+     * JSON-string-open start and nothing about it changed. What remains unrecognised is `AR-27-11`,
+     * the four JSON-string-open families the `:"` narrowing does not cover. See `Redaction.kt`'s
+     * rationale block for both bounds stated where a reader meets the rule.
      */
     @Nested
     inner class JsonStringOpenBoundary {

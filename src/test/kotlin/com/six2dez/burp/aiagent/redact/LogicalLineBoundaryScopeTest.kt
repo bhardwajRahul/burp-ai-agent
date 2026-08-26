@@ -144,13 +144,28 @@ class LogicalLineBoundaryScopeTest {
                 "traceable from source to the phase record rather than surviving as an aside",
         )
         assertTrue(
-            text.contains(SECOND_OPEN_FINDING),
-            "the rationale must ALSO carry `$SECOND_OPEN_FINDING`, the leading-whitespace / obs-fold " +
-                "start the boundary still does not recognise. BOTH residuals have to stay traceable " +
-                "from source: the composer now recognises three logical line starts, and a comment " +
-                "that stops naming the fourth leaves the next reader with a boundary that reads " +
-                "complete and is not — which is how this requirement has been closed wrongly three " +
-                "times already.",
+            text.contains(SECOND_FINDING_CLOSED_BY_FIX),
+            "the rationale must ALSO carry `$SECOND_FINDING_CLOSED_BY_FIX`, the leading-whitespace / " +
+                "obs-fold start. It is CLOSED BY FIX as of 27-17 rather than open, and it stays named " +
+                "here for that reason and not despite it: the register entry and the source state " +
+                "have to move together, so a reader who finds the id in `26-SECURITY.md` can see in " +
+                "source what closed it. A closure recorded only in a planning document is one " +
+                "refactor away from a silent revert.",
+        )
+        assertTrue(
+            text.contains(SECOND_FINDING_CLOSURE_MARKER),
+            "the rationale names `$SECOND_FINDING_CLOSED_BY_FIX` but does not say " +
+                "`$SECOND_FINDING_CLOSURE_MARKER`. The id was OPEN for two rounds and the wording " +
+                "that went with it said the fourth start was NOT recognised. If the code has been " +
+                "fixed and the comment still reads as a live residual, the next reader is told the " +
+                "boundary is narrower than it is — which is the mirror image of the " +
+                "record-wider-than-control defect this file exists to catch, and just as wrong.",
+        )
+        assertTrue(
+            text.contains(REAL_LINE_START_DECLARATION.substringAfterLast(' ')),
+            "the rationale must name `${REAL_LINE_START_DECLARATION.substringAfterLast(' ')}` — the " +
+                "constant that closes `$SECOND_FINDING_CLOSED_BY_FIX`. Stating the closure without " +
+                "naming what performs it leaves the claim unanchored to code.",
         )
         assertTrue(
             text.contains(THIRD_OPEN_FINDING),
@@ -251,6 +266,74 @@ class LogicalLineBoundaryScopeTest {
                 "`26-SECURITY.md` for the re-derivation.\n" +
                 "  Read as: $literal",
         )
+    }
+
+    /**
+     * (PRIV-05) 27-17 — THE ANTI-DRIFT PIN on the FOURTH start's VALUE, closing `AR-27-09`.
+     *
+     * The finding was MEASURED, twice, as `GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n` surviving
+     * `Redaction.apply` BYTE-UNCHANGED under STRICT and under BALANCED — canonical `Cookie:`, with
+     * the un-indented control stripping in the same run. What put it back inside the boundary is a
+     * change of nine characters in one constant. Reverting it is the same nine characters, and every
+     * other guard in this file — the composition scans, the declaration-existence scan, the rationale
+     * scan — would stay green through that revert, exactly as they stayed green through the bare
+     * double quote 27-11 shipped under the name `JSON_STRING_OPEN`.
+     *
+     * So the VALUE is read out of `Redaction.kt` at test time, never re-typed, on the
+     * `CookieHeaderNameWidthTest.theCoveredSetIsReadFromRedactionSourceNotRetyped` precedent.
+     *
+     * This asserts the START, not the survival: the behavioural evidence lives in
+     * `IndentedLogicalLineStartTest`, which drives `Redaction.apply` end to end in both redacting
+     * modes over all three composed rules.
+     */
+    @Test
+    fun theRealLineStartRecognisesLeadingHorizontalWhitespace() {
+        val declarations =
+            sourceFile()
+                .readLines()
+                .filterNot { isCommentOnly(it) }
+                .filter { it.trimStart().startsWith(REAL_LINE_START_DECLARATION) }
+
+        assertEquals(
+            1,
+            declarations.size,
+            "`$REAL_LINE_START_DECLARATION` must be declared EXACTLY once in $RULE_OWNER, or the " +
+                "value assertion below is reading one of several and proves nothing about the start " +
+                "the composer actually uses.\n  Read as: $declarations",
+        )
+
+        val literal = declarations.single().substringAfter("=").trim()
+        assertTrue(
+            literal.length >= 2 && literal.startsWith("\"") && literal.endsWith("\""),
+            "the initializer of `$REAL_LINE_START_DECLARATION` is not a plain string literal, so it " +
+                "cannot be decoded here. Read as: $literal",
+        )
+
+        val decoded = decodeKotlinStringLiteral(literal)
+
+        assertEquals(
+            EXPECTED_REAL_LINE_START,
+            decoded,
+            "the real-line branch must start at a line anchor FOLLOWED BY a possessive run of " +
+                "horizontal whitespace. A bare `^` here is the pre-27-17 state and it is a MEASURED " +
+                "two-mode leak, not a style regression: `GET / HTTP/1.1\\r\\n Cookie: a=SECRET5` came " +
+                "back BYTE-UNCHANGED from STRICT and from BALANCED, canonical header name and all, " +
+                "while the un-indented control stripped in the same run. An obs-folded continuation " +
+                "line leaks by the same mechanism. Dropping the `+` is a smaller regression but still " +
+                "a real one — it re-admits the backtracking the possessive form was measured to " +
+                "remove (200 scans of a 4000-space line: 29 ms possessive, 63 ms not), on rules that " +
+                "run in the header stage with NO per-pattern deadline. Do NOT 'improve' this into " +
+                "the zero-width lookbehind `(?<=^[ \\t]*)`: it compiles on Java 21 and it matches " +
+                "correctly, and it was MEASURED at roughly 221x the cost of this spelling.\n" +
+                "  Read as: $literal",
+        )
+
+        // Non-vacuity for the value itself: prove the decoded start behaves the way the constant
+        // claims, rather than trusting a string comparison to carry a behavioural claim.
+        val probe = Regex("(?im)" + decoded + "cookie:")
+        assertTrue(probe.containsMatchIn("GET / HTTP/1.1\n Cookie: a=b"), "the decoded start does not match an indented header line")
+        assertTrue(probe.containsMatchIn("GET / HTTP/1.1\n\tCookie: a=b"), "the decoded start does not match a TAB-indented header line")
+        assertTrue(probe.containsMatchIn("GET / HTTP/1.1\nCookie: a=b"), "the decoded start no longer matches an UN-indented header line")
     }
 
     // ── the scans ─────────────────────────────────────────────────────────────────────────
@@ -373,15 +456,30 @@ class LogicalLineBoundaryScopeTest {
         const val OPEN_FINDING = "AR-27-04"
 
         /**
-         * The SECOND residual (27-11): a header line preceded by leading horizontal whitespace, or an
-         * obs-folded continuation, matches none of the three recognised starts. MEASURED surviving
-         * STRICT in round 3 and deliberately out of that round's scope.
+         * The second residual (27-11), **CLOSED BY FIX at 27-17** rather than accepted at LOW.
          *
-         * It is pinned here for the same reason `AR-27-04` is: a residual that lives only in a
-         * planning document is one refactor away from disappearing, and the next reader then meets a
-         * boundary that reads complete and is not.
+         * WHAT IT WAS: a header line preceded by leading horizontal whitespace, or an obs-folded
+         * continuation, matched none of the three recognised starts. MEASURED surviving STRICT in
+         * round 3, re-measured surviving STRICT *and* BALANCED at the end of round 4, and re-measured
+         * a third time immediately before the fix.
+         *
+         * WHY IT WAS FIXED RATHER THAN ACCEPTED: the LOW rested on an explicitly UNMEASURED
+         * reachability claim, which is the defect class that reopened this phase five times. The
+         * maintainer decided it at UAT (`27-HUMAN-UAT.md` item 10).
+         *
+         * IT STAYS PINNED THOUGH IT IS CLOSED, and that is deliberate. The register entry and the
+         * source state have to move together: a closure recorded only in a planning document is one
+         * refactor away from a silent revert, and the rationale a reader meets would then describe a
+         * boundary the code no longer has. What is pinned is the CITATION and the closure wording —
+         * see [REAL_LINE_START_DECLARATION] for the pin on the VALUE that does the closing.
          */
-        const val SECOND_OPEN_FINDING = "AR-27-09"
+        const val SECOND_FINDING_CLOSED_BY_FIX = "AR-27-09"
+
+        /**
+         * The wording that has to accompany [SECOND_FINDING_CLOSED_BY_FIX] in the rationale, so the
+         * id cannot survive there as a stale "still open" sentence after the code stopped agreeing.
+         */
+        const val SECOND_FINDING_CLOSURE_MARKER = "CLOSED BY FIX"
 
         /**
          * The THIRD residual (27-14), with its BOUND CORRECTED after 27-REVIEW-3 CR-01 measured it
@@ -417,10 +515,30 @@ class LogicalLineBoundaryScopeTest {
         /** The declaration [theJsonStringOpenIsAValueOpenAndNotABareQuote] reads the VALUE out of. */
         const val JSON_STRING_OPEN_DECLARATION = "private const val JSON_STRING_OPEN"
 
+        /**
+         * The declaration [theRealLineStartRecognisesLeadingHorizontalWhitespace] reads the VALUE out
+         * of — the FOURTH logical line start, added at 27-17 to close `AR-27-09`.
+         *
+         * Pinned from source for the reason 27-14 had to learn the hard way with
+         * [JSON_STRING_OPEN_DECLARATION]: asserting that a declaration EXISTS says nothing about what
+         * it is worth, and reverting `^[ \t]*+` to `^` is a nine-character edit that would otherwise
+         * put the measured two-mode leak back with every other guard in this file still green.
+         */
+        const val REAL_LINE_START_DECLARATION = "private const val REAL_LINE_START"
+
         // A lookbehind wider than a FIXED width forces Java to try two look-back widths at every
         // position of every serialized emission and silently trades away the measured 2.4x — the same
         // reason JSON_ESCAPED_NEWLINE's comment in Redaction.kt gives for its own two characters.
         const val EXPECTED_JSON_STRING_OPEN_WIDTH = 2
+
+        /**
+         * The FOURTH start, character for character: line anchor, then a POSSESSIVE run of horizontal
+         * whitespace. Possessive is safe rather than merely fast — no composed name pattern can begin
+         * with a space or a tab, so giving whitespace back could never enable a match the possessive
+         * form misses — which is also why the widened start is a PROVEN strict superset of `^` and
+         * therefore moves only in the over-redacting direction.
+         */
+        const val EXPECTED_REAL_LINE_START = "^[ \\t]*+"
 
         /**
          * The composer and the four fragments the boundary rationale is written against.
@@ -442,6 +560,7 @@ class LogicalLineBoundaryScopeTest {
                 "private const val JSON_ESCAPED_HEADER_VALUE",
                 "private fun logicalLineHeaderRule",
                 "private const val JSON_STRING_OPEN",
+                "private const val REAL_LINE_START",
             )
 
         /**

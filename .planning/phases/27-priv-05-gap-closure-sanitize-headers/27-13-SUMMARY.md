@@ -239,11 +239,39 @@ contains the vertical-bar tchar itself (escaped `\|`).
 | **`AR-27-09`** — the leading-whitespace / obs-folded logical-line start | **LOW** | **`27-11-SUMMARY.md`, "The Indented-Header Measurement"** — a throwaway `jshell` harness against the freshly compiled classes. `GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n` survives **BYTE-UNCHANGED under STRICT *and* BALANCED**, with the un-indented control and the JSON-string-open fix both stripped to `Cookie: [STRIPPED]` on the same run. `LOW` because **no measured emission site in this repository indents a header line** (the 14 pinned sites emit at column 0, and `buildScanMetadataText` `appendLine`s at column 0). OPEN rather than closed because reachability through analyst-authored `HttpRequestResponse.notes` text is **UNMEASURED**. |
 | **`AR-27-10`** — the RFC 9110 tchars outside the widened cookie name class | **LOW** | **`27-10-SUMMARY.md` §6**, the covered class read out of `Redaction.kt` at test time rather than re-typed: `ALL_RFC9110_TCHARS` **77**, `COVERED_TCHARS` **64**, `NOT_COVERED_TCHARS` **13** — ``!#$%&'*+.^`|~``. The **partition** and the **fail-open mechanism** are measured (the mechanism end-to-end on `_`, nine names, both modes, §3). The **carry-over to the other thirteen characters is INFERRED** and is labelled as inferred in the row. **NO LEAK WAS MEASURED FOR ANY OF THE THIRTEEN and neither the row nor this SUMMARY claims one.** |
 
+> **[SUPERSEDED 2026-08-26 by plan 27-17 — `AR-27-09` is CLOSED BY FIX, not open at LOW.]** The
+> statement above is preserved byte-for-byte as the record this plan made; none of it is withdrawn.
+> The LOW rested on an explicitly UNMEASURED reachability claim, so the maintainer decided the
+> finding by FIX rather than by acceptance at UAT (`27-HUMAN-UAT.md` item 10, commit `ae3371a`).
+> `Redaction.logicalLineHeaderRule`'s REAL-LINE branch now starts at `REAL_LINE_START = "^[ \t]*+"`
+> instead of a bare `^`, so an indented header line and an obs-folded continuation line ARE
+> recognised, in STRICT and BALANCED, across all three composed rules. Measured before/after, the
+> consuming-vs-zero-width hazard, the falsified variable-width-lookbehind premise and the two-way
+> mutation proof are in the **"AR-27-09 — CLOSED BY FIX 2026-08-26"** section of
+> `.planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md`. Gated by
+> `IndentedLogicalLineStartTest` and `LogicalLineBoundaryScopeTest`. **PRIV-05 is still `[ ]`**;
+> `AR-27-10` and `AR-27-11` are still open. `AR-27-09` is an `AR-` row and was always outside the
+> `threats_open` population, which was recomputed and is unchanged at `0`.
+
 **One mode wider than the round-3 record, recorded rather than smoothed.** `27-VERIFICATION-3.md`
 carried the `AR-27-09` residual as surviving under STRICT. Plan 27-11 re-measured instead of copying
 the prediction forward and found it surviving under **STRICT and BALANCED**. The register row, the
 frontmatter comment, the ROADMAP paragraph and `27-HUMAN-UAT.md` all carry the **wider measured**
 value. Understating a residual is the same failure mode as overclaiming a fix.
+
+> **[SUPERSEDED 2026-08-26 by plan 27-17 — `AR-27-09` is CLOSED BY FIX, not open at LOW.]** The
+> statement above is preserved byte-for-byte as the record this plan made; none of it is withdrawn.
+> The LOW rested on an explicitly UNMEASURED reachability claim, so the maintainer decided the
+> finding by FIX rather than by acceptance at UAT (`27-HUMAN-UAT.md` item 10, commit `ae3371a`).
+> `Redaction.logicalLineHeaderRule`'s REAL-LINE branch now starts at `REAL_LINE_START = "^[ \t]*+"`
+> instead of a bare `^`, so an indented header line and an obs-folded continuation line ARE
+> recognised, in STRICT and BALANCED, across all three composed rules. Measured before/after, the
+> consuming-vs-zero-width hazard, the falsified variable-width-lookbehind premise and the two-way
+> mutation proof are in the **"AR-27-09 — CLOSED BY FIX 2026-08-26"** section of
+> `.planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md`. Gated by
+> `IndentedLogicalLineStartTest` and `LogicalLineBoundaryScopeTest`. **PRIV-05 is still `[ ]`**;
+> `AR-27-10` and `AR-27-11` are still open. `AR-27-09` is an `AR-` row and was always outside the
+> `threats_open` population, which was recomputed and is unchanged at `0`.
 
 **Owners.** Both are owned by **the maintainer**, as disposition items 10 and 11 of the round-4
 carry-forward section of `27-HUMAN-UAT.md` — they are judgments (accept, or apply a written-down
@@ -367,6 +395,20 @@ is worth more on the record than a silence where the correction used to be neede
   (5) have all now rotted — without editing any of them.
 - **`STATE.md` was left untouched.** See "Deviations".
 - **`COVERAGE.md` was written from the measurement, not the instruction.** See "Deviations".
+
+> **[SUPERSEDED 2026-08-26 by plan 27-17 — `AR-27-09` is CLOSED BY FIX, not open at LOW.]** The
+> statement above is preserved byte-for-byte as the record this plan made; none of it is withdrawn.
+> The LOW rested on an explicitly UNMEASURED reachability claim, so the maintainer decided the
+> finding by FIX rather than by acceptance at UAT (`27-HUMAN-UAT.md` item 10, commit `ae3371a`).
+> `Redaction.logicalLineHeaderRule`'s REAL-LINE branch now starts at `REAL_LINE_START = "^[ \t]*+"`
+> instead of a bare `^`, so an indented header line and an obs-folded continuation line ARE
+> recognised, in STRICT and BALANCED, across all three composed rules. Measured before/after, the
+> consuming-vs-zero-width hazard, the falsified variable-width-lookbehind premise and the two-way
+> mutation proof are in the **"AR-27-09 — CLOSED BY FIX 2026-08-26"** section of
+> `.planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md`. Gated by
+> `IndentedLogicalLineStartTest` and `LogicalLineBoundaryScopeTest`. **PRIV-05 is still `[ ]`**;
+> `AR-27-10` and `AR-27-11` are still open. `AR-27-09` is an `AR-` row and was always outside the
+> `threats_open` population, which was recomputed and is unchanged at `0`.
 
 ## Deviations from Plan
 

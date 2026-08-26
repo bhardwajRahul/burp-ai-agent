@@ -154,9 +154,10 @@ object Redaction {
     //
     // ── (PRIV-05) 27-04 / D-27-06 · D-27-07 · D-27-08 · D-27-15: WHAT COUNTS AS A LINE START ──
     //
-    // These rules recognise THREE logical line starts (two at 27-04, a third at 27-11), because the
-    // MCP tool-RESULT path emits a raw HTTP message with no real newline in it. The three are
-    // enumerated in the 27-11 block further down, together with the FOURTH that is still not one.
+    // These rules recognise FOUR logical line starts (two at 27-04, a third at 27-11, a fourth at
+    // 27-17 when AR-27-09 was closed by fix), because the MCP tool-RESULT path emits a raw HTTP
+    // message with no real newline in it. All four are enumerated in the 27-11 / 27-17 block further
+    // down, together with the shapes that are still not starts.
     // `mcp/schema/Serialization.kt` puts the whole raw
     // message into a JSON string (`request = request()?.toString()`), and `toolJson.encodeToString`
     // then escapes every CR and LF into the two literal characters backslash-r / backslash-n. The
@@ -166,10 +167,12 @@ object Redaction {
     // `scanner_issues`. Measured on the shipped compiled class: 1 match on multi-line input, 0 on the
     // JSON-encoded form of the same bytes.
     //
-    // WHY TWO BRANCHES AND NOT ONE. The REAL-LINE branch is the pattern that shipped, character for
-    // character (see REAL_LINE_HEADER_VALUE), so multi-line behaviour is unchanged BY CONSTRUCTION
+    // WHY TWO BRANCHES AND NOT ONE. The REAL-LINE branch keeps the value tail that shipped, character
+    // for character (see REAL_LINE_HEADER_VALUE), so multi-line behaviour is unchanged BY CONSTRUCTION
     // rather than by hope; the anchor is not removed, which is what AR-27-01 / AR-27-02 were deferred
-    // to avoid. The double-quote value terminator the JSON shape needs lives on the ESCAPED branch
+    // to avoid. 27-17 widened that branch's START from `^` to [REAL_LINE_START] and nothing else — a
+    // PROVEN strict superset of `^`, so "unchanged by construction" still holds for every input the
+    // shipped anchor matched. The double-quote value terminator the JSON shape needs lives on the ESCAPED branch
     // ONLY, because that branch's start boundary has already proved the match is inside a JSON
     // string. Hoisting the quote into a single shared tail is an UNDER-REDACTION regression on the
     // primary path: measured, `Cookie: a="q"; session=<value>` — a DQUOTE-wrapped value RFC 6265
@@ -295,23 +298,38 @@ object Redaction {
     // alternative is NOT re-widening: the bare quote is a high-severity correctness break on the
     // primary path (see (a)).
     //
-    // THE FOURTH START, WHICH IS STILL NOT RECOGNISED — read this before quoting the boundary as
-    // complete. A header line preceded by LEADING HORIZONTAL WHITESPACE, including an RFC 7230
-    // obs-folded continuation line, matches NONE of the three: the real-line branch anchors `^`
-    // directly against the header name, and both lookbehinds see a space rather than a newline or a
-    // quote. MEASURED surviving under STRICT in round 3, and RE-MEASURED against the compiled classes
-    // at the end of round 4 — where it survives BYTE-UNCHANGED under BOTH STRICT and BALANCED, which
-    // is one mode WIDER than round 3 recorded:
+    // THE FOURTH START, WHICH IS NOW RECOGNISED — AR-27-09, CLOSED BY FIX at 27-17, and kept written
+    // here rather than deleted because the register entry and the source state have to move together.
     //
-    //   GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n   STRICT   ->  unchanged
-    //   GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n   BALANCED ->  unchanged
+    // WHAT IT WAS. A header line preceded by LEADING HORIZONTAL WHITESPACE, including an RFC 7230
+    // obs-folded continuation line, matched NONE of the three starts: the real-line branch anchored
+    // `^` directly against the header name, and both lookbehinds saw a space rather than a newline or
+    // a quote. MEASURED surviving under STRICT in round 3, RE-MEASURED against the compiled classes at
+    // the end of round 4 as surviving BYTE-UNCHANGED under BOTH STRICT and BALANCED — one mode wider
+    // than round 3 recorded — and RE-MEASURED a third time at 27-17 immediately before the fix, where
+    // it reproduced exactly.
     //
-    // DELIBERATELY out of this round's scope — the
-    // maintainer scoped round 4 to the string-open case — and filed as open finding AR-27-09 rather
-    // than left as an aside. THE FIX IS WRITTEN DOWN so a successor need not re-derive it: allow
-    // leading horizontal whitespace on the real-line branch, `^[ \t]*` in place of `^`. That is one
-    // token, it moves only in the over-redacting direction, and it is unshipped here because of
-    // scope, not because it is hard.
+    // WHAT IT IS NOW. The real-line branch starts at [REAL_LINE_START] — line start followed by a
+    // possessive run of horizontal whitespace — so an indented header line and an obs-folded
+    // continuation line are BOTH logical line starts, in STRICT and BALANCED, across all three
+    // composed rules. Measured end-to-end through [apply] on freshly compiled classes:
+    //
+    //   GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n    STRICT/BALANCED  was unchanged, now [STRIPPED]
+    //   HTTP/1.1 200 OK\r\n Set-Cookie: s=SECRET6…      STRICT/BALANCED  was unchanged, now [STRIPPED]
+    //   GET / HTTP/1.1\r\n  X-Api-Key: SECRET8\r\n\r\n  STRICT/BALANCED  was unchanged, now [REDACTED]
+    //   GET / HTTP/1.1\r\nX-Foo: bar\r\n Cookie: a=S…   STRICT/BALANCED  was unchanged, now [STRIPPED]
+    //
+    // The auth family is demonstrated with a PLAIN-TOKEN header on purpose. An indented
+    // `Authorization: Bearer …` line was already losing its token before this fix — but to
+    // `bearerRegex`, a VALUE-level rule, which rewrote it to `Authorization: Bearer [REDACTED]` while
+    // this HEADER rule missed the line entirely. `X-Api-Key` has no such second rule behind it, so it
+    // is the shape that isolates the boundary. Reading the `Authorization` case as "the auth family
+    // was already covered" is exactly the masked-control error this phase keeps re-finding.
+    //
+    // The fix moves ONLY in the over-redacting direction, and that is proven rather than asserted:
+    // `[ \t]*+` matches the empty string and no composed name pattern can begin with a space or a tab,
+    // so wherever `^` matched the two spellings are position-identical. `IndentedLogicalLineStartTest`
+    // carries the differential corpus gate and the byte-identity negatives.
     //
     // Nothing here makes redaction complete: the claim is bounded to the serialized emission path,
     // and to the cookie-header and exact-name auth-header classes.
@@ -364,6 +382,59 @@ object Redaction {
     // file's line floor for a reason with nothing to do with the boundary.
     private const val JSON_STRING_OPEN = ":\""
 
+    // The REAL-LINE branch's start boundary — the FOURTH logical line start, added by 27-17 when
+    // AR-27-09 was CLOSED BY FIX rather than accepted at LOW. Line start, then any run of horizontal
+    // whitespace, consumed POSSESSIVELY.
+    //
+    // WHAT IT BUYS, MEASURED end-to-end through [apply] on freshly compiled classes, STRICT and
+    // BALANCED alike, with the un-indented control stripping in the same run:
+    //
+    //   GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n        was unchanged -> " Cookie: [STRIPPED]"
+    //   HTTP/1.1 200 OK\r\n Set-Cookie: s=SECRET6; Path=/   was unchanged -> " Set-Cookie: [STRIPPED]"
+    //   GET / HTTP/1.1\r\n  X-Api-Key: SECRET8\r\n\r\n      was unchanged -> "  X-Api-Key: [REDACTED]"
+    //   GET / HTTP/1.1\r\nX-Foo: bar\r\n Cookie: a=SECRET9   was unchanged -> " Cookie: [STRIPPED]"
+    //
+    // The obs-folded continuation on the last line is the RFC 7230 shape; it is the same token that
+    // buys it, because an obs-fold IS a line start followed by horizontal whitespace.
+    //
+    // WHY IT CONSUMES, WHEN THE COMPOSER'S KDoc SAYS THE MATCH MUST BEGIN AT THE HEADER NAME. It no
+    // longer does on this branch, and that is a DELIBERATE, MEASURED relaxation rather than an
+    // oversight. `^` is zero-width, so the match used to begin at the name and [apply]'s three
+    // replacement lambdas rebuild the header with `m.value.substringBefore(":")`. With the indent
+    // CONSUMED the match value is " Cookie: a=SECRET5", `substringBefore(":")` yields " Cookie", and
+    // the lambda emits "$header: [STRIPPED]" — so the INDENT IS RE-EMITTED VERBATIM, tabs included.
+    // Measured: " Cookie" and "\t\tCookie" both round-trip byte-exact into the replacement. No
+    // name-matching PREDICATE sees the widened value — `isCookieHeaderName` is called on header names
+    // Burp hands over, never on a match value — so nothing downstream receives a leading space.
+    //
+    // WHY NOT A LOOKBEHIND, which WOULD keep the match beginning at the name. `(?<=^[ \t]*)` is the
+    // obvious zero-width spelling and the folklore says Java rejects a variable-width lookbehind.
+    // MEASURED, that folklore is WRONG on this toolchain: Java 21 compiles `(?<=^[ \t]*)` AND matches
+    // the indented shapes correctly, match beginning at the name. It is rejected here on COST, which
+    // is the measurable reason rather than the repeated one. Over 2000 scans of a 60-line
+    // pretty-printed document: `^` 158 ms, `^[ \t]*+` 155 ms, `^[ \t]*` 164 ms, `(?<=^[ \t]*)`
+    // 34237 ms — roughly 221x, because an unbounded look-back is retried at EVERY position. These
+    // header rules run in the header stage with NO per-pattern deadline (see [bodyStage]'s budget,
+    // which they are explicitly outside of), so a 221x multiplier on attacker-influenced input is a
+    // denial-of-service surface, not a style question. The same cost model rejected a variable-width
+    // [JSON_ESCAPED_NEWLINE] for a mere 2.4x.
+    //
+    // WHY POSSESSIVE, and why possessive is not a narrowing. `[ \t]*+` never gives whitespace back.
+    // It cannot lose a match, because every alternative in every composed name pattern begins with
+    // [COOKIE_NAME_PART], the literal `set-`/`cookie`, or a letter of the auth-name alternation —
+    // none of which can match a space or a tab. So giving back could never enable a match that the
+    // possessive form misses. It measurably helps: on a line of 4000 spaces followed by non-header
+    // text, 200 scans cost 29 ms possessive against 63 ms non-possessive.
+    //
+    // DIRECTION OF THE CHANGE, PROVEN RATHER THAN ASSERTED. `[ \t]*+` matches the empty string, and
+    // no composed name pattern can begin with a space or a tab, so wherever `^` matched there is no
+    // leading whitespace to consume and the two spellings are position-identical. The new start is
+    // therefore a STRICT SUPERSET of the shipped one: it can only ADD matches, i.e. it moves only in
+    // the OVER-redacting direction. `IndentedLogicalLineStartTest` carries that as a differential
+    // corpus gate plus byte-identity negatives over indented prose, pretty-printed JSON and indented
+    // source, so a future widening that starts eating indented NON-header content turns red.
+    private const val REAL_LINE_START = "^[ \\t]*+"
+
     // The SHIPPED value tail, character for character. Named rather than inlined so the byte-identity
     // claim is visible in source as "this branch uses the pattern that shipped".
     private const val REAL_LINE_HEADER_VALUE = ":\\s*.+$"
@@ -385,8 +456,16 @@ object Redaction {
      * quoted-cookie-value leak recorded in the comment above.
      *
      * The escaped branch's boundary is a LOOKBEHIND rather than a consuming group because [apply]'s
-     * replacement lambdas call `substringBefore(":")` on the match value: the match must still BEGIN
-     * at the header name.
+     * replacement lambdas call `substringBefore(":")` on the match value: on THAT branch the match
+     * must still BEGIN at the header name, because what precedes it there is a JSON escape or a
+     * colon-quote that the replacement does not reproduce.
+     *
+     * The REAL-LINE branch is the EXCEPTION, deliberately, since 27-17 closed AR-27-09: [REAL_LINE_START]
+     * CONSUMES the leading horizontal whitespace, so the match begins at the indent and
+     * `substringBefore(":")` returns the indent together with the name. That is safe on this branch and
+     * only on this branch, because the lambdas re-emit exactly what they read — the indent round-trips
+     * byte-exact into the replacement. The measured reason a zero-width lookbehind was NOT used instead
+     * (it compiles and works on Java 21; it costs ~221x) is stated on [REAL_LINE_START].
      *
      * That branch carries TWO start boundaries as of 27-11 — [JSON_ESCAPED_NEWLINE] and
      * [JSON_STRING_OPEN] — written as two SEPARATE fixed-width lookbehinds in a non-capturing
@@ -399,7 +478,7 @@ object Redaction {
      */
     private fun logicalLineHeaderRule(namePattern: String): Regex =
         Regex(
-            "(?im)(?:^" + namePattern + REAL_LINE_HEADER_VALUE +
+            "(?im)(?:" + REAL_LINE_START + namePattern + REAL_LINE_HEADER_VALUE +
                 "|(?:(?<=" + JSON_ESCAPED_NEWLINE + ")|(?<=" + JSON_STRING_OPEN + "))" +
                 namePattern + JSON_ESCAPED_HEADER_VALUE + ")",
         )

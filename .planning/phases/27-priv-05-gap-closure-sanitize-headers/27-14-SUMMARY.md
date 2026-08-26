@@ -302,6 +302,20 @@ Each `T-27-14-*` row from the plan's threat model, with its measured outcome.
 - **PRIV-05 is NOT closed by this plan.** `REQUIREMENTS.md` is untouched and PRIV-05 stays `[ ]`. `AR-27-08` and `InjectionPointExtractor.kt:29` remain owned by Phase 28 and were not touched.
 - `AR-27-09` — the leading-whitespace / obs-fold fourth start — is still unrecognised and still out of scope.
 
+> **[SUPERSEDED 2026-08-26 by plan 27-17 — `AR-27-09` is CLOSED BY FIX, not open at LOW.]** The
+> statement above is preserved byte-for-byte as the record this plan made; none of it is withdrawn.
+> The LOW rested on an explicitly UNMEASURED reachability claim, so the maintainer decided the
+> finding by FIX rather than by acceptance at UAT (`27-HUMAN-UAT.md` item 10, commit `ae3371a`).
+> `Redaction.logicalLineHeaderRule`'s REAL-LINE branch now starts at `REAL_LINE_START = "^[ \t]*+"`
+> instead of a bare `^`, so an indented header line and an obs-folded continuation line ARE
+> recognised, in STRICT and BALANCED, across all three composed rules. Measured before/after, the
+> consuming-vs-zero-width hazard, the falsified variable-width-lookbehind premise and the two-way
+> mutation proof are in the **"AR-27-09 — CLOSED BY FIX 2026-08-26"** section of
+> `.planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md`. Gated by
+> `IndentedLogicalLineStartTest` and `LogicalLineBoundaryScopeTest`. **PRIV-05 is still `[ ]`**;
+> `AR-27-10` and `AR-27-11` are still open. `AR-27-09` is an `AR-` row and was always outside the
+> `threats_open` population, which was recomputed and is unchanged at `0`.
+
 ## Self-Check: PASSED
 
 All four claimed files exist on disk; all four claimed commits (`2935165`, `796891d`, `bd31f42`, `3f44f2e`) are present in `c2d980f..HEAD`.

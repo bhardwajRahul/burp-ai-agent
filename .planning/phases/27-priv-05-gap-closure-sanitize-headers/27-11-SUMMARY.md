@@ -207,6 +207,20 @@ Task 2's six-class verify: **142 tests, 0 failures, 0 errors, one run.**
 
 ## The Indented-Header Measurement (AR-27-09)
 
+> **[SUPERSEDED 2026-08-26 by plan 27-17 — `AR-27-09` is CLOSED BY FIX, not open at LOW.]** The
+> statement above is preserved byte-for-byte as the record this plan made; none of it is withdrawn.
+> The LOW rested on an explicitly UNMEASURED reachability claim, so the maintainer decided the
+> finding by FIX rather than by acceptance at UAT (`27-HUMAN-UAT.md` item 10, commit `ae3371a`).
+> `Redaction.logicalLineHeaderRule`'s REAL-LINE branch now starts at `REAL_LINE_START = "^[ \t]*+"`
+> instead of a bare `^`, so an indented header line and an obs-folded continuation line ARE
+> recognised, in STRICT and BALANCED, across all three composed rules. Measured before/after, the
+> consuming-vs-zero-width hazard, the falsified variable-width-lookbehind premise and the two-way
+> mutation proof are in the **"AR-27-09 — CLOSED BY FIX 2026-08-26"** section of
+> `.planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md`. Gated by
+> `IndentedLogicalLineStartTest` and `LogicalLineBoundaryScopeTest`. **PRIV-05 is still `[ ]`**;
+> `AR-27-10` and `AR-27-11` are still open. `AR-27-09` is an `AR-` row and was always outside the
+> `threats_open` population, which was recomputed and is unchanged at `0`.
+
 Driven through a **throwaway `jshell` harness against the freshly compiled classes** — `build/classes/kotlin/main` plus `kotlin-stdlib-2.2.21` — calling `Redaction.INSTANCE.apply(raw, RedactionPolicy.Companion.fromMode(mode), "round4-measurement-salt", false)`. Not a committed test, deliberately: a committed test asserting this value SURVIVES a redacting policy is exactly the artifact class this round exists to remove. `\r` and `\n` are rendered as two-character escapes below so the raw bytes are legible.
 
 ```
@@ -307,6 +321,20 @@ Two ktlint violations on first-pass formatting (`First line of body expression f
 - **`hostHeaderRegex` remains excluded** and that exclusion is still `AR-27-04`, requiring a HUMAN decision. Not relitigated and not fixed here.
 - **The two `assertTrue(...contains("api.example.com"))` pins at `McpToolHelpersTest.kt:249`/`:285` are still present.** They belong to plan 27-12 and were deliberately left untouched. So the phase-wide property "no test under `src/` asserts a sensitive value survives STRICT or BALANCED" is **not yet true**; what IS true is that *this plan* added no such assertion — every positive assertion in its `src/test` diff is a fixture guard on pre-redaction input, the benign control value, the `[STRIPPED]` marker, or a source-text check.
 - **The claim is bounded to the serialized emission path and the cookie-header and exact-name auth-header classes**, as it was before.
+
+> **[SUPERSEDED 2026-08-26 by plan 27-17 — `AR-27-09` is CLOSED BY FIX, not open at LOW.]** The
+> statement above is preserved byte-for-byte as the record this plan made; none of it is withdrawn.
+> The LOW rested on an explicitly UNMEASURED reachability claim, so the maintainer decided the
+> finding by FIX rather than by acceptance at UAT (`27-HUMAN-UAT.md` item 10, commit `ae3371a`).
+> `Redaction.logicalLineHeaderRule`'s REAL-LINE branch now starts at `REAL_LINE_START = "^[ \t]*+"`
+> instead of a bare `^`, so an indented header line and an obs-folded continuation line ARE
+> recognised, in STRICT and BALANCED, across all three composed rules. Measured before/after, the
+> consuming-vs-zero-width hazard, the falsified variable-width-lookbehind premise and the two-way
+> mutation proof are in the **"AR-27-09 — CLOSED BY FIX 2026-08-26"** section of
+> `.planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md`. Gated by
+> `IndentedLogicalLineStartTest` and `LogicalLineBoundaryScopeTest`. **PRIV-05 is still `[ ]`**;
+> `AR-27-10` and `AR-27-11` are still open. `AR-27-09` is an `AR-` row and was always outside the
+> `threats_open` population, which was recomputed and is unchanged at `0`.
 
 ## Known Stubs
 
