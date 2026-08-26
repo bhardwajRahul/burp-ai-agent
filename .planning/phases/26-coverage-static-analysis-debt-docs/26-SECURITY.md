@@ -1217,13 +1217,39 @@ finding it was prohibited from fixing).
 
 **THE MACHINE CHECK THAT NOW ENFORCES THIS, AND — IN THE SAME CLAUSE, BECAUSE THIS FILE HAS BEEN
 BURNED BY EXACTLY THIS OMISSION — ITS STATED BOUND.** `RedactingPolicySurvivalSweepTest` (plan 27-12,
-extended by plan 27-15, **15 tests**) replaces plan 27-08's prose must-have with a scan of
+extended by plan 27-15 and by the round-5 gap closure, **18 tests**) replaces plan 27-08's prose
+must-have with a scan of
 `src/test/kotlin`. It reports an EMPTY hit set with an EMPTY `ALLOWLIST` on the tree as shipped, it
 scans its OWN file with NO self-file exclusion and comes out clean, and that zero is FALSIFIABLE —
-the same detector over the same file without the raw-string skip returns **14** (plan 27-12 measured
-and wrote **5**; the movement is entirely plan 27-15's three new fixtures — six declaration-shape
-pins, two composition halves, one unbalanced-file pin — and the number is restated at what it now IS
-rather than left to go quietly stale).
+the same detector over the same file without the raw-string skip returns **15** (plan 27-12 measured
+and wrote **5**; plan 27-15 measured and wrote **14** — six declaration-shape pins, two composition
+halves, one unbalanced-file pin — and the fifteenth is `fb7cbd3`'s trailing-comment fixture; the
+numbers are restated at what they now ARE rather than left to go quietly stale).
+
+**BOTH NUMBERS IN THE PARAGRAPH ABOVE ARE NOW MACHINE-CHECKED TOO, and this sentence exists because
+they were not, and both went stale inside the round that wrote the check beside them.** Amended
+2026-08-26 by the round-5 gap closure, after `27-VERIFICATION-5.md` gap 1. **What happened, recorded
+at full width because softening it would waste the only thing it bought.** At the end of plan 27-15
+this paragraph read **15 tests** and **returns 14**, and both were true. The round's LAST commit,
+`fb7cbd3` — an out-of-plan WR-02 fix — added a sixteenth `@Test` and a new raw-string fixture, listed
+exactly ONE file in `git show --name-only`, and amended no record. From that commit onward this
+clause stated **15** where the control had **16**, and **14** where it returned **15**. **That is a
+stated bound diverging from its control, in the clause written to prohibit exactly that, whose own
+worked example is exactly that, committed for the second time.** `fb7cbd3`'s commit message reasons
+about the thirteen-axis count — "unchanged because this is a fix, not a deferral" — and never asks
+the same question of the two numbers beside it. **The number that was checked did not drift; both
+numbers that were not, did, inside the same round.** The remedy is the one round 5 already applied
+once successfully: `theStatedTestMethodCountMatchesThisFilesOwnDeclarations` counts anchored `@Test`
+declarations over the sweep's own `fileWalk` output (so a `@Test` inside a raw-string FIXTURE is not
+counted as a method, and a walk that starts blanking real code takes it red too) and compares against
+`STATED_TEST_METHODS`; `theStatedUnskippedSelfHitCountMatchesThisFile` pins the unskipped self-hit
+count with `assertEquals` against `STATED_UNSKIPPED_SELF_HITS` — the pre-existing
+`MIN_EXPECTED_UNSKIPPED_SELF_HITS` FLOOR is kept and is not that check, because a floor catches a
+disarmed detector and cannot catch a moved count. Both were mutation-proved against the two stale
+values this clause carried: set to **15** and **14** they go RED with the measured **18** and **15**
+in the failure text. **All three numbers this clause cites can now go stale only if a test goes red
+first**, which is the property none of them had when the clause was written and only one of them had
+after round 5. The 18 is the 16 measured at `2a880f9` plus those two new checks.
 
 **IT IS DEMONSTRATED TO FIRE ON THE REAL THING, not merely on invented fixtures.** The committed
 `detect()` / `fileWalk()` functions were pointed at the PRE-ROUND contents of the two files

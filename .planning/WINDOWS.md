@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 48
+open_count: 49
 waived_count: 0
 fixed_count: 0
-total_count: 48
-last_updated: 2026-08-26T15:14:54.792Z
+total_count: 49
+last_updated: 2026-08-26T18:32:11.336Z
 ---
 
 # Broken Windows Ledger
@@ -63,6 +63,7 @@ last_updated: 2026-08-26T15:14:54.792Z
 | 46 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt |  | Carried from 27-15: plan 27-15 anticipated the widened declaration gate would leave MULTI-LINE SIGNATURES as its new blind axis. Measured: 0 multi-line signatures on this tree, but 3 extension-receiver declarations (private fun String.indentWidth() and one String.isRecurringSchedule()), one of them inside the sweep file itself, remain invisible after the widening for the same root cause — the regex requires the opening parenthesis to follow the identifier. Axis 9 was written at both shapes with both counts rather than at the projection. Recorded here by plan 27-16. | open |  | 2026-08-26T14:46:03.052Z |  |
 | 47 | 27 | deviation | src/main/kotlin/com/six2dez/burp/aiagent/redact/Redaction.kt | 1628 | MEASURED by plan 27-16, NOT FIXED: ./gradlew check fails jacocoTestCoverageVerification on the round-5 tree — redact package BRANCH ratio 0.927 against a 0.930 floor. Bisected: the pre-round-5 tree c2d980f PASSES at 0.9330 (13 missed / 116 covered); the round-5 base 87c1102 and the final 27-16 tree both FAIL at 0.9278 (14/115). Exactly one branch flipped, and it is 'if (remainingMs <= 0L)' at Redaction.kt:1628 — the WALL-CLOCK budget-exhaustion guard, the same SafeRegex 50ms deadline path as the documented RedactionTest flake. Samples: covered 1 of 1 runs pre-round-5, missed 2 of 2 runs on round 5. Whether the cause is 27-14's narrowing making the composed regexes cheaper (so the deadline no longer fires incidentally) or ambient CPU load is NOT established by three samples and is NOT claimed. The floor has ONE branch of headroom either way, so it is partly met by a timing-dependent branch. NOT fixed here: the honest options are a deterministic test for the budget-exhaustion branch, or lowering a QUAL-06 floor to make a red gate green — and the second is the laundering this phase exists to prohibit. Neither belongs in a records plan. Waves 8 and 9 both gated on 'ktlintCheck test' and never ran check, which is why nobody saw it. | open |  | 2026-08-26T15:14:46.514Z |  |
 | 48 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt |  | FIXED by plan 27-16 (Rule 3): ./gradlew detekt failed on the round-5 base with 3 MayBeConst findings — DECLARATION_SHAPE_FIXTURE, WALK_COMPOSITION_FIXTURE and UNBALANCED_WALK_FIXTURE, all three added by plan 27-15. Plan 27-15's own verification and the wave-9 post-merge gate both ran 'ktlintCheck test' and never ran detekt, so a red gate was merged unseen. Fixed by making the three raw-string fixtures const val — no behaviour change, no detekt-baseline.xml growth (QUAL-07). Recorded because it is a residual round 5 INTRODUCED and invisible to the round that created it, which is precisely what standing-rule clause (vii) exists to surface. | open |  | 2026-08-26T15:14:54.792Z |  |
+| 49 | 27 | deviation | .planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md |  | 27-VERIFICATION-5 gap 1, FIXED by the round-5 gap closure: standing-rule clause (vi) stated '15 tests' and 'returns 14' while its own control had 16 and returned 15. The mover was fb7cbd3, round 5's LAST commit — an out-of-plan WR-02 fix that added a sixteenth @Test and a raw-string fixture, listed exactly ONE file in git show --name-only, and amended no record. So the clause that prohibits a stated bound wider than its control, and whose own worked example is that defect, committed it a second time INSIDE the round that wrote the clause's other machine check. Re-measured here at 2a880f9 before writing anything: grep -c '^    @Test' = 16 (a seventeenth match sits inside DECLARATION_SHAPE_FIXTURE and is fixture text), and detect(SELF_PATH, readLines()) = 15, both reproducing the verifier's numbers exactly. FIXED at the mechanism, not the instance: theStatedTestMethodCountMatchesThisFilesOwnDeclarations counts anchored @Test declarations over the sweep's own fileWalk output against STATED_TEST_METHODS, and theStatedUnskippedSelfHitCountMatchesThisFile pins the unskipped self-hit count with assertEquals against STATED_UNSKIPPED_SELF_HITS; the pre-existing MIN_EXPECTED_UNSKIPPED_SELF_HITS floor is kept because a floor catches a disarmed detector and cannot catch a moved count. Mutation-proved against the two stale register values: set to 15 and 14 the two tests go RED reporting the measured 18 and 15. Class is now 18 tests (16 plus these two checks) and clause (vi) is amended to 18 / 15 in the SAME change. The number in that clause that WAS machine-checked (STATED_BLIND_AXES) did not drift; both that were not, did. | open |  | 2026-08-26T18:32:11.336Z |  |
 
 ````json
 [
@@ -640,6 +641,18 @@ last_updated: 2026-08-26T15:14:54.792Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-26T15:14:54.792Z",
+    "resolved_at": null
+  },
+  {
+    "id": 49,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md",
+    "line": null,
+    "description": "27-VERIFICATION-5 gap 1, FIXED by the round-5 gap closure: standing-rule clause (vi) stated '15 tests' and 'returns 14' while its own control had 16 and returned 15. The mover was fb7cbd3, round 5's LAST commit — an out-of-plan WR-02 fix that added a sixteenth @Test and a raw-string fixture, listed exactly ONE file in git show --name-only, and amended no record. So the clause that prohibits a stated bound wider than its control, and whose own worked example is that defect, committed it a second time INSIDE the round that wrote the clause's other machine check. Re-measured here at 2a880f9 before writing anything: grep -c '^    @Test' = 16 (a seventeenth match sits inside DECLARATION_SHAPE_FIXTURE and is fixture text), and detect(SELF_PATH, readLines()) = 15, both reproducing the verifier's numbers exactly. FIXED at the mechanism, not the instance: theStatedTestMethodCountMatchesThisFilesOwnDeclarations counts anchored @Test declarations over the sweep's own fileWalk output against STATED_TEST_METHODS, and theStatedUnskippedSelfHitCountMatchesThisFile pins the unskipped self-hit count with assertEquals against STATED_UNSKIPPED_SELF_HITS; the pre-existing MIN_EXPECTED_UNSKIPPED_SELF_HITS floor is kept because a floor catches a disarmed detector and cannot catch a moved count. Mutation-proved against the two stale register values: set to 15 and 14 the two tests go RED reporting the measured 18 and 15. Class is now 18 tests (16 plus these two checks) and clause (vi) is amended to 18 / 15 in the SAME change. The number in that clause that WAS machine-checked (STATED_BLIND_AXES) did not drift; both that were not, did.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T18:32:11.336Z",
     "resolved_at": null
   }
 ]

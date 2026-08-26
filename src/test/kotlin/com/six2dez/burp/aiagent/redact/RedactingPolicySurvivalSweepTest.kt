@@ -480,6 +480,69 @@ class RedactingPolicySurvivalSweepTest {
         )
     }
 
+    /**
+     * The SECOND of clause (vi)'s three numbers, machine-checked for the first time.
+     *
+     * `26-SECURITY.md` standing-rule clause (vi) cites this class BY TEST COUNT. That number was
+     * transcribed by hand and it went stale inside the round that wrote it: `fb7cbd3` added a
+     * sixteenth `@Test` and touched no record, so the clause that prohibits a stated bound wider
+     * than its control stated a control this file falsified. The axis count beside it — the ONE
+     * number in the clause that was machine-checked — did not drift. That contrast is the whole
+     * argument for this test.
+     *
+     * It counts over [fileWalk] rather than over the raw lines DELIBERATELY: the raw file carries a
+     * seventeenth `@Test` inside [DECLARATION_SHAPE_FIXTURE], which is fixture text and not a method
+     * this class runs. The walk blanks raw-string interiors, so the count is over real code — and it
+     * therefore also goes red if the walk ever starts blanking real code, which is the silent
+     * direction this file exists to make loud.
+     */
+    @Test
+    fun theStatedTestMethodCountMatchesThisFilesOwnDeclarations() {
+        val declared = fileWalk(sourceFile(SELF_PATH)).count { TEST_ANNOTATION.containsMatchIn(it) }
+
+        assertEquals(
+            STATED_TEST_METHODS,
+            declared,
+            "this class declares $declared `@Test` methods and states $STATED_TEST_METHODS. " +
+                "`26-SECURITY.md` standing-rule clause (vi) cites that stated number as this " +
+                "check's size, so a change to this file that does not move the constant makes the " +
+                "REGISTER false — which is exactly what happened at fb7cbd3, silently, inside the " +
+                "round that added the machine check for the axis count next to it. Update BOTH " +
+                "this constant and clause (vi); do NOT adjust the constant alone.",
+        )
+    }
+
+    /**
+     * The THIRD of clause (vi)'s three numbers: the unskipped self-hit count, pinned EXACTLY.
+     *
+     * [theRawStringSkipIsWhyTheSelfScanIsClean] asserts the same population against
+     * [MIN_EXPECTED_UNSKIPPED_SELF_HITS], and that FLOOR is deliberate and stays — it is there to
+     * catch a detector that has been silently disarmed, not to track a count. A floor cannot keep a
+     * register sentence honest, though: clause (vi) quotes the EXACT number as the evidence that
+     * this file's clean self-scan is falsifiable, and `fb7cbd3`'s new raw-string fixture moved it by
+     * one while every assertion in this class stayed green.
+     *
+     * So the count is pinned here as well as floored there, and the two assertions are kept in
+     * separate tests on purpose: they answer different questions and a reader who trips one should
+     * not have to work out which.
+     */
+    @Test
+    fun theStatedUnskippedSelfHitCountMatchesThisFile() {
+        val unskipped = detect(SELF_PATH, sourceFile(SELF_PATH).readLines())
+
+        assertEquals(
+            STATED_UNSKIPPED_SELF_HITS,
+            unskipped.size,
+            "the detector run over THIS FILE WITHOUT the raw-string skip found ${unskipped.size} " +
+                "hits; $STATED_UNSKIPPED_SELF_HITS is what this file and `26-SECURITY.md` " +
+                "standing-rule clause (vi) both state. UP means a fixture gained a survival pin — " +
+                "re-count it and move BOTH numbers. DOWN means a positive fixture stopped being " +
+                "detected, which makes the clean self-scan above an accident rather than a " +
+                "measurement. Either way the register sentence is now false until it is amended in " +
+                "the SAME change. Hits: $unskipped",
+        )
+    }
+
     // ── non-vacuity of the walk itself ────────────────────────────────────────────────────
 
     @Test
@@ -862,20 +925,30 @@ class RedactingPolicySurvivalSweepTest {
         /** A numbered entry in the class KDoc's blind-axis enumeration; continuation lines do not match. */
         val AXIS_ENTRY = Regex("^\\s*\\*\\s+\\d+\\.\\s")
 
+        /**
+         * A `@Test` annotation at the START of a line, counted by
+         * [theStatedTestMethodCountMatchesThisFilesOwnDeclarations].
+         *
+         * ANCHORED rather than a substring test, for the same reason [AXIS_ENTRY] is: a `@Test`
+         * named in prose, in a KDoc reference or inside a string literal is not a declaration, and a
+         * count that admitted those would drift for reasons that have nothing to do with the size of
+         * this class. The word boundary keeps a hypothetical `@TestFactory` out of the count.
+         */
+        val TEST_ANNOTATION = Regex("^\\s*@Test\\b")
+
         // Measured at execution time: 151 .kt files under src/test/kotlin, this file included. The
         // floor is deliberately well below that — it is here to catch a walk that reaches nothing,
         // not to track the file count.
         const val MIN_EXPECTED_TEST_FILES = 100
 
         // Without the raw-string skip this file flags itself once per survival pin its positive
-        // fixtures carry. MEASURED at execution time on this file after plan 27-15: 14 unskipped,
-        // 0 skipped. Plan 27-12 measured 5 here and wrote 5 down; the number is restated at what it
-        // now IS rather than left to go quietly stale. The whole of the movement, itemised: the four
-        // vocabulary fixtures still carry five pins between them (the host-pin fixture carries two);
-        // DECLARATION_SHAPE_FIXTURE adds SIX, one per declaration shape; WALK_COMPOSITION_FIXTURE
-        // adds TWO, one per half; UNBALANCED_WALK_FIXTURE adds ONE. 5 + 6 + 2 + 1 = 14.
-        // The floor stays well below the measurement for the same reason the file floor is 100: it
-        // is here to catch a skip that has silently disarmed the detector, not to track a count.
+        // fixtures carry. The COUNT lives in STATED_UNSKIPPED_SELF_HITS and is machine-checked from
+        // source; this floor is NOT that check and is deliberately kept well below it, for the same
+        // reason the file floor is 100 — it is here to catch a skip that has silently disarmed the
+        // detector, not to track a count. Plan 27-15 wrote the count into this comment (14) and plan
+        // 27-12 wrote 5 before it; both went stale in place, the second of them inside the round that
+        // wrote it, because a comment is not a check. The itemisation moved to the constant that a
+        // test now reads.
         const val MIN_EXPECTED_UNSKIPPED_SELF_HITS = 2
 
         const val EXPECTED_NEGATIVE_FIXTURES = 6
@@ -892,6 +965,44 @@ class RedactingPolicySurvivalSweepTest {
          * the source — so this is that thing, and the register now cites a number a test enforces.
          */
         const val STATED_BLIND_AXES = 13
+
+        /**
+         * The number of `@Test` methods this class declares, MACHINE-CHECKED against this file's own
+         * declarations by [theStatedTestMethodCountMatchesThisFilesOwnDeclarations] rather than
+         * transcribed.
+         *
+         * `26-SECURITY.md` standing-rule clause (vi) cites this class BY TEST COUNT, and that
+         * citation went stale INSIDE the round that wrote the clause's other machine check: `fb7cbd3`
+         * added a sixteenth `@Test` and a raw-string fixture, amended no record, and nothing was red.
+         * Two counts in that clause were prose and both drifted; the one beside them that a test
+         * read from source did not. This constant is the same remedy applied to the second of the
+         * three.
+         *
+         * MEASURED 2026-08-26 at `2a880f9`: 16 declared, against a clause stating 15. The value here
+         * is 18 — the sixteen at that commit plus
+         * [theStatedTestMethodCountMatchesThisFilesOwnDeclarations] and
+         * [theStatedUnskippedSelfHitCountMatchesThisFile], the two checks added to stop the drift.
+         */
+        const val STATED_TEST_METHODS = 18
+
+        /**
+         * The number of hits [detect] returns over THIS file with the raw-string skip NOT applied —
+         * the falsifiability evidence `26-SECURITY.md` standing-rule clause (vi) quotes, pinned
+         * EXACTLY by [theStatedUnskippedSelfHitCountMatchesThisFile].
+         *
+         * [MIN_EXPECTED_UNSKIPPED_SELF_HITS] floors the same population and is NOT replaced by this:
+         * a floor catches a disarmed detector, an exact pin catches a moved count, and clause (vi)
+         * quotes the count. Until this constant existed the clause's number was checked by nothing —
+         * `fb7cbd3`'s TRAILING_COMMENT_WALK_FIXTURE added its one pin and moved the real figure from
+         * 14 to 15 with every assertion in this class still green.
+         *
+         * MEASURED 2026-08-26 at `2a880f9`, against a clause stating 14. Itemised: the four
+         * vocabulary fixtures carry FIVE pins between them (the host-pin fixture carries two);
+         * [DECLARATION_SHAPE_FIXTURE] SIX, one per declaration shape; [WALK_COMPOSITION_FIXTURE] TWO,
+         * one per half; [UNBALANCED_WALK_FIXTURE] ONE; [TRAILING_COMMENT_WALK_FIXTURE] ONE.
+         * 5 + 6 + 2 + 1 + 1 = 15.
+         */
+        const val STATED_UNSKIPPED_SELF_HITS = 15
 
         // One hit per declaration shape in DECLARATION_SHAPE_FIXTURE. MEASURED against the SHIPPED
         // detector before this round's widening: 1 of 6 — only the plain-named control was seen.
