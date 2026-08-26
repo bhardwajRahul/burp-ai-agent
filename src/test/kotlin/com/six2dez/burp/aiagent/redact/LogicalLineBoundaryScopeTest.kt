@@ -284,7 +284,7 @@ class LogicalLineBoundaryScopeTest {
 
         /**
          * A floor on the rationale region, so a one-line comment cannot pass as a stated bound.
-         * MEASURED at 119 comment lines after plan 27-11 extended the region (78 before it). A
+         * MEASURED at 125 comment lines after plan 27-11 extended the region (78 before it). A
          * FLOOR, not a count — the same discipline as [MIN_EXPECTED_LINES] — so prose edits are free
          * while gutting the stated bounds turns red.
          */

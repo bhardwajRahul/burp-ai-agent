@@ -241,8 +241,14 @@ object Redaction {
     // complete. A header line preceded by LEADING HORIZONTAL WHITESPACE, including an RFC 7230
     // obs-folded continuation line, matches NONE of the three: the real-line branch anchors `^`
     // directly against the header name, and both lookbehinds see a space rather than a newline or a
-    // quote. MEASURED surviving under STRICT in round 3 on the shape
-    // `GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n`. DELIBERATELY out of this round's scope — the
+    // quote. MEASURED surviving under STRICT in round 3, and RE-MEASURED against the compiled classes
+    // at the end of round 4 — where it survives BYTE-UNCHANGED under BOTH STRICT and BALANCED, which
+    // is one mode WIDER than round 3 recorded:
+    //
+    //   GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n   STRICT   ->  unchanged
+    //   GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n   BALANCED ->  unchanged
+    //
+    // DELIBERATELY out of this round's scope — the
     // maintainer scoped round 4 to the string-open case — and filed as open finding AR-27-09 rather
     // than left as an aside. THE FIX IS WRITTEN DOWN so a successor need not re-derive it: allow
     // leading horizontal whitespace on the real-line branch, `^[ \t]*` in place of `^`. That is one
