@@ -171,11 +171,12 @@ class CookieHeaderNameParityTest {
         }
     }
 
-    // The documented asymmetry, asserted positively so a future reader meets the design intent as a
-    // passing test rather than as prose. See the DIRECTION note in this file's header: the converse
-    // implication is deliberately NOT asserted anywhere in this file.
+    // (PRIV-05) plan 27-10. The underscore name class, asserted in the SAFE direction. Before this
+    // plan COOKIE_NAME_PART was [A-Za-z0-9-]*, which excludes '_', and this same fixture asserted
+    // that my_cookie's value SURVIVED STRICT — a green test pinning a cookie disclosure. The
+    // assertion is INVERTED rather than deleted, so the corpus entry keeps carrying its measurement.
     @Test
-    fun thePredicateIsDeliberatelyWiderThanTheTwoRegexes() {
+    fun theUnderscoreNameClassIsStrippedByBothTheRegexesAndThePredicate() {
         val name = "my_cookie"
         val sentinel = PARITY_CORPUS.first { it.first == name }.second
 
@@ -186,17 +187,21 @@ class CookieHeaderNameParityTest {
 
         for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
             val output = redactHeaderBlob(mode, name, sentinel)
-            assertTrue(
-                output.contains(sentinel),
-                "$mode: the prompt path must NOT strip '$name' — '_' is outside COOKIE_NAME_PART, so neither " +
-                    "cookie regex can match it. This asymmetry is INTENTIONAL and fail-safe: the predicate is " +
-                    "wider than the two regexes, so the redacting side over-matches rather than under-matches. " +
-                    "If this assertion fails, the prompt-path regexes were widened — record the measurement, " +
-                    "do not narrow the predicate to restore symmetry (output: $output)",
-            )
             assertFalse(
+                output.contains(sentinel),
+                "$mode: the value of '$name' SURVIVED a redacting policy. '_' is a legal RFC 9110 tchar, so " +
+                    "this is a real header name, and PassiveAiScannerFilters.sanitizeHeadersForPrompt ADMITS it " +
+                    "into the outbound passive-scan prompt PRECISELY BECAUSE the shared predicate claims it. " +
+                    "A value surviving here is therefore a cookie disclosure to a third-party AI backend, not " +
+                    "an intended asymmetry. FIX THE DIRECTION THAT IS SAFE: widen COOKIE_NAME_PART so the two " +
+                    "regexes reach every name the predicate admits. NEVER narrow the predicate to restore " +
+                    "symmetry — that shrinks what McpToolHelpers.sanitizeHeaders strips on the MCP path, which " +
+                    "is the direction that reopened this phase (output: $output)",
+            )
+            assertTrue(
                 output.contains("$name: [STRIPPED]"),
-                "$mode: '$name' must not be rewritten to the stripped form (output: $output)",
+                "$mode: '$name' must be rewritten to the stripped form and must keep its OWN name rather than " +
+                    "be renamed to the canonical spelling (output: $output)",
             )
         }
     }
