@@ -455,3 +455,20 @@ floor, pre-existing on the round-5 base, and it is not the `RedactionTest` flake
 ---
 *Phase: 27-priv-05-gap-closure-sanitize-headers*
 *Completed: 2026-08-26*
+
+---
+
+## SUPERSEDED SEVERITY — appended 2026-08-26, this summary's body is byte-unchanged
+
+This SUMMARY records plan 27-16 as it ran, and it is not rewritten. One of its statements has since
+been superseded and a reader arriving here cold would otherwise take it as current.
+
+**`AR-27-11` is OPEN at MEDIUM over FOUR MEASURED families, not at LOW over the array element.**
+The key decision above — *"Assign AR-27-11 LOW from a MEASURED reachability enumeration"* — and
+MEASUREMENT 3's `List<String>`-fields table were correct for the question they asked, and
+`27-REVIEW-3.md` CR-01 established that the question was the wrong one: the carrier is not a schema
+FIELD but the CONTENT of the `response` string this repository copies verbatim from the target.
+Corrected out-of-plan by `2ed1a12`; propagated to this file after `27-VERIFICATION-5.md` gap 2. The
+mechanism, the four families and the re-derivation live in the `AR-27-11` row and the correction
+section of `26-SECURITY.md`; the maintainer's decision item is `27-HUMAN-UAT.md` item 12, itself
+corrected in the same change.

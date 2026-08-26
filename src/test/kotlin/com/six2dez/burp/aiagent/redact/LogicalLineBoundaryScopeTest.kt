@@ -154,9 +154,13 @@ class LogicalLineBoundaryScopeTest {
         )
         assertTrue(
             text.contains(THIRD_OPEN_FINDING),
-            "the rationale must ALSO carry `$THIRD_OPEN_FINDING`, the JSON-ARRAY-ELEMENT string open " +
-                "that stopped being a recognised start when 27-14 narrowed the third start to a JSON " +
-                "string VALUE open. ALL THREE residuals have to stay traceable from source: the " +
+            "the rationale must ALSO carry `$THIRD_OPEN_FINDING` — the JSON-STRING-OPEN start in " +
+                "EVERY spelling `:\"` does not recognise, which is FOUR MEASURED families and not " +
+                "the one array-element example this message used to name. The mechanism, so the " +
+                "list is not read as four accidents: `:\"` is the two LITERAL characters colon then " +
+                "quote, so any shape that interposes a character between them — a space, or the " +
+                "backslash of an escaped quote — and any shape with no colon before the quote at " +
+                "all, is NOT a start. ALL THREE residuals have to stay traceable from source: the " +
                 "boundary now recognises a NARROWED set of logical line starts, and a comment that " +
                 "stops naming what the boundary cannot see leaves the next reader with a boundary " +
                 "that reads complete and is not — which is how this requirement has been closed " +
@@ -229,10 +233,22 @@ class LogicalLineBoundaryScopeTest {
             ":\"",
             decoded,
             "the third logical-line start must be the colon-quote sequence — a JSON string VALUE " +
-                "open. The narrowing deliberately accepts one residual, recorded as AR-27-11: " +
-                "a header at the open of a JSON ARRAY ELEMENT string (`[\"Cookie: …\"]`) is not a " +
-                "recognised start, MEASURED as matching before 27-14 and as not matching after it. " +
-                "That residual is the whole trade; do not undo it by re-widening this value.\n" +
+                "open. The narrowing deliberately accepts one residual, recorded as AR-27-11, and " +
+                "that residual is a MECHANISM rather than an example: `:\"` is colon then quote " +
+                "LITERALLY, so a header at the open of a JSON string escapes whenever a character " +
+                "is interposed between the two — or there is no colon at all. FOUR families were " +
+                "MEASURED matching before 27-14 and byte-unchanged after, in STRICT and BALANCED " +
+                "and across all three composed rules: a NESTED / ESCAPED value open " +
+                "(`\\\"k\\\":\\\"Cookie: …`, which is a captured JSON RESPONSE BODY serialized into " +
+                "a tool result, so it sits on the PRIMARY emission path); PRETTY-PRINTED JSON " +
+                "(`\"k\": \"Cookie: …`); a BARE TOP-LEVEL JSON string; and the ARRAY ELEMENT " +
+                "(`[\"Cookie: …\"]` and `,\"Cookie: …`) this message once named alone. In all four " +
+                "only a header that is the FIRST CONTENT of its string escapes — one after an " +
+                "escaped newline is still stripped — which is the bound the MEDIUM rests on. " +
+                "That trade is the whole of what the narrowing bought; do not undo it by re-widening " +
+                "this value, and do not re-widen it to `[\\\"` and `,\\\"` alone believing that " +
+                "closes AR-27-11: it closes ONE of the four. See the `AR-27-11` row in " +
+                "`26-SECURITY.md` for the re-derivation.\n" +
                 "  Read as: $literal",
         )
     }

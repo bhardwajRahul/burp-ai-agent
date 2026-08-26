@@ -557,6 +557,15 @@ result: [pending]
 
 ## 12. NEW, a DISPOSITION rather than a test — `AR-27-11`, accept the array-element start or widen the boundary
 
+> **STOP — EVERYTHING FROM HERE TO THE `CORRECTION 2026-08-26` MARKER BELOW IS SUPERSEDED, AND IT IS
+> LEFT BYTE-UNCHANGED RATHER THAN DELETED.** It states `AR-27-11` at **LOW** over **one** family, it
+> argues acceptance from a reachability enumeration that the same round measured to be the wrong
+> question, and its **Option B closes ONE of the four measured families, not the residual**. The
+> finding is **OPEN at MEDIUM over FOUR MEASURED families** and is reachable on the DEFAULT-posture
+> emission path with no opt-in precondition. **Decide from the corrected item below**, or from the
+> `AR-27-11` row in `26-SECURITY.md`, and read what follows only as the record of what this item said
+> before `2ed1a12` corrected the finding without reaching this document.
+
 This is a **JUDGMENT, not an investigation.** The residual is already measured in both directions and
 its reachability has been enumerated at source. Nothing further needs to be found out.
 
@@ -601,10 +610,107 @@ model-authored carrier; option B risks an unmeasured over-redaction on every car
 history contains one costly example of each, which is why this is a person's call and not an
 executor's.
 
-why_human: A privacy-boundary residual created by this round's own fix, with one measured carrier and
-one unmeasured remote half. Accepting it sets a release posture; closing it widens a redaction rule
-that has already been measured over-firing once at 93% of a payload. Neither is a defensible harness
-default.
+### CORRECTION 2026-08-26 — this item is restated at MEDIUM over FOUR families, and its Option B is corrected
+
+**Nothing above this marker is edited.** It is the item as `2ed1a12` left it: that commit corrected
+`AR-27-11` in `26-SECURITY.md`, in `Redaction.kt` and in `LogicalLineBoundaryScopeTest`'s
+`THIRD_OPEN_FINDING` KDoc, and `git show --name-only 2ed1a12` lists exactly those three files. **It
+did not reach this document — the one the register names BY NAME as the owner's decision venue
+("OWNER: unchanged — the maintainer, item 12 of `27-HUMAN-UAT.md`").** `27-VERIFICATION-5.md` gap 2.
+This correction is that propagation, and it changes what is being decided in two ways: the severity,
+and what one of the two offered options actually buys.
+
+**THE FINDING, CORRECTED — a MECHANISM, not an example.** `JSON_STRING_OPEN` is `:"`: the two
+LITERAL characters colon then quote. **Any shape that interposes a character between them — a space,
+or the backslash of an escaped quote — and any shape with no colon before the quote at all, is not a
+recognised logical-line start.** FOUR families follow, every one MEASURED matching under the bare
+quote 27-11 shipped and BYTE-UNCHANGED under the narrowed value, in STRICT and BALANCED alike, across
+all three composed rules (`cookieHeaderRegex`, `setCookieHeaderRegex`, `authHeaderRegex`), with
+compact-shaped positive controls stripping in the same run:
+
+| # | Family | Shape | Why `:"` misses it |
+|---|---|---|---|
+| 1 | NESTED / ESCAPED string value open | `{"response":"…{\"cookie_header\":\"Cookie: …"}` | a backslash sits between the colon and the quote |
+| 2 | PRETTY-PRINTED JSON | `{"notes": "Cookie: …"}` | a space sits between the colon and the quote |
+| 3 | BARE TOP-LEVEL JSON string | `"Cookie: …"` | there is no colon before the quote at all |
+| 4 | ARRAY ELEMENT | `{"tags":["Cookie: …"]}` and `{"tags":["x","Cookie: …"]}` | the quote is preceded by `[` or `,`, not by `:` |
+
+**Family 4 is the ONE this item named before the correction.** Families 1 and 2 are the ones that
+carry the severity, and they are the reason it is no longer LOW.
+
+**THE REACHABILITY, RE-DERIVED — and this is where the argument above breaks, not merely its
+arithmetic.** The `For:` clause of Option A rests on *"no emission field this repository owns is a
+JSON array of strings"*. That enumeration is correct and it answers the wrong question. **The carrier
+is not a FIELD.** `mcp/schema/Serialization.kt` emits `HttpRequestResponse(request, response, notes)`,
+and the whole raw HTTP RESPONSE — **body included** — goes out as the CONTENT of the `response`
+string, copied verbatim from the target. A captured body that is itself JSON arrives with its inner
+quotes escaped, which is **family 1, on the primary emission path**; one that pretty-prints is family
+2; one returning header lines as an array of strings is family 4 — **all three inside the `response`
+string, none of them a `List<String>` field.** Measured end to end: that carrier is IDENTICAL in and
+out under STRICT and BALANCED, while the same carrier with `Set-Cookie: …` on the response's own
+header block became `Set-Cookie: [STRIPPED]` in the same run, so the null result is attributable to
+REACH. The same three families survive `McpToolExecutorImpl.kt:1018` `redact_preview` — **the one
+tool whose purpose is to answer "would this leak?" now answers "no" for three of the four** — and
+`ContextCollector.kt:52-53` on the PROMPT path, which is outside the MCP schema entirely. The
+model-authored `argsJson` carrier the old enumeration named is still real, still UNMEASURED on its
+remote half, and **was never the most reachable one.**
+
+**SEVERITY: MEDIUM, raised from LOW.** Reachable with BURP-HELD traffic, in the DEFAULT posture,
+under STRICT and BALANCED alike, with no opt-in precondition. **Not `high`:** no LIVE producer was
+measured — what would move it is a measured instance of such a response body on real proxied traffic.
+
+**THE MITIGATING BOUND THE MEDIUM RESTS ON, checked in all four families rather than repeated: only a
+header that is the FIRST CONTENT of its string escapes.** A header that follows an escaped newline is
+STILL STRIPPED — re-measured in the doubly-escaped nested form, the pretty form, the array form and
+the bare top-level form, all four became `Cookie: [STRIPPED]`. So a realistic raw HTTP message
+carried inside any of these four shapes is still redacted; what escapes is a string whose FIRST
+content is a header line.
+
+**OPTION A — ACCEPT at MEDIUM** (supersedes "ACCEPT at LOW" above). The residual stays filed, cited
+in `Redaction.kt`, pinned from source by `LogicalLineBoundaryScopeTest.THIRD_OPEN_FINDING`, and owned
+here.
+*For:* the mitigating bound above is real and measured — only a first-content header escapes, so the
+realistic raw-message shape is still covered; no live producer of the escaping shape has been
+measured; and no widening has been measured against the benign corpus this quarter.
+*Against:* it is MEDIUM, not LOW. It defeats STRICT **and** BALANCED on the plain canonical `Cookie:`
+name with no variant spelling required, on this repository's own primary emission path, with
+Burp-held traffic, in the default posture — and `redact_preview`, the tool a user would reach for to
+check exactly this, reports clean for three of the four families.
+
+**OPTION B — CORRECTED. As written above it closes ONE family of four, not the residual.** The text
+above offers *"add `[\"` and `,\"` as two further FIXED-WIDTH lookbehind alternatives"* and describes
+it as closing *"the residual at the control rather than in a record"*. **That is false under the
+corrected mechanism and it overstates the fix by a factor of four.** Those two alternatives recognise
+the bracket-quote and comma-quote opens, which is **family 4 only**. Family 1 interposes a backslash,
+family 2 interposes a space, and family 3 has no preceding character to match — **all three remain,
+and they are the two-plus-one that put this finding at MEDIUM and on the default-posture path.** If
+Option B is chosen as written, it must be recorded as a PARTIAL fix that leaves `AR-27-11` open at
+MEDIUM over three families, not as a closure.
+
+**OPTION C — a widening that actually closes all four.** Stated so the maintainer is not choosing
+between "accept" and a fix that closes a quarter of the finding. Derived from the four recorded
+family spellings by counting, **not** measured against the engine or against the benign corpus:
+covering all four needs look-back alternatives at **three different widths** — 2 for `["` / `,"`
+(family 4), 3 for `:\"` (family 1) and `: "` (family 2), and 0 for a start-of-input anchor (family 3,
+whose open quote is a bare quote at offset 0 and is therefore narrow rather than a re-introduction of
+the 1589-of-1714 destruction). **The composer's fixed-width look-back argument — the measured 2.4x
+this phase preserved deliberately — does not cover a mixed-width alternation, so Option C's
+performance cost is UNMEASURED and is labelled as such rather than assumed small.** Like Option B it
+must not be applied without its own red probe over the benign-payload corpus.
+
+**THE ASYMMETRY, RESTATED AT THE CORRECTED WEIGHTS:** Option A leaves a MEASURED under-redaction on
+this repository's OWN primary emission path, not on a model-authored side channel. Option B buys one
+family of four. Option C risks an unmeasured over-redaction on every carrier AND an unmeasured
+look-back cost. This phase's own history contains one costly example of an over-firing widening
+(`WR-01`'s 32 measured false positives; the bare quote's 93% payload destruction) and, now, one of an
+under-measured acceptance — which is why this is a person's call and not an executor's, and why the
+call should be made against these numbers rather than the ones above the marker.
+
+why_human: A privacy-boundary residual created by this round's own fix, MEDIUM, four measured
+families, reachable with Burp-held traffic in the default posture under both redacting modes.
+Accepting it sets a release posture on a shipped 1.0.0; closing it widens a redaction rule this phase
+has twice measured over-firing, at a look-back cost nobody has measured. Neither is a defensible
+harness default, and the choice must not be made from the superseded text above.
 result: [pending]
 
 ---

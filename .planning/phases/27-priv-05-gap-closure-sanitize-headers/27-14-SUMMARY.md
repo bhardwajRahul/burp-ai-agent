@@ -309,3 +309,16 @@ All four claimed files exist on disk; all four claimed commits (`2935165`, `7968
 ---
 *Phase: 27-priv-05-gap-closure-sanitize-headers*
 *Completed: 2026-08-26*
+
+---
+
+## SUPERSEDED SEVERITY — appended 2026-08-26, this summary's body is byte-unchanged
+
+This SUMMARY records plan 27-14 as it ran, and it is not rewritten. PROBE D and its decision
+*"accept the array-element residual … at LOW"* named ONE family of the four the narrowing actually
+costs. **`AR-27-11` is OPEN at MEDIUM over FOUR MEASURED families:** a nested / escaped value open,
+pretty-printed JSON, a bare top-level JSON string, and the array element PROBE D measured. The
+general rule they follow from is that `:"` is colon then quote LITERALLY, so any interposed
+character — or no colon at all — is not a recognised start. Established by `27-REVIEW-3.md` CR-01,
+corrected by `2ed1a12`, propagated here after `27-VERIFICATION-5.md` gap 2. Re-derivation: the
+`AR-27-11` row and the correction section of `26-SECURITY.md`.

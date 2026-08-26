@@ -624,7 +624,9 @@ not only what it INHERITED, with the two visibly separated. The paragraph above 
 stands unedited; this is round 5's, and the reason the split exists is that round 4's list — six
 entries, every one real and correctly owned — contained no residual round 4 itself created.**
 
-***Residuals ROUND 5 INTRODUCED.*** **(1) `AR-27-11`** — the JSON-ARRAY-ELEMENT logical-line start,
+***Residuals ROUND 5 INTRODUCED.*** **(1) `AR-27-11`** **[SUPERSEDED at LOW / one family — read the
+dated CORRECTION immediately after this entry before relying on any of it]** — the
+JSON-ARRAY-ELEMENT logical-line start,
 created by plan 27-14's narrowing of `JSON_STRING_OPEN` to a colon-quote sequence. A header at the
 open of an array-element string is no longer a recognised start. **OPEN at LOW, MEASURED in both
 columns** (`{"tags":["Cookie: a=SECRET8"]}` was `Cookie: [STRIPPED]` under the bare quote and is
@@ -637,7 +639,35 @@ outbound-privacy redaction of model-authored `argsJson` in
 **UNMEASURED** and labelled as such. Bounded `low` because a realistic raw HTTP message inside an
 array element is STILL stripped: its header follows an escaped newline, which IS a recognised start —
 measured, with two positive controls firing in the same run. **Owner: the maintainer**, item 12 of
-`27-HUMAN-UAT.md`. **(2) The sweep's AXIS 9** — a declaration whose opening parenthesis does not
+`27-HUMAN-UAT.md`.
+
+**CORRECTION 2026-08-26 to entry (1) — RAISED to MEDIUM over FOUR families. Nothing above this marker
+is edited.** Applied out-of-plan on maintainer authorisation after `27-REVIEW-3.md` CR-01 (`2ed1a12`),
+and PROPAGATED HERE after `27-VERIFICATION-5.md` gap 2 found that `2ed1a12` had reached
+`26-SECURITY.md`, `Redaction.kt` and the `THIRD_OPEN_FINDING` KDoc and had reached neither this list
+nor `27-HUMAN-UAT.md` item 12. **Entry (1) reads, corrected: `AR-27-11` — the JSON-STRING-OPEN
+logical-line start in EVERY spelling `:"` does not recognise, FOUR MEASURED families under one id,
+OPEN at MEDIUM.** The mechanism rather than the example: `:"` is colon then quote LITERALLY, so any
+shape that interposes a character between them — a space, or the backslash of an escaped quote — and
+any shape with no colon before the quote at all, is not a start. The four, all measured matching
+under the bare quote and byte-unchanged after, in STRICT and BALANCED and across all three composed
+rules: **(1)** a NESTED / ESCAPED value open (`\"k\":\"Cookie: …`), which is what a captured JSON
+RESPONSE BODY looks like once it is serialized into a tool result, **so this family sits on the
+PRIMARY emission path**; **(2)** PRETTY-PRINTED JSON (`"k": "Cookie: …`); **(3)** a BARE TOP-LEVEL
+JSON string; **(4)** the ARRAY ELEMENT this entry named alone. **The severity moved because the
+reachability question moved:** the old LOW rested on "which serialized fields are `List<String>`?",
+and the carrier is not a FIELD — it is the CONTENT of the `response` string this repository copies
+verbatim from the target, so families 1, 2 and 4 are reachable with BURP-HELD traffic in the DEFAULT
+posture with no opt-in precondition. **NOT `high`:** no live producer was measured. **The mitigating
+bound the MEDIUM rests on, checked in all four:** only a header that is the FIRST CONTENT of its
+string escapes; one that follows an escaped newline is still stripped. **Owner unchanged: the
+maintainer, item 12 of `27-HUMAN-UAT.md`** — which is itself corrected in the same change as this
+entry, behind its own SUPERSEDED marker, because it is a DECISION document and its Option B ("widen
+… closes the residual at the control") in fact closes family 4 ONLY. Entries (2), (3) and (4) are
+untouched and unaffected. Full re-derivation: the `AR-27-11` row and the correction section in
+`26-SECURITY.md`.
+
+**(2) The sweep's AXIS 9** — a declaration whose opening parenthesis does not
 follow the identifier on its line, created by plan 27-15's widening of `FUNCTION_DECLARATION`, which
 also requires that parenthesis. **3** extension-receiver declarations measured live on this tree, one
 of them inside the sweep file itself, and **0** multi-line signatures — the plan anticipated the
