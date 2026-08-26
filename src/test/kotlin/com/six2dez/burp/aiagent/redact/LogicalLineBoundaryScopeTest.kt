@@ -161,6 +161,72 @@ class LogicalLineBoundaryScopeTest {
         }
     }
 
+    /**
+     * (PRIV-05) 27-14 — THE ANTI-DRIFT PIN on the third start's VALUE, not just its name.
+     *
+     * Plan 27-11 shipped `JSON_STRING_OPEN` as a BARE double quote while calling it a JSON string
+     * open, and every existing guard in this file stayed green: [REQUIRED_DECLARATIONS] asserts the
+     * declaration PREFIX, and the composition scans assert which rules carry the boundary. Neither
+     * looks at what the constant is worth. A one-character revert would therefore ship green a
+     * SECOND time, which is the exact failure mode this test exists to remove.
+     *
+     * The value is READ OUT OF `Redaction.kt` at test time rather than re-typed, on the
+     * `CookieHeaderNameWidthTest.theCoveredSetIsReadFromRedactionSourceNotRetyped` precedent — a
+     * retyped expectation drifts silently, a source-read one cannot.
+     */
+    @Test
+    fun theJsonStringOpenIsAValueOpenAndNotABareQuote() {
+        // Comment-only lines are filtered FIRST: the rationale block above the fragments names this
+        // symbol in prose several times, and an unfiltered count would read that prose as a
+        // declaration and make the "exactly one" assertion wrong for the wrong reason.
+        val declarations =
+            sourceFile()
+                .readLines()
+                .filterNot { isCommentOnly(it) }
+                .filter { it.trimStart().startsWith(JSON_STRING_OPEN_DECLARATION) }
+
+        assertEquals(
+            1,
+            declarations.size,
+            "`$JSON_STRING_OPEN_DECLARATION` must be declared EXACTLY once in $RULE_OWNER, or the " +
+                "value assertion below is reading one of several and proves nothing about the " +
+                "boundary the composer actually uses.\n  Read as: $declarations",
+        )
+
+        val literal = declarations.single().substringAfter("=").trim()
+        assertTrue(
+            literal.length >= 2 && literal.startsWith("\"") && literal.endsWith("\""),
+            "the initializer of `$JSON_STRING_OPEN_DECLARATION` is not a plain string literal, so it " +
+                "cannot be decoded here. Read as: $literal",
+        )
+
+        val decoded = decodeKotlinStringLiteral(literal)
+
+        assertEquals(
+            EXPECTED_JSON_STRING_OPEN_WIDTH,
+            decoded.length,
+            "the third logical-line start must stay FIXED-WIDTH at $EXPECTED_JSON_STRING_OPEN_WIDTH " +
+                "characters. A width-one value here means the bare double quote 27-11 shipped is " +
+                "back: a bare quote is NOT a JSON string open — it also opens HTML attribute values, " +
+                "JS string literals and quoted CSV fields — and it was MEASURED destroying 1589 of " +
+                "1714 characters of a realistic serialized tool result, removing all forty of its " +
+                "content markers while leaving the JSON structurally valid, so every shape assertion " +
+                "passed and the model read a truncated body. Widening this constant back is a " +
+                "CORRECTNESS REGRESSION on the primary MCP emission path, not a tightening.\n" +
+                "  Read as: $literal",
+        )
+        assertEquals(
+            ":\"",
+            decoded,
+            "the third logical-line start must be the colon-quote sequence — a JSON string VALUE " +
+                "open. The narrowing deliberately accepts one residual, recorded as AR-27-11: " +
+                "a header at the open of a JSON ARRAY ELEMENT string (`[\"Cookie: …\"]`) is not a " +
+                "recognised start, MEASURED as matching before 27-14 and as not matching after it. " +
+                "That residual is the whole trade; do not undo it by re-widening this value.\n" +
+                "  Read as: $literal",
+        )
+    }
+
     // ── the scans ─────────────────────────────────────────────────────────────────────────
 
     /**
@@ -202,6 +268,37 @@ class LogicalLineBoundaryScopeTest {
             start--
         }
         return lines.subList(start, fragmentIndex).filter { isCommentOnly(it) }
+    }
+
+    /**
+     * Decodes the body of a Kotlin string literal, covering exactly the TWO escapes a regex-fragment
+     * constant of this kind can carry: an escaped double quote and an escaped backslash. Anything
+     * else FAILS rather than being passed through — a decoder that silently ignores an escape it
+     * does not know would compare the wrong value and go green.
+     */
+    private fun decodeKotlinStringLiteral(literal: String): String {
+        val body = literal.removeSurrounding("\"")
+        val decoded = StringBuilder()
+        var index = 0
+        while (index < body.length) {
+            val character = body[index]
+            if (character != '\\') {
+                decoded.append(character)
+                index++
+                continue
+            }
+            when (val escaped = body.getOrNull(index + 1)) {
+                '"' -> decoded.append('"')
+                '\\' -> decoded.append('\\')
+                else ->
+                    throw AssertionError(
+                        "unhandled Kotlin escape `\\$escaped` in $literal. Extend this decoder " +
+                            "deliberately rather than loosening the value assertion that reads it.",
+                    )
+            }
+            index += 2
+        }
+        return decoded.toString()
     }
 
     private fun String.indentWidth(): Int = length - trimStart().length
@@ -259,6 +356,14 @@ class LogicalLineBoundaryScopeTest {
          * boundary that reads complete and is not.
          */
         const val SECOND_OPEN_FINDING = "AR-27-09"
+
+        /** The declaration [theJsonStringOpenIsAValueOpenAndNotABareQuote] reads the VALUE out of. */
+        const val JSON_STRING_OPEN_DECLARATION = "private const val JSON_STRING_OPEN"
+
+        // A lookbehind wider than a FIXED width forces Java to try two look-back widths at every
+        // position of every serialized emission and silently trades away the measured 2.4x — the same
+        // reason JSON_ESCAPED_NEWLINE's comment in Redaction.kt gives for its own two characters.
+        const val EXPECTED_JSON_STRING_OPEN_WIDTH = 2
 
         /**
          * The composer and the four fragments the boundary rationale is written against.
