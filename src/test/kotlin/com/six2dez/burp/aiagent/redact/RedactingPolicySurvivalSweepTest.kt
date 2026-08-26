@@ -236,6 +236,36 @@ class RedactingPolicySurvivalSweepTest {
         )
     }
 
+    @Test
+    fun aTrailingCommentMentioningATripleQuoteDoesNotToggleTheRawStringState() {
+        val walked = dropRawStringInteriors(FIXTURE_ID, TRAILING_COMMENT_WALK_FIXTURE.lines())
+
+        assertTrue(
+            walked.any { it.contains(TRAILING_COMMENT_CODE_LINE) },
+            "the line carrying the trailing comment is REAL CODE and must not be blanked. Reaching " +
+                "this assertion at all means the walk did not THROW, which is the first half of the " +
+                "claim: this fixture is BALANCED — its only triple quote sits inside a comment — so " +
+                "an unbalanced-file error here would be the walk toggling its state from a comment " +
+                "and then blaming the file for it. Walked: $walked",
+        )
+        val hits = detect(FIXTURE_ID, walked)
+        assertEquals(
+            1,
+            hits.size,
+            "the walk must leave everything BELOW the trailing comment scannable. ZERO hits means " +
+                "the comment's triple quote toggled the state and the rest of the fixture was " +
+                "blanked — the silent direction, in which the tree scan reports SAFE while seeing " +
+                "nothing. The in-code rule has always said a COMMENT never opens or closes a raw " +
+                "string; until the 27-REVIEW-3 WR-02 correction only the WHOLE-LINE form was " +
+                "implemented. Hits: $hits",
+        )
+        assertEquals(
+            TRAILING_COMMENT_PIN_IDENTIFIER,
+            hits.single().identifier.substringAfter('#'),
+            "one hit is not enough — it must be the pin BELOW the trailing comment. Hits: $hits",
+        )
+    }
+
     // ── the detector is proven live, fixture by fixture ───────────────────────────────────
 
     @Test
@@ -494,8 +524,27 @@ class RedactingPolicySurvivalSweepTest {
         val walked =
             lines.map { line ->
                 val startedInside = inside
-                // A COMMENT LINE NEVER OPENS OR CLOSES A RAW STRING, so it must not toggle the
-                // state. This is not tidiness. MEASURED on this very file: a KDoc above quotes a
+                // A COMMENT NEVER OPENS OR CLOSES A RAW STRING, so it must not toggle the state —
+                // and as of the 27-REVIEW-3 WR-02 correction that rule covers a TRAILING comment as
+                // well as a whole-line one. It did not before: [isCommentOnly] only recognises a line
+                // whose FIRST non-space characters are `//`, `*` or `/*`, so `val x = 1 // … """ …`
+                // toggled the state from inside a comment and inverted the walk for every line below
+                // it. MEASURED on a one-line fixture: the trailing form ended INSIDE and the same
+                // text written as a whole-line comment did not. Latent rather than live — no file in
+                // `src/test/kotlin` carries that shape today — but since plan 27-15 made the
+                // unbalanced case THROW, the next developer to write one would have taken two tests
+                // red with a message telling them to balance a quote in an already-balanced file.
+                //
+                // TWO BOUNDS ON THE STRIP, both deliberate and both MEASURED rather than assumed.
+                // It is applied only when the line STARTS OUTSIDE a raw string: inside one, `//` is
+                // CONTENT, and stripping it would swallow a closing quote and manufacture the very
+                // unbalanced state this walk throws on — the splice lines of the fixtures below are
+                // exactly that shape. And [trailingCommentStripped] is a three-state scan rather than
+                // a `substringBefore`, because a `//` inside a STRING is not a comment either: the
+                // naive cut takes `ui/ChatPanelToolGateTest.kt` unbalanced on this tree today, which
+                // that function's KDoc records with the offending line.
+                //
+                // This is not tidiness. MEASURED on this very file: a KDoc above quotes a
                 // bare triple quote while explaining what this walk does, which is an ODD toggle,
                 // and it INVERTED the state for every line below it — the fixtures read as code and
                 // the code read as fixture. The self-scan caught it loudly.
@@ -515,10 +564,11 @@ class RedactingPolicySurvivalSweepTest {
                 //     tail this walk would otherwise blank and report as clean.
                 // The bare triple quote in the KDoc above is deliberately left in place, so this
                 // rule stays exercised by the file itself rather than by nothing.
+                val scannable = if (startedInside) line else trailingCommentStripped(line)
                 if (!isCommentOnly(line)) {
                     var index = 0
-                    while (index <= line.length - TRIPLE_QUOTE.length) {
-                        if (line.regionMatches(index, TRIPLE_QUOTE, 0, TRIPLE_QUOTE.length)) {
+                    while (index <= scannable.length - TRIPLE_QUOTE.length) {
+                        if (scannable.regionMatches(index, TRIPLE_QUOTE, 0, TRIPLE_QUOTE.length)) {
                             inside = !inside
                             index += TRIPLE_QUOTE.length
                         } else {
@@ -708,6 +758,62 @@ class RedactingPolicySurvivalSweepTest {
     // ── shared primitives, borrowed from the two repository-state precedents ──────────────
 
     private fun String.indentWidth(): Int = length - trimStart().length
+
+    /**
+     * [line] with a TRAILING `//` comment removed, so a triple quote written inside one cannot toggle
+     * [dropRawStringInteriors]' raw-string state. The whole-line form is [isCommentOnly]'s job; this
+     * is the other half of the same rule, added by the 27-REVIEW-3 WR-02 correction because the
+     * in-code rule said "a comment" while the implementation only ever saw whole-line comments.
+     *
+     * IT IS A SMALL LEXER AND NOT A `substringBefore("//")`, AND THAT IS MEASURED RATHER THAN
+     * CAUTIOUS. A `//` inside a string literal is not a comment, and cutting there discards whatever
+     * follows — including a CLOSING triple quote. The counter-example is live on this tree today:
+     *
+     *     toolCall("scope_check", TQ{"url":"http://evil.example/"}TQ)   (TQ = a literal triple quote)
+     *
+     * `ui/ChatPanelToolGateTest.kt:113`. Cutting at the `//` of `http://` keeps the OPENING triple
+     * quote and drops the CLOSING one, which leaves that file with an ODD count — so the naive strip
+     * does not merely fail to fix WR-02, it takes a balanced repository file UNBALANCED and turns a
+     * latent failure into a red one. MEASURED: it throws
+     * `unbalanced triple quotes in com/six2dez/burp/aiagent/ui/ChatPanelToolGateTest.kt`. A
+     * quote-PARITY guard does not save it either — `TQ{"url":"` is six quotes, an even count that
+     * looks like "outside a string" while the raw string is open.
+     *
+     * So the scan tracks the three states a `//` can sit in and cuts only in the first: OUTSIDE any
+     * string, inside a REGULAR string (where a backslash makes the next character opaque), and inside
+     * a RAW string (where it does not, because Kotlin raw strings have no escapes). Nothing else is
+     * interpreted — this is a triple-quote balance helper, not a Kotlin parser.
+     */
+    private fun trailingCommentStripped(line: String): String {
+        var index = 0
+        var inRawString = false
+        var inRegularString = false
+        while (index < line.length - 1) {
+            val rawDelimiter = line.regionMatches(index, TRIPLE_QUOTE, 0, TRIPLE_QUOTE.length)
+            var step = 1
+            when {
+                inRawString ->
+                    if (rawDelimiter) {
+                        inRawString = false
+                        step = TRIPLE_QUOTE.length
+                    }
+                inRegularString ->
+                    if (line[index] == '\\') {
+                        step = 2
+                    } else if (line[index] == '"') {
+                        inRegularString = false
+                    }
+                rawDelimiter -> {
+                    inRawString = true
+                    step = TRIPLE_QUOTE.length
+                }
+                line[index] == '"' -> inRegularString = true
+                line[index] == '/' && line[index + 1] == '/' -> return line.take(index)
+            }
+            index += step
+        }
+        return line
+    }
 
     private fun isCommentOnly(line: String): Boolean {
         val trimmed = line.trimStart()
@@ -1465,6 +1571,40 @@ fun aRealCodePinTheWalkMustPreserve() {
 
         /** The one hit [WALK_COMPOSITION_FIXTURE] must produce, and which of its two halves it is. */
         const val REAL_CODE_PIN_IDENTIFIER = "aRealCodePinTheWalkMustPreserve"
+
+        /**
+         * REAL CODE carrying a TRAILING `//` comment that mentions a triple quote, with a survival
+         * pin below it.
+         *
+         * The walk must treat that comment as a comment: no toggle, no blanking, and no thrown
+         * `AssertionError` — the file is BALANCED, and the only triple quote on it is inside a
+         * comment. Before the 27-REVIEW-3 WR-02 correction this fixture ended INSIDE a raw string,
+         * which since plan 27-15 is a THROW, so the two assertions below are a red-on-the-old-code
+         * probe rather than a restatement.
+         *
+         * Built by CONCATENATING [TRIPLE_QUOTE] for the same reason [WALK_COMPOSITION_FIXTURE] is:
+         * this file scans ITSELF, and an embedded literal would toggle the walk's state mid-fixture.
+         * The splice line is also why the strip is skipped for a line that STARTS INSIDE a raw
+         * string — on THIS file's own source that line's two triple quotes are real, and stripping at
+         * its `//` would swallow them.
+         */
+        const val TRAILING_COMMENT_WALK_FIXTURE =
+            """
+val aLineWithATrailingComment = 1 // a raw string is opened with """ + TRIPLE_QUOTE + """ in Kotlin
+
+fun aRealCodePinBelowATrailingComment() {
+    val redacted = contextWith(PrivacyMode.STRICT, "trailing-comment-salt").redactIfNeeded(payload)
+
+    assertTrue(
+        redacted.contains("sentineltrailingcommentpin"),
+        "this pin is REAL CODE below a trailing comment and must survive the walk to be flagged",
+    )
+}
+            """
+
+        /** The one hit [TRAILING_COMMENT_WALK_FIXTURE] must produce, and the line that must survive. */
+        const val TRAILING_COMMENT_PIN_IDENTIFIER = "aRealCodePinBelowATrailingComment"
+        const val TRAILING_COMMENT_CODE_LINE = "aLineWithATrailingComment"
 
         /**
          * A file that ENDS INSIDE a raw string — an ODD triple-quote count.
