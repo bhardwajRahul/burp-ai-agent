@@ -61,3 +61,40 @@ MCP result shape that this repository has emitted since phase 26. What the four 
 repository-state source-scanning test; **27-13** writes records only and touches no code at all.
 **Nothing is integrated, wrapped, connected or consumed for the first time by any of the four, so no
 matrix is fabricated to fill a gap.**
+
+
+**Extended 2026-08-26 (plan 27-16) to cover plans 27-14, 27-15 and 27-16, on the same reasoning —
+and with the inventory MEASURED again rather than carried forward, because the round-4 extension
+above records the measurement disagreeing with the instruction that requested it, and repeating that
+check is cheaper than repeating that mistake.**
+
+**WHAT THE SEAL-TIME DETECTOR WILL ACTUALLY RE-READ FROM THESE THREE PLAN BODIES.** Measured
+2026-08-26 by counting literal occurrences in each file:
+
+| Symbol / token | 27-14 | 27-15 | 27-16 | What it is |
+|---|---|---|---|---|
+| `HttpRequestResponse` | **3** | 0 | 0 | The MCP tool-result carrier 27-14's probes run through. An already-exposed MCP surface and an already-running Montoya type. |
+| `McpToolContext.redactIfNeeded` | **2** | 0 | 0 | The already-shipped redaction choke point. In the tree since phase 26. |
+| `toolJson.encodeToString` | **1** | 0 | 0 | The already-shipped serializer at the emission choke point. |
+| `proxy_http_history` | **2** | 0 | 0 | **An MCP tool NAME — the token class that made this declaration necessary for 27-07 and 27-08, and it is back.** Both occurrences describe the SHAPE of the payload 27-14 measures its regression on (`a 1714-character proxy_http_history-shaped payload`), not an integration with the tool. |
+| `Serialization.kt` | 0 | 0 | **1** | The already-shipped emission schema, read by 27-16 to ENUMERATE its fields for the `AR-27-11` reachability measurement. A source read, not a connection. |
+| `Montoya` | **0** | **0** | **0** | **Zero occurrences across the whole round-5 plan set** — fewer than in round 4, where the single occurrence was inside the instruction sentence itself. |
+| `API` | **0** | **0** | **0** | Zero. |
+| Other MCP tool names (`request_parse`, `response_parse`, `params_extract`, `scanner_issues`, `site_map`, `site_map_regex`, `proxy_http_history_regex`) | 0 | 0 | 0 | Zero occurrences in all three files. |
+
+**WHERE THIS MEASUREMENT DIVERGES FROM THE ROUND-4 ONE, SAID IN THE FILE RATHER THAN RECONCILED
+SILENTLY.** Round 4's table records ZERO MCP tool names across its four plan bodies. **Round 5 has
+two**, both in `27-14-PLAN.md`, both inside the phrase "`proxy_http_history`-shaped payload". So the
+detector has strictly MORE tool-name tokens to trip on than it did last round, and this extension says
+so rather than reusing round 4's "strictly LESS to trip on" sentence, which would have been false.
+Conversely `Montoya` and `API` are now at zero where round 4 had one and three.
+
+**THE DECLARATION STANDS ANYWAY, and the reason is about what the plans DO, not about how few tokens
+they carry.** What the three plans actually do: **27-14** narrows one `const val` from one character
+to two and adds three tests; **27-15** widens one regex in a TEST file, adds four tests, and amends
+one planning document — it touches no production source at all; **27-16** writes records and adds one
+companion constant plus one assertion to an existing test. **Nothing is integrated, wrapped,
+connected or consumed for the first time by any of the three.** Every symbol named above is either a
+Burp Montoya host API type this extension already runs inside, an MCP result shape this repository
+has emitted since phase 26, or — in `27-14`'s two cases — the NAME of an already-exposed tool used
+adjectivally to describe a payload's shape. **No matrix is fabricated to fill a gap.**

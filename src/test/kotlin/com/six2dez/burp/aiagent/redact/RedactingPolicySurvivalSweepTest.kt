@@ -1369,7 +1369,7 @@ class RedactingPolicySurvivalSweepTest {
          * from the tree is the POPULATION each shape stands in for, measured in
          * [everyDeclarationShapeInUseInThisRepositoryIsVisibleToTheSweep]'s failure message.
          */
-        val DECLARATION_SHAPE_FIXTURE =
+        const val DECLARATION_SHAPE_FIXTURE =
             """
         fun `a backtick quoted name`() {
             val redacted = contextWith(PrivacyMode.STRICT, "shape-salt").redactIfNeeded(payload)
@@ -1439,7 +1439,7 @@ class RedactingPolicySurvivalSweepTest {
          * this file scans ITSELF, and an embedded literal would toggle the walk's state mid-fixture.
          * That is the same reason [TRIPLE_QUOTE] is held at companion level at all.
          */
-        val WALK_COMPOSITION_FIXTURE =
+        const val WALK_COMPOSITION_FIXTURE =
             """
 val aFixtureTheWalkMustBlank =
     """ + TRIPLE_QUOTE + """
@@ -1474,7 +1474,7 @@ fun aRealCodePinTheWalkMustPreserve() {
          * no way to notice this from the hit set, which is why it must be a thrown error and not a
          * count.
          */
-        val UNBALANCED_WALK_FIXTURE =
+        const val UNBALANCED_WALK_FIXTURE =
             """
 val anUnbalancedFixture =
     """ + TRIPLE_QUOTE + """

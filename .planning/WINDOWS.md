@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 40
+open_count: 48
 waived_count: 0
 fixed_count: 0
-total_count: 40
-last_updated: 2026-08-26T11:40:14.600Z
+total_count: 48
+last_updated: 2026-08-26T15:14:54.792Z
 ---
 
 # Broken Windows Ledger
@@ -55,6 +55,14 @@ last_updated: 2026-08-26T11:40:14.600Z
 | 38 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-13-PLAN.md |  | GATE DEFECT, same family as entry 18 and applicable to any GSD plan reusing it. Plan 27-13 task 1 acceptance criterion 11 is 'git diff HEAD -- 26-SECURITY.md \| grep -c Reopening-2026-08-24 returns 0', intended to prove the 2026-08-24 reopening narrative is on no ADDED and no REMOVED line. Plain git diff emits three lines of CONTEXT, so any insertion within three lines of that heading prints it as a context line and the gate reads 1 while nothing was edited. OBSERVED 1. Both precise forms return 0: filtering to +/- lines returns 0, and git diff --unified=0 returns 0. Standing-rule clauses (v) and (vi) were anchored INSIDE the standing-rule section (after clause (iv)'s last line) rather than above the heading, which is also the structurally correct placement, and the residual 1 is a context line only. | open |  | 2026-08-26T11:34:49.404Z |  |
 | 39 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/COVERAGE.md |  | Plan 27-13 task 3 part B premise falsified by the tree it describes: it states the 27-10..27-13 plan bodies 'name the passive-scan prompt path, the MCP tool result shapes and the Montoya host API repeatedly'. MEASURED 2026-08-26 with grep -ohc per file: the MCP tool NAMES (request_parse, response_parse, params_extract, scanner_issues, proxy_http_history, proxy_http_history_regex, site_map, site_map_regex) appear ZERO times in all four - and those are the exact tokens that made this COVERAGE declaration necessary for 27-07 and 27-08. Montoya appears ONCE and API 3 times on 2 lines, ALL of them inside 27-13-PLAN.md and one of them being the instruction sentence itself. What IS present: HttpRequestResponse 6 (27-11 only), toolJson.encodeToString 3 (27-12 only), ParsedRequest 2, SiteMapEntry / McpToolContext.redactIfNeeded / AuditIssue.detail() 1 each. COVERAGE.md records the measured inventory as a table with the divergence stated rather than the projected 'repeatedly'; the declaration still stands, and on this evidence more easily than in 2026-08-25. | open |  | 2026-08-26T11:39:25.509Z |  |
 | 40 | 27 | deviation | .planning/STATE.md |  | Plan 27-13 task 3 part C directs the executor to write STATE.md fields that the execute-phase orchestrator OWNS and overwrites in worktree mode - last_activity, last_activity_desc, the Current Position block and the progress counters. Same two-owner class as ledger entry 27 (the ROADMAP plans counter), now recurring for STATE.md, and execute-plan.md's update_current_position step explicitly says to SKIP it when running in a worktree. STATE.md was therefore left UNTOUCHED by plan 27-13. MEASURED: both halves of the task's own acceptance criterion already hold on disk with no edit - Current Position reads 'Plan: 1 of 13' (13 = the number of 27-*-PLAN.md files) and nothing claims the phase is verified (status: executing, 'Phase: 27 ... - EXECUTING'; the only two 'verified' strings in the file are about phases 16 and an unrelated coverage note). Recorded so the untouched file is not read later as an omission, and so the criterion is not 'satisfied' next round by an executor writing a field it does not own. | open |  | 2026-08-26T11:40:14.600Z |  |
+| 41 | 27 | deviation | .planning/ROADMAP.md |  | Plan 27-16 premise falsified: the round-5 ROADMAP note stated the sweep's declaration gate was blind to '136 of 1779' declaration lines, pairing CR-01's paren-optional invisible count with CR-01's paren-present population. Plan 27-15 re-measured on the tree with 27-14 landed: 133 of 1781 on the paren-present population and 136 of 1784 on the paren-optional one, the 3-line difference being extension-receiver declarations. The note was corrected IN PLACE by plan 27-16 rather than left standing beside its refutation. | open |  | 2026-08-26T14:45:22.036Z |  |
+| 42 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-16-PLAN.md |  | Plan 27-16 task 1 cited Redaction.kt:570-576 as this codebase's own standard for treating over-redaction as a bounded cost. Measured: that range is the SafeRegex fail-open reasoning for redactCookieSections. The passage the plan meant is the OVER-REDACTION paragraph beside MAX_COOKIE_SECTION_LINES at Redaction.kt:543-548. Clause (7) cites the symbol first and the measured range second, per clause (6)'s own instruction. | open |  | 2026-08-26T14:45:29.777Z |  |
+| 43 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/COVERAGE.md |  | Plan 27-16 task 3 assumed the round-5 COVERAGE extension would repeat round 4's finding of ZERO MCP tool names in the plan bodies. Measured otherwise: proxy_http_history appears 2 times in 27-14-PLAN.md (both in the phrase 'proxy_http_history-shaped payload'), so the seal-time detector has MORE tool-name tokens to trip on than in round 4, not fewer. Conversely Montoya and API are now 0/0 where round 4 had 1 and 3. Recorded in COVERAGE.md rather than reusing round 4's 'strictly LESS to trip on' sentence, which would have been false. | open |  | 2026-08-26T14:45:37.897Z |  |
+| 44 | 27 | deviation | .planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md |  | Plan 27-16 task 1 anticipated that AR-27-11's reachability might be UNMEASURED, in the words AR-27-09's row uses. Measured instead: the emission schema Serialization.kt carries ZERO List<String> fields, multi-item results are joined with a blank-line separator and carry no JSON array wrapper, and the five List<String> models in McpToolModels.kt are input-only — but exactly ONE carrier can emit an arbitrary JSON array of strings through Redaction.apply, the D-03 outbound-privacy redaction of model-authored argsJson in McpToolExecutorImpl.routeExternalToolCall. So reachability is MEASURED-AND-ZERO for the owned schema, MEASURED-AND-NONZERO for one carrier, and UNMEASURED only for that carrier's remote half. The row records the mixture rather than the plan's simpler expected shape. | open |  | 2026-08-26T14:45:47.146Z |  |
+| 45 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-14-PLAN.md |  | Carried from 27-14: plan 27-14's PROBE A shape 5 fixture ('See the docs: "authorization: Bearer required" and KEEPTAIL') specified an AFTER column of byte-identical, which it cannot have — the literal 'Bearer ' is claimed by the shipped un-anchored bearerRegex independently of any logical-line boundary. 27-14 added shape 5b (same prose minus the Bearer token) as the clean proof and reported shape 5 honestly rather than declaring it passed. Recorded here by plan 27-16 so the fixture defect is visible at ship time. | open |  | 2026-08-26T14:45:54.319Z |  |
+| 46 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt |  | Carried from 27-15: plan 27-15 anticipated the widened declaration gate would leave MULTI-LINE SIGNATURES as its new blind axis. Measured: 0 multi-line signatures on this tree, but 3 extension-receiver declarations (private fun String.indentWidth() and one String.isRecurringSchedule()), one of them inside the sweep file itself, remain invisible after the widening for the same root cause — the regex requires the opening parenthesis to follow the identifier. Axis 9 was written at both shapes with both counts rather than at the projection. Recorded here by plan 27-16. | open |  | 2026-08-26T14:46:03.052Z |  |
+| 47 | 27 | deviation | src/main/kotlin/com/six2dez/burp/aiagent/redact/Redaction.kt | 1628 | MEASURED by plan 27-16, NOT FIXED: ./gradlew check fails jacocoTestCoverageVerification on the round-5 tree — redact package BRANCH ratio 0.927 against a 0.930 floor. Bisected: the pre-round-5 tree c2d980f PASSES at 0.9330 (13 missed / 116 covered); the round-5 base 87c1102 and the final 27-16 tree both FAIL at 0.9278 (14/115). Exactly one branch flipped, and it is 'if (remainingMs <= 0L)' at Redaction.kt:1628 — the WALL-CLOCK budget-exhaustion guard, the same SafeRegex 50ms deadline path as the documented RedactionTest flake. Samples: covered 1 of 1 runs pre-round-5, missed 2 of 2 runs on round 5. Whether the cause is 27-14's narrowing making the composed regexes cheaper (so the deadline no longer fires incidentally) or ambient CPU load is NOT established by three samples and is NOT claimed. The floor has ONE branch of headroom either way, so it is partly met by a timing-dependent branch. NOT fixed here: the honest options are a deterministic test for the budget-exhaustion branch, or lowering a QUAL-06 floor to make a red gate green — and the second is the laundering this phase exists to prohibit. Neither belongs in a records plan. Waves 8 and 9 both gated on 'ktlintCheck test' and never ran check, which is why nobody saw it. | open |  | 2026-08-26T15:14:46.514Z |  |
+| 48 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt |  | FIXED by plan 27-16 (Rule 3): ./gradlew detekt failed on the round-5 base with 3 MayBeConst findings — DECLARATION_SHAPE_FIXTURE, WALK_COMPOSITION_FIXTURE and UNBALANCED_WALK_FIXTURE, all three added by plan 27-15. Plan 27-15's own verification and the wave-9 post-merge gate both ran 'ktlintCheck test' and never ran detekt, so a red gate was merged unseen. Fixed by making the three raw-string fixtures const val — no behaviour change, no detekt-baseline.xml growth (QUAL-07). Recorded because it is a residual round 5 INTRODUCED and invisible to the round that created it, which is precisely what standing-rule clause (vii) exists to surface. | open |  | 2026-08-26T15:14:54.792Z |  |
 
 ````json
 [
@@ -536,6 +544,102 @@ last_updated: 2026-08-26T11:40:14.600Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-26T11:40:14.600Z",
+    "resolved_at": null
+  },
+  {
+    "id": 41,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/ROADMAP.md",
+    "line": null,
+    "description": "Plan 27-16 premise falsified: the round-5 ROADMAP note stated the sweep's declaration gate was blind to '136 of 1779' declaration lines, pairing CR-01's paren-optional invisible count with CR-01's paren-present population. Plan 27-15 re-measured on the tree with 27-14 landed: 133 of 1781 on the paren-present population and 136 of 1784 on the paren-optional one, the 3-line difference being extension-receiver declarations. The note was corrected IN PLACE by plan 27-16 rather than left standing beside its refutation.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:45:22.036Z",
+    "resolved_at": null
+  },
+  {
+    "id": 42,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-16-PLAN.md",
+    "line": null,
+    "description": "Plan 27-16 task 1 cited Redaction.kt:570-576 as this codebase's own standard for treating over-redaction as a bounded cost. Measured: that range is the SafeRegex fail-open reasoning for redactCookieSections. The passage the plan meant is the OVER-REDACTION paragraph beside MAX_COOKIE_SECTION_LINES at Redaction.kt:543-548. Clause (7) cites the symbol first and the measured range second, per clause (6)'s own instruction.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:45:29.777Z",
+    "resolved_at": null
+  },
+  {
+    "id": 43,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/COVERAGE.md",
+    "line": null,
+    "description": "Plan 27-16 task 3 assumed the round-5 COVERAGE extension would repeat round 4's finding of ZERO MCP tool names in the plan bodies. Measured otherwise: proxy_http_history appears 2 times in 27-14-PLAN.md (both in the phrase 'proxy_http_history-shaped payload'), so the seal-time detector has MORE tool-name tokens to trip on than in round 4, not fewer. Conversely Montoya and API are now 0/0 where round 4 had 1 and 3. Recorded in COVERAGE.md rather than reusing round 4's 'strictly LESS to trip on' sentence, which would have been false.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:45:37.897Z",
+    "resolved_at": null
+  },
+  {
+    "id": 44,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md",
+    "line": null,
+    "description": "Plan 27-16 task 1 anticipated that AR-27-11's reachability might be UNMEASURED, in the words AR-27-09's row uses. Measured instead: the emission schema Serialization.kt carries ZERO List<String> fields, multi-item results are joined with a blank-line separator and carry no JSON array wrapper, and the five List<String> models in McpToolModels.kt are input-only — but exactly ONE carrier can emit an arbitrary JSON array of strings through Redaction.apply, the D-03 outbound-privacy redaction of model-authored argsJson in McpToolExecutorImpl.routeExternalToolCall. So reachability is MEASURED-AND-ZERO for the owned schema, MEASURED-AND-NONZERO for one carrier, and UNMEASURED only for that carrier's remote half. The row records the mixture rather than the plan's simpler expected shape.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:45:47.146Z",
+    "resolved_at": null
+  },
+  {
+    "id": 45,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/27-14-PLAN.md",
+    "line": null,
+    "description": "Carried from 27-14: plan 27-14's PROBE A shape 5 fixture ('See the docs: \"authorization: Bearer required\" and KEEPTAIL') specified an AFTER column of byte-identical, which it cannot have — the literal 'Bearer ' is claimed by the shipped un-anchored bearerRegex independently of any logical-line boundary. 27-14 added shape 5b (same prose minus the Bearer token) as the clean proof and reported shape 5 honestly rather than declaring it passed. Recorded here by plan 27-16 so the fixture defect is visible at ship time.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:45:54.319Z",
+    "resolved_at": null
+  },
+  {
+    "id": 46,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt",
+    "line": null,
+    "description": "Carried from 27-15: plan 27-15 anticipated the widened declaration gate would leave MULTI-LINE SIGNATURES as its new blind axis. Measured: 0 multi-line signatures on this tree, but 3 extension-receiver declarations (private fun String.indentWidth() and one String.isRecurringSchedule()), one of them inside the sweep file itself, remain invisible after the widening for the same root cause — the regex requires the opening parenthesis to follow the identifier. Axis 9 was written at both shapes with both counts rather than at the projection. Recorded here by plan 27-16.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T14:46:03.052Z",
+    "resolved_at": null
+  },
+  {
+    "id": 47,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/main/kotlin/com/six2dez/burp/aiagent/redact/Redaction.kt",
+    "line": 1628,
+    "description": "MEASURED by plan 27-16, NOT FIXED: ./gradlew check fails jacocoTestCoverageVerification on the round-5 tree — redact package BRANCH ratio 0.927 against a 0.930 floor. Bisected: the pre-round-5 tree c2d980f PASSES at 0.9330 (13 missed / 116 covered); the round-5 base 87c1102 and the final 27-16 tree both FAIL at 0.9278 (14/115). Exactly one branch flipped, and it is 'if (remainingMs <= 0L)' at Redaction.kt:1628 — the WALL-CLOCK budget-exhaustion guard, the same SafeRegex 50ms deadline path as the documented RedactionTest flake. Samples: covered 1 of 1 runs pre-round-5, missed 2 of 2 runs on round 5. Whether the cause is 27-14's narrowing making the composed regexes cheaper (so the deadline no longer fires incidentally) or ambient CPU load is NOT established by three samples and is NOT claimed. The floor has ONE branch of headroom either way, so it is partly met by a timing-dependent branch. NOT fixed here: the honest options are a deterministic test for the budget-exhaustion branch, or lowering a QUAL-06 floor to make a red gate green — and the second is the laundering this phase exists to prohibit. Neither belongs in a records plan. Waves 8 and 9 both gated on 'ktlintCheck test' and never ran check, which is why nobody saw it.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T15:14:46.514Z",
+    "resolved_at": null
+  },
+  {
+    "id": 48,
+    "kind": "deviation",
+    "phase": "27",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt",
+    "line": null,
+    "description": "FIXED by plan 27-16 (Rule 3): ./gradlew detekt failed on the round-5 base with 3 MayBeConst findings — DECLARATION_SHAPE_FIXTURE, WALK_COMPOSITION_FIXTURE and UNBALANCED_WALK_FIXTURE, all three added by plan 27-15. Plan 27-15's own verification and the wave-9 post-merge gate both ran 'ktlintCheck test' and never ran detekt, so a red gate was merged unseen. Fixed by making the three raw-string fixtures const val — no behaviour change, no detekt-baseline.xml growth (QUAL-07). Recorded because it is a residual round 5 INTRODUCED and invisible to the round that created it, which is precisely what standing-rule clause (vii) exists to surface.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T15:14:54.792Z",
     "resolved_at": null
   }
 ]
