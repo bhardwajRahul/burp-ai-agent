@@ -955,10 +955,13 @@ finding it was prohibited from fixing).
 
 **THE MACHINE CHECK THAT NOW ENFORCES THIS, AND — IN THE SAME CLAUSE, BECAUSE THIS FILE HAS BEEN
 BURNED BY EXACTLY THIS OMISSION — ITS STATED BOUND.** `RedactingPolicySurvivalSweepTest` (plan 27-12,
-11 tests) replaces plan 27-08's prose must-have with a scan of `src/test/kotlin`. It reports an EMPTY
-hit set with an EMPTY `ALLOWLIST` on the tree as shipped, it scans its OWN file with NO self-file
-exclusion and comes out clean, and that zero is FALSIFIABLE — the same detector over the same file
-without the raw-string skip returns 5.
+extended by plan 27-15, **15 tests**) replaces plan 27-08's prose must-have with a scan of
+`src/test/kotlin`. It reports an EMPTY hit set with an EMPTY `ALLOWLIST` on the tree as shipped, it
+scans its OWN file with NO self-file exclusion and comes out clean, and that zero is FALSIFIABLE —
+the same detector over the same file without the raw-string skip returns **14** (plan 27-12 measured
+and wrote **5**; the movement is entirely plan 27-15's three new fixtures — six declaration-shape
+pins, two composition halves, one unbalanced-file pin — and the number is restated at what it now IS
+rather than left to go quietly stale).
 
 **IT IS DEMONSTRATED TO FIRE ON THE REAL THING, not merely on invented fixtures.** The committed
 `detect()` / `fileWalk()` functions were pointed at the PRE-ROUND contents of the two files
@@ -971,23 +974,63 @@ check is the in-file fixtures.
 
 **THE VOCABULARY BOUND, stated because a clause presenting this check as complete would be clause
 (vi) committing the error clause (vi) describes.** It is a **TRIPWIRE OVER A MEASURED VOCABULARY, NOT
-A PROOF OF COVERAGE.** Its own KDoc names **ELEVEN** things it cannot see before its first assertion,
-three of which are the price of its three constructed exclusions — each of which is a code path in
-the detector, none an `ALLOWLIST` key, each carrying the measured pre-existing count it accounts for:
-`BENIGN_ACCESSORS` (exactly one key, `Sentinel.BENIGN_CONTROL`, accounting for **7** live functions —
-**the plan projected 5; 7 is what was MEASURED**, the two extra being plan 27-11's JSON-string-open
-probes, which each carry a benign-control assertion and which landed in this sweep's base between the
-plan being written and its execution) — **its cost: a genuinely sensitive value reached through that
-one accessor is invisible**; the POSITION RULE (**1** — a pre-redaction fixture guard) — **its cost:
-a pin positioned textually ABOVE the policy marker is invisible**; and the NEGATION RULE (**1**) —
-no cost beyond the shape itself. 7 + 1 + 1 = **9**, exactly the unqualified vocabulary count on this
-tree — **the plan projected 7; 9 is what was MEASURED** — and 9 − 9 = 0, the qualified count. The
-arithmetic closes, and **nothing was narrowed to make the two projections match**: no vocabulary
-entry was narrowed, no `ALLOWLIST` key was added, and `BENIGN_ACCESSORS` still holds exactly one key.
-The numbers written into the KDoc are the measured ones, with the projection and the reason for the
-gap recorded beside them. **A stated bound that does not match the control it describes is the exact
-defect this phase exists to repair, and copying `5` forward would have been that defect one iteration
-smaller.**
+A PROOF OF COVERAGE.** Its own KDoc names **THIRTEEN** things it cannot see before its first
+assertion — and that number is now **MACHINE-CHECKED against the enumeration it describes**, not
+transcribed: `theStatedBlindAxisCountMatchesTheEnumeration` reads the sweep's own source at test
+time, isolates the class-KDoc region, counts the numbered axis entries in it and fails if the count
+and the stated constant `STATED_BLIND_AXES` disagree. **The number cited in this clause can therefore
+go stale only if a test goes red first.**
+
+**WORKED EXAMPLE, AND IT IS THIS CLAUSE'S OWN — recorded here because clause (vi) committed the error
+clause (vi) describes, and softening that would waste the only expensive thing this round bought.**
+Until 2026-08-26 this paragraph read **ELEVEN**, transcribed by hand from the sweep's KDoc. Both were
+false when written. The sweep's `FUNCTION_DECLARATION` admitted one optional modifier and a
+word-character name, and `detect()` returns early on a non-matching declaration line, so an unmatched
+declaration hid its ENTIRE body: **MEASURED, 133 of 1781 declaration lines under `src/test/kotlin`
+were invisible** — **136 of 1784** on the wider population `27-REVIEW-2` CR-01 counted, the 3-line
+difference being extension-receiver declarations such as `private fun String.indentWidth()` —
+**67 of them backtick-named `@Test` methods across 9 files**, one of them in the redaction package
+itself, and a synthetic survival pin scored **1 of 6** declaration shapes. So this register cited an
+eleven-axis bound as the check's STATED BOUND while a twelfth axis was live, undeclared, and covered
+3.8% of the repository's existing test methods and the idiom a future author is most likely to reach
+for. That is a stated bound wider than its control, in the clause written to prohibit exactly that,
+citing a control written to prohibit exactly that. Plan 27-15 closed the declaration axis rather than
+enumerating it (the axis is gone, so it is correctly absent from the thirteen), named the two axes
+that remain — the declaration line whose opening parenthesis is not on it, and the compound-assertion
+negation over-fire — and amended this paragraph in the SAME change, which is the discipline whose
+absence produced the defect.
+
+Three of the thirteen are the price of its three constructed exclusions — each of which is a code
+path in the detector, none an `ALLOWLIST` key, each carrying the RE-MEASURED count it accounts for
+(re-measured 2026-08-26 against the tree with plans 27-14 and 27-15 landed, and with the WIDENED
+declaration gate in place):
+`BENIGN_ACCESSORS` (exactly one key, `Sentinel.BENIGN_CONTROL`, accounting for **7** live functions,
+all in `SerializedEmissionRedactionTest` — **the plan projected 5; 7 is what was MEASURED**, the two
+extra being plan 27-11's JSON-string-open probes, which each carry a benign-control assertion and
+which landed in this sweep's base between the plan being written and its execution; **re-measured
+after plan 27-14, which added tests but no eighth benign-control function: still 7**) — **its cost: a
+genuinely sensitive value reached through that one accessor is invisible**; the POSITION RULE (**1** —
+a pre-redaction fixture guard) — **its cost: a pin positioned textually ABOVE the policy marker is
+invisible**; and the NEGATION RULE (**1**) — **its cost, named for the first time in round 5: the
+rule computes negation from the `assertTrue(` opener to the containment under test, so in a compound
+assertion whose FIRST operand is negated every later containment inherits that negation and a real
+pin combined with a negated noise check is invisible. The fix is written down in the sweep's axis 10
+and DELIBERATELY not applied this round.** 7 + 1 + 1 = **9**, exactly the unqualified vocabulary count
+on this tree — **the plan projected 7; 9 is what was MEASURED** — and 9 − 9 = 0, the qualified count.
+
+**The arithmetic is unchanged BY the widening, which is the load-bearing half of the re-measurement.**
+Plan 27-15 widened the declaration gate to 133 more declaration lines and re-ran the detector: 9 / 7 /
+1 / 1 / 0 before, 9 / 7 / 1 / 1 / 0 after, and the pre-round historical run still reports **EXACTLY 3**
+hits under the same three identifiers. The widening bought scope without buying noise, and **nothing
+was narrowed to keep the hit set empty**: no vocabulary entry was narrowed, no `ALLOWLIST` key was
+added, `BENIGN_ACCESSORS` still holds exactly one key, and no self-file exclusion exists. One number
+is restated to stop a foreseeable misreading of the 9: the RAW occurrence count over the same
+population is **36**, of which **27** are `assertFalse` containments that are not candidates under any
+reading — the `assertTrue` requirement is not one of the three exclusions, and folding those 27 into
+the 9 would overstate the exclusions' cost fourfold. The numbers written into the KDoc are the
+measured ones, with the projection and the reason for the gap recorded beside them. **A stated bound
+that does not match the control it describes is the exact defect this phase exists to repair, and
+copying `5` forward would have been that defect one iteration smaller.**
 
 **One further property of that check is worth carrying here, because it is the loud-versus-silent
 distinction this whole file turns on.** The sweep's first self-scan found a REAL bug in the sweep:
@@ -1000,6 +1043,38 @@ tree scan miss a real survival pin SILENTLY, with every test still green. The ru
 DELIBERATELY LEFT IN PLACE** — removing it would make the new rule vacuous, because nothing else in
 the file exercises it. The file is now its own regression fixture, and the reason is written in the
 comment beside the rule.
+
+**AMENDED 2026-08-26 (plan 27-15), because the paragraph above NAMED that dangerous direction and
+then did not assert against it for a full round.** Independently found by `27-REVIEW-2` CR-02 and
+`27-VERIFICATION-4` gap 3: every proof that the sweep's detector could produce a hit BYPASSED the
+file walk, and the only path that used the walk expected an EMPTY result — so the composition
+`fileWalk` → `detect` had no positive gate at all, and "the walk has started blanking real code"
+was a failure that shipped GREEN. Round 5 closed it at both ends. (1) A composition fixture — a
+raw-string block that must be blanked, followed by a real-code pin that must survive — asserts
+EXACTLY ONE hit and that it is the real-code half. Measured in all three directions: **1** on the
+shipped walk, **2** with the skip neutralised to a pass-through, **0** with it neutralised to
+blank-everything; in that last run **it was the only failing test in the class, with the other 13
+still green**, which is precisely the silently-vacuous pass it exists to stop. (2) The walk now
+raises an `AssertionError` NAMING the source when a scanned file ENDS INSIDE a raw string, instead of
+returning a silently blanked tail. Re-measured with that check live: **all 151 files walk without
+throwing**, so 0 files end INSIDE — established by the tree scan itself now, not by a one-off probe —
+and **652 lines are blanked tree-wide** (352 of them in the sweep file's own fixtures, 300 elsewhere;
+`27-REVIEW-2` recorded 625 from an independent re-implementation on the round-4 tree, and the two are
+**not reconciled** — the tree has since gained plan 27-14's tests and this plan's three fixtures, and
+the direction that matters, 0 files ending INSIDE, agrees in both).
+
+**WHAT ROUND 5 CHANGED ABOUT THE CHECK ITSELF — 2026-08-26, plan 27-15, three changes, each measured
+in both directions.** (1) The DECLARATION GATE widened: `FUNCTION_DECLARATION` now admits any modifier
+prefix, an optional same-line annotation, an optional generic parameter list and BOTH name spellings,
+and `detect()` takes the identifier from the plain-name group falling back to the backtick group. A
+synthetic survival pin in six declaration shapes scored **1 of 6 before and 6 of 6 after**. (2) The
+WALK-TO-DETECTOR COMPOSITION gated in the FLAGGING direction for the first time — **1 / 2 / 0** across
+the shipped walk and its two neutralisations. (3) The UNBALANCED-FILE blindness converted from a
+silently blanked tail into a NAMED `AssertionError`. Regression evidence, quoted because the widening
+is the change most able to break the check quietly: the pre-round historical run still reports
+**EXACTLY 3** hits under the same three identifiers, and the current tree still reports **0**
+qualified over **151** files. **Round 5 closed NO requirement — PRIV-05 remains `[ ]`** — and this
+clause is amended in the SAME change as the control it describes, which is the whole of the lesson.
 
 **Read clauses (v) and (vi) together with (i) through (iv): (i) asks how wide a control is, (ii) that
 the verification not be narrower than the claim, (iii) that the sibling paths be counted, (iv) that
