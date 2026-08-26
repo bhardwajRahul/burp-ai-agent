@@ -475,3 +475,15 @@ Both files it touched are under `src/test/`; no file under `src/main/` was modif
 ---
 *Phase: 27-priv-05-gap-closure-sanitize-headers*
 *Completed: 2026-08-26*
+
+## Self-Check: PASSED
+
+- `src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt` — FOUND on disk
+- `src/test/kotlin/com/six2dez/burp/aiagent/mcp/tools/McpToolHelpersTest.kt` — FOUND on disk
+- `.planning/phases/27-priv-05-gap-closure-sanitize-headers/27-12-SUMMARY.md` — FOUND on disk
+- Commit `47140e1` (task 1) — FOUND in `git log`
+- Commit `1a6be75` (task 2) — FOUND in `git log`
+- Commit `c54244e` (plan metadata) — FOUND in `git log`
+- Working tree clean; no throwaway probe code remains under `src/`.
+- STATE.md and ROADMAP.md deliberately NOT modified — this plan ran in a worktree and the
+  orchestrator owns those writes.
