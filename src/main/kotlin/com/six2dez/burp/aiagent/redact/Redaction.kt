@@ -215,7 +215,7 @@ object Redaction {
     // The recognised starts, in the order the composer offers them:
     //   1. a REAL line start      `(?im)^`        — the pattern that shipped
     //   2. a JSON-ESCAPED newline `(?<=\\[rn])`   — plan 27-04, the serialized emission shape
-    //   3. a JSON STRING OPEN     `(?<=")`        — plan 27-11, this one
+    //   3. a JSON STRING VALUE open `(?<=:")`     — plan 27-11, narrowed by 27-14, this one
     //
     // Start 3 exists because a header that is the FIRST content of a JSON string value has neither a
     // real `^` nor a preceding escaped newline, so the CANONICAL `Cookie:` header — not a variant,
@@ -232,10 +232,42 @@ object Redaction {
     // this survived three rounds of verification unseen.
     //
     // THE TWO LOOKBEHINDS ARE SPELLED SEPARATELY and each is FIXED-WIDTH: width two on the escaped
-    // newline, width one on the string open, grouped non-capturing. Collapsing them into ONE
+    // newline, width two on the string VALUE open, grouped non-capturing. Collapsing them into ONE
     // lookbehind holding an alternation of differing widths is shorter and silently trades away the
     // 2.4x measured just below, because Java would then try two look-back widths at every position of
     // every serialized emission. If a fourth start is ever added, add a THIRD separate lookbehind.
+    //
+    // THE COST OF START 3, in BOTH directions, at the rigour D-27-15's paragraph above is written to
+    // — because start 3's cost went unstated for one round and that omission is what shipped a
+    // correctness regression on live 1.0.0 code.
+    //
+    // (a) WHAT THE BARE QUOTE COST, and it is a defect this round REPAIRED rather than history that
+    // is still live. 27-11 spelled this start as a BARE double quote `(?<=")` while calling it a JSON
+    // string open. A bare double quote is not a JSON string open, and all THREE composed rules
+    // inherited the error. MEASURED on the shipped classes, five non-JSON carriers, identical under
+    // STRICT and BALANCED — an HTML attribute value (`<div title="Cookie: …">`), a JS string literal
+    // argument (`foo("cookie: …", KEEPME)`), a quoted CSV field (`1,"x-cookie: …",KEEPTAIL`), a
+    // `Set-Cookie:` header NAMED in ordinary quoted prose, and the same in prose reaching
+    // `authHeaderRegex` (`"authorization: Bearer required"`). All five had their tails replaced. On a
+    // 1714-character `proxy_http_history`-shaped tool result the same start DESTROYED 1589 of 1714
+    // characters and all forty content markers after the attribute, leaving JSON that still parsed —
+    // so every shape assertion stayed green and the model read a truncated body. That is precisely
+    // the functional regression `redactCookieSections`' comment below argues against, committed by
+    // this file against its own stated standard.
+    //
+    // (b) WHAT THE NARROWING COSTS, and it is accepted rather than hidden. `:"` recognises a JSON
+    // string VALUE open ONLY. A header at the open of a JSON ARRAY ELEMENT string — `["Cookie: …"]`
+    // — is NOT a recognised start after 27-14, since an array element opens on a bracket-quote or
+    // comma-quote sequence. MEASURED in both directions on the compiled classes:
+    //
+    //   {"tags":["Cookie: a=SECRET8"]}  STRICT, bare quote   ->  Cookie: [STRIPPED]
+    //   {"tags":["Cookie: a=SECRET8"]}  STRICT, `:"` start   ->  byte-unchanged
+    //
+    // Filed as open finding AR-27-11 rather than absorbed, and DELIBERATELY pinned by no test: a
+    // green assertion that a cookie value survives STRICT is the artifact class the 26-SECURITY.md
+    // standing rule prohibits. Accepted at LOW because no measured emission site in this repository
+    // puts a header at an array-element string open, and the alternative — the bare quote — is a
+    // high-severity correctness break on the primary path.
     //
     // THE FOURTH START, WHICH IS STILL NOT RECOGNISED — read this before quoting the boundary as
     // complete. A header line preceded by LEADING HORIZONTAL WHITESPACE, including an RFC 7230
@@ -265,16 +297,40 @@ object Redaction {
     // widths at every position.
     private const val JSON_ESCAPED_NEWLINE = "\\\\[rn]"
 
-    // The open of a JSON string value — the THIRD logical line start (27-11). FIXED-WIDTH at one
-    // character, and named as its own constant so the composer can carry it in a SECOND lookbehind
+    // The open of a JSON string VALUE — the THIRD logical line start (27-11, narrowed by 27-14).
+    // The two characters COLON then DOUBLE QUOTE, so it is still FIXED-WIDTH — width two rather than
+    // width one — and named as its own constant so the composer can carry it in a SECOND lookbehind
     // instead of widening the first one into a variable-width alternation.
+    //
+    // IT IS A COLON-QUOTE SEQUENCE AND NOT A BARE QUOTE, and this sentence is the whole of the
+    // constant's correctness. 27-11 shipped a BARE double quote under this same name. A bare double
+    // quote is not a JSON string open: it also opens HTML attribute values, JS string literals and
+    // quoted CSV fields, and it occurs in ordinary prose — all of which reach [apply] through
+    // `McpToolContext.redactIfNeeded`, `ContextCollector`, `McpToolExecutorImpl`'s `redact_preview`,
+    // `BountyPromptTagResolver` and `PassiveAiScannerPrompts`. All THREE composed rules inherited it,
+    // `authHeaderRegex` included.
+    //
+    // MEASURED on the shipped classes before the narrowing, on a 1714-character
+    // `proxy_http_history`-shaped tool result whose first quote-preceded `cookie:` run sits inside a
+    // `title=` HTML attribute: 1589 of 1714 characters DESTROYED, all forty occurrences of the
+    // content marker after that point GONE, and the output still parsing as JSON with its sibling
+    // `notes` field byte-identical — so every shape assertion in the suite stayed green while the
+    // model silently received a truncated response body. THE MECHANISM, in one clause: an escaped
+    // quote is consumed atomically by [JSON_ESCAPED_HEADER_VALUE]'s escape-pair alternative, so the
+    // tail cannot terminate on ANY escaped quote and runs to the JSON string's real closing quote.
+    //
+    // THE COST OF THE NARROWING, stated rather than absorbed: a header at the open of a JSON ARRAY
+    // ELEMENT string is not a recognised start, because an array element's open is a bracket-quote
+    // or comma-quote sequence. MEASURED matching before this change and NOT matching after it:
+    // `{"tags":["Cookie: a=SECRET8"]}` under STRICT went from `Cookie: [STRIPPED]` to byte-unchanged.
+    // Filed as open finding AR-27-11.
     //
     // DECLARED BELOW JSON_ESCAPED_NEWLINE ON PURPOSE, and this is load-bearing rather than stylistic:
     // `LogicalLineBoundaryScopeTest.rationaleRegionAboveFragments` walks back from the first line
     // beginning `private const val JSON_ESCAPED_NEWLINE` and stops at the first line of real code
     // above it, so a constant inserted ABOVE would truncate the rationale region and break that
     // file's line floor for a reason with nothing to do with the boundary.
-    private const val JSON_STRING_OPEN = "\""
+    private const val JSON_STRING_OPEN = ":\""
 
     // The SHIPPED value tail, character for character. Named rather than inlined so the byte-identity
     // claim is visible in source as "this branch uses the pattern that shipped".
