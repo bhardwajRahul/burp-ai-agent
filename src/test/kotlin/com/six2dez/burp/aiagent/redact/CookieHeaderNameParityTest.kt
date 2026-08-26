@@ -17,18 +17,37 @@ import org.junit.jupiter.api.Test
 //
 // DIRECTION, stated once so it cannot be misread. The invariant is
 //   promptStrips(N)  =>  isCookieHeaderName(N)
-// and ONLY that direction. The converse is FALSE BY DESIGN and must never be added here: my_cookie
-// is in the corpus precisely because the predicate matches it and the prompt path does not
-// (COOKIE_NAME_PART is [A-Za-z0-9-]*, which excludes '_'). The predicate being WIDER than the two
-// regexes is fail-safe — wider on the redacting side over-redacts a benign value at worst — and
-// asserting the converse would create pressure to NARROW the predicate, which is the exact
-// direction that reopens this phase's gap.
+// and ONLY that direction. The converse must NEVER be asserted here, and the reason is about which
+// repair a red test would provoke: asserting it would create pressure to NARROW the predicate, and
+// narrowing the predicate shrinks what McpToolHelpers.sanitizeHeaders strips on the MCP path —
+// the exact direction that reopens this phase's gap. When the two sides disagree, the repair is
+// always to WIDEN the regex side.
 //
-// WHICH GUARD COVERS WHICH MUTATION (measured by plan 27-02's red probes 1 and 2, not assumed):
-//   - a NARROWING of Redaction.isCookieHeaderName turns THIS test red (probe 1);
-//   - a NARROWING of either prompt-path regex leaves this test GREEN — shrinking an implication's
-//     antecedent cannot falsify it — and is caught instead by
-//     RedactionTest.cookieHeaderNameVariantsAreStripped (probe 2).
+// WHAT THE GAP BETWEEN THE TWO SIDES IS NOW, corrected by plan 27-10. It used to be the underscore
+// class: COOKIE_NAME_PART was [A-Za-z0-9-]* (the PRE-FIX value, quoted here as history), my_cookie
+// was a predicate-only corpus entry, and this file asserted its value SURVIVED STRICT. That was not
+// a benign asymmetry. isCookieHeaderName has three consumers and one of them —
+// PassiveAiScannerFilters.sanitizeHeadersForPrompt — is an ADMITTER, so a name the predicate claims
+// and the regexes cannot match is put on the outbound prompt and never stripped: fail-OPEN, not
+// fail-safe. Plan 27-10 widened the class to [A-Za-z0-9_-]* and inverted the assertion.
+//
+// The REMAINING gap, and the honest example to reason from: a header name carrying one of the
+// thirteen RFC 9110 tchars still outside the widened class (! # $ % & ' * + . ^ ` | ~). Those are
+// enumerated in source by CookieHeaderNameWidthTest.NOT_COVERED_TCHARS and filed as AR-27-10. Where
+// the predicate is wider than the regexes it is fail-safe ONLY for the two REDACTING consumers; for
+// the admitting one it is fail-open, which is why the residual is filed rather than dismissed.
+//
+// WHICH GUARD COVERS WHICH MUTATION (measured by plan 27-02's red probes 1 and 2, not assumed).
+// Each bullet names its test, because plan 27-10 added a second behavioural test to this file and
+// an unqualified "this test" no longer identifies one:
+//   - a NARROWING of Redaction.isCookieHeaderName turns
+//     everyNameThePromptPathStripsIsMatchedByTheSharedPredicate red (probe 1);
+//   - a NARROWING of either prompt-path regex leaves that same implication test GREEN — shrinking an
+//     implication's antecedent cannot falsify it — and is caught instead by
+//     RedactionTest.cookieHeaderNameVariantsAreStripped (probe 2);
+//   - a narrowing of COOKIE_NAME_PART specifically back off the underscore class turns
+//     theUnderscoreNameClassIsStrippedByBothTheRegexesAndThePredicate red (plan 27-10's red probe),
+//     which is the one mutation the implication test structurally cannot see.
 //
 // FIXTURE REACHABILITY, following the same discipline as RedactionTest's comment block above
 // cookieHeaderNameVariantsAreStripped. Every sentinel is a bare lowercase alphabetic word on an
@@ -70,9 +89,12 @@ private val PARITY_CORPUS: List<Pair<String, String>> =
         "X-Forwarded-Cookie" to "sentinelparityforwardedcookie",
         "Cookie-Consent" to "sentinelparitycookieconsent",
         "X-Cookie-Policy" to "sentinelparitycookiepolicy",
-        // predicate-only, the deliberate asymmetry: '_' is outside COOKIE_NAME_PART, so neither
-        // prompt-path regex can match this name, while the predicate's bare contains() does.
+        // (PRIV-05) 27-10: the underscore class. These three were predicate-only until plan 27-10
+        // widened COOKIE_NAME_PART to admit '_', and my_cookie was measured leaking under STRICT and
+        // BALANCED. Each carries its OWN sentinel so a partial fix cannot hide behind a shared value.
         "my_cookie" to "sentinelparityunderscorecookie",
+        "X_Cookie" to "sentinelparityunderscoreprefixed",
+        "session_cookie" to "sentinelparityunderscoresession",
         // cookie-negative: predicate false AND the prompt path leaves the value alone
         "X-Request-Id" to "sentinelparityrequestid",
         "X-Cook" to "sentinelparityxcook",
@@ -81,9 +103,16 @@ private val PARITY_CORPUS: List<Pair<String, String>> =
         "Content-Type" to "sentinelparitycontenttype",
     )
 
-private const val MIN_CORPUS_SIZE = 16
-private const val MIN_PREDICATE_POSITIVES = 10
-private const val MIN_PREDICATE_NEGATIVES = 4
+// FLOORS, not counts. Each is deliberately BELOW the measured actual so it catches a SHRINKING
+// corpus rather than becoming a number to maintain. Measured at plan 27-10: 19 entries, 14
+// predicate-positive, 5 predicate-negative.
+private const val MIN_CORPUS_SIZE = 18 // actual 19
+private const val MIN_PREDICATE_POSITIVES = 12 // actual 14
+private const val MIN_PREDICATE_NEGATIVES = 4 // actual 5
+
+// An EXACT count, not a floor: these three names are the measured underscore class, and each one is
+// evidence in its own right. A floor would let one be dropped silently.
+private const val EXPECTED_UNDERSCORE_NAMES = 3
 private const val PARITY_HOST_SALT = "phase-27-plan-02-parity-salt"
 
 class CookieHeaderNameParityTest {
@@ -171,33 +200,54 @@ class CookieHeaderNameParityTest {
         }
     }
 
-    // The documented asymmetry, asserted positively so a future reader meets the design intent as a
-    // passing test rather than as prose. See the DIRECTION note in this file's header: the converse
-    // implication is deliberately NOT asserted anywhere in this file.
+    // (PRIV-05) plan 27-10. The underscore name class, asserted in the SAFE direction. Before this
+    // plan COOKIE_NAME_PART was [A-Za-z0-9-]*, which excludes '_', and this same fixture asserted
+    // that my_cookie's value SURVIVED STRICT — a green test pinning a cookie disclosure. The
+    // assertion is INVERTED rather than deleted, so the corpus entry keeps carrying its measurement.
+    //
+    // It covers ALL THREE measured underscore names rather than my_cookie alone, and that is
+    // load-bearing rather than thorough: the implication test above is one-directional, so a
+    // NARROWING of COOKIE_NAME_PART leaves it green (shrinking an antecedent cannot falsify an
+    // implication). This is the only test in the file that a re-narrowing turns red, so a name absent
+    // from HERE is a name no failing test covers, however many corpus entries it has.
     @Test
-    fun thePredicateIsDeliberatelyWiderThanTheTwoRegexes() {
-        val name = "my_cookie"
-        val sentinel = PARITY_CORPUS.first { it.first == name }.second
+    fun theUnderscoreNameClassIsStrippedByBothTheRegexesAndThePredicate() {
+        val underscoreNames = PARITY_CORPUS.filter { it.first.contains('_') }
 
+        // Non-vacuity: a forEach over an empty or shrunken list is a passing test about nothing, and
+        // deleting these entries is the exact tampering T-27-10-04 names.
         assertTrue(
-            Redaction.isCookieHeaderName(name),
-            "the shared predicate is a bare contains() and must match '$name'",
+            underscoreNames.size == EXPECTED_UNDERSCORE_NAMES,
+            "the corpus must hold all $EXPECTED_UNDERSCORE_NAMES measured underscore names — each was " +
+                "observed leaking under STRICT and BALANCED before plan 27-10 widened COOKIE_NAME_PART " +
+                "(got ${underscoreNames.map { it.first }})",
         )
 
-        for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
-            val output = redactHeaderBlob(mode, name, sentinel)
+        for ((name, sentinel) in underscoreNames) {
             assertTrue(
-                output.contains(sentinel),
-                "$mode: the prompt path must NOT strip '$name' — '_' is outside COOKIE_NAME_PART, so neither " +
-                    "cookie regex can match it. This asymmetry is INTENTIONAL and fail-safe: the predicate is " +
-                    "wider than the two regexes, so the redacting side over-matches rather than under-matches. " +
-                    "If this assertion fails, the prompt-path regexes were widened — record the measurement, " +
-                    "do not narrow the predicate to restore symmetry (output: $output)",
+                Redaction.isCookieHeaderName(name),
+                "the shared predicate is a bare contains() and must match '$name'",
             )
-            assertFalse(
-                output.contains("$name: [STRIPPED]"),
-                "$mode: '$name' must not be rewritten to the stripped form (output: $output)",
-            )
+
+            for (mode in listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED)) {
+                val output = redactHeaderBlob(mode, name, sentinel)
+                assertFalse(
+                    output.contains(sentinel),
+                    "$mode: the value of '$name' SURVIVED a redacting policy. '_' is a legal RFC 9110 tchar, " +
+                        "so this is a real header name, and PassiveAiScannerFilters.sanitizeHeadersForPrompt " +
+                        "ADMITS it into the outbound passive-scan prompt PRECISELY BECAUSE the shared predicate " +
+                        "claims it. A value surviving here is therefore a cookie disclosure to a third-party AI " +
+                        "backend, not an intended asymmetry. FIX THE DIRECTION THAT IS SAFE: widen " +
+                        "COOKIE_NAME_PART so the two regexes reach every name the predicate admits. NEVER narrow " +
+                        "the predicate to restore symmetry — that shrinks what McpToolHelpers.sanitizeHeaders " +
+                        "strips on the MCP path, which is the direction that reopened this phase (output: $output)",
+                )
+                assertTrue(
+                    output.contains("$name: [STRIPPED]"),
+                    "$mode: '$name' must be rewritten to the stripped form and must keep its OWN name rather " +
+                        "than be renamed to the canonical spelling (output: $output)",
+                )
+            }
         }
     }
 

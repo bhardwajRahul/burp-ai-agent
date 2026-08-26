@@ -114,9 +114,22 @@ object Redaction {
     private val bearerRegex = Regex("(?i)bearer\\s+[A-Za-z0-9\\-\\._~\\+\\/]+=*")
     private val basicAuthRegex = Regex("(?i)basic\\s+[A-Za-z0-9\\+\\/=]+")
 
-    // W-A: an RFC 9110 field-name is a token; the subset that occurs in practice for cookie-bearing
-    // headers is [A-Za-z0-9-]. Used as the "rest of the name" either side of the literal "cookie".
-    private const val COOKIE_NAME_PART = "[A-Za-z0-9-]*"
+    // W-A: an RFC 9110 field-name is a token. Used as the "rest of the name" either side of the
+    // literal "cookie".
+    //
+    // (PRIV-05) 27-10: this class was [A-Za-z0-9-]* until plan 27-10 — the value BEFORE the widening,
+    // recorded here as history, not as what ships. '_' is a legal RFC 9110 tchar and names carrying it
+    // occur (my_cookie, X_Cookie, session_cookie were all measured reaching an AI backend verbatim
+    // under STRICT and BALANCED). THE WIDTH RULE, and the reason it points in this direction: this
+    // class must be AT LEAST AS WIDE as whatever isCookieHeaderName admits, because one of that
+    // predicate's three consumers — PassiveAiScannerFilters.sanitizeHeadersForPrompt — is an ADMITTER,
+    // not a redactor. A name the predicate claims but this class cannot match is put on the outbound
+    // prompt and then not removed. Widen this constant to close such a gap; never narrow the predicate.
+    //
+    // THE BOUND, so the next reader does not over-read the fix: this class is still NARROWER than the
+    // full tchar set. The thirteen remaining tchars (! # $ % & ' * + . ^ ` | ~) are enumerated in
+    // CookieHeaderNameWidthTest.NOT_COVERED_TCHARS and filed as AR-27-10.
+    private const val COOKIE_NAME_PART = "[A-Za-z0-9_-]*"
 
     // (PRIV-05) D-27-01: the ONE lowercase literal that says what "a cookie header" is named. Both
     // regexes below and isCookieHeaderName are composed from it, so a rename is a compile-wide change
@@ -261,11 +274,32 @@ object Redaction {
      * a record wider than the control it describes is the defect the v0.10.0 milestone audit found,
      * and restating it here would only relocate it into the artifact a maintainer reads first.
      *
-     * The predicate is deliberately WIDER than the two regexes. They constrain the characters either
-     * side of the token to [COOKIE_NAME_PART]; this constrains nothing, so any name containing the
-     * token matches. Wider on the redacting side is fail-safe: the cost is over-redacting a benign
-     * `Cookie-Consent`-style header's VALUE (T-21-WA3, accepted), and the alternative cost is a
-     * cookie reaching an AI backend.
+     * WIDTH, AND WHY IT CANNOT BE STATED WITHOUT NAMING THE CONSUMER (PRIV-05, plan 27-10). This
+     * predicate constrains nothing beyond containing the token, while the two regexes constrain the
+     * characters either side of it to [COOKIE_NAME_PART]. Whether the predicate being WIDER is safe
+     * depends entirely on WHICH consumer is reading it, and the three do not agree:
+     *
+     *  - `McpToolHelpers.sanitizeHeaders` — a REDACTOR. A true result REMOVES the value. Wider than
+     *    the regexes over-redacts, which is fail-SAFE.
+     *  - the two composed regexes inside [apply] — REDACTORS, for the same reason.
+     *  - `PassiveAiScannerFilters.sanitizeHeadersForPrompt` — an ADMITTER. A true result PUTS the
+     *    header into the outbound prompt. Wider than the regexes means a name this predicate claims
+     *    is admitted onto the prompt and then NOT removed by [apply], which is fail-OPEN.
+     *
+     * This paragraph previously claimed fail-safety UNCONDITIONALLY, and named the cost as
+     * over-redacting a benign `Cookie-Consent`-style header's VALUE (T-21-WA3, accepted). For the
+     * admitting consumer the MEASURED cost was the opposite: `my_cookie`, `X_Cookie` and
+     * `session_cookie` reached a third-party AI backend verbatim under STRICT — the strongest privacy
+     * mode — and under BALANCED, because `_` is a legal RFC 9110 tchar that [COOKIE_NAME_PART] then
+     * excluded. Any fail-safe claim here must stay scoped to a named REDACTING consumer; the
+     * admitting one is explicitly excluded from it.
+     *
+     * THE CURRENT BOUND, with its next axis, so this is not read as "the predicate and the regexes
+     * now agree". After plan 27-10 the regexes cover the alphanumeric, underscore and hyphen class,
+     * so the difference set is empty THERE. The thirteen remaining RFC 9110 tchars are NOT covered:
+     * they are enumerated in source as `CookieHeaderNameWidthTest.NOT_COVERED_TCHARS` and filed as
+     * `AR-27-10`. A name built from one of those is still admitted here and still unmatched by both
+     * regexes.
      *
      * Both header paths call THIS function rather than writing their own test, so a future widening
      * cannot be applied to one path and forgotten in the other. That forgetting is precisely what the
