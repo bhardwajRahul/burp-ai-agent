@@ -1,6 +1,7 @@
 package com.six2dez.burp.aiagent.redact
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -152,6 +153,51 @@ class RedactingPolicySurvivalSweepTest {
             unskipped.size >= MIN_EXPECTED_UNSKIPPED_SELF_HITS,
             "expected at least $MIN_EXPECTED_UNSKIPPED_SELF_HITS unskipped self-hits from the " +
                 "positive fixtures; found ${unskipped.size}: $unskipped",
+        )
+    }
+
+    // ── the walk and the detector, bound together in the FLAGGING direction ───────────────
+
+    @Test
+    fun theWalkPreservesRealCodeWhileSkippingRawStringInteriors() {
+        val hits = detect(FIXTURE_ID, dropRawStringInteriors(FIXTURE_ID, WALK_COMPOSITION_FIXTURE.lines()))
+
+        assertEquals(
+            1,
+            hits.size,
+            "the walk must BLANK the raw-string half of this fixture AND leave the real-code half " +
+                "scannable. The two failures this distinguishes are not symmetric:\n" +
+                "  TWO hits — the raw-string skip has stopped working, and this file will flag its " +
+                "own fixtures. Loud, and self-correcting.\n" +
+                "  ZERO hits — the walk has started BLANKING REAL CODE. The tree scan then returns " +
+                "an empty hit set for the whole repository and every other test in this file stays " +
+                "green, so the sweep reports SAFE while seeing nothing. That is the failure this " +
+                "test exists for, and until plan 27-15 nothing asserted against it: every proof the " +
+                "detector could produce a hit bypassed the walk, and the ONE path that used the " +
+                "walk expected EMPTY. The file's own comment named this 'the dangerous direction' " +
+                "for a full round without gating it. Hits: $hits",
+        )
+        assertEquals(
+            REAL_CODE_PIN_IDENTIFIER,
+            hits.single().identifier.substringAfter('#'),
+            "one hit is not enough — it must be the REAL-CODE half. A single hit carrying the " +
+                "raw-string half's identifier would mean the walk has inverted: blanking the code " +
+                "and preserving the fixture. Hits: $hits",
+        )
+    }
+
+    @Test
+    fun theWalkFailsLoudlyWhenAFileEndsInsideARawString() {
+        val thrown =
+            assertThrows(AssertionError::class.java) {
+                dropRawStringInteriors(FIXTURE_ID, UNBALANCED_WALK_FIXTURE.lines())
+            }
+
+        assertTrue(
+            thrown.message.orEmpty().contains(FIXTURE_ID),
+            "the walk must NAME the source it could not balance, or the error cannot be acted on: " +
+                "the whole point is to identify WHICH file had its tail blanked. Message: " +
+                "${thrown.message}",
         )
     }
 
@@ -372,33 +418,51 @@ class RedactingPolicySurvivalSweepTest {
      * This is the one narrowing that makes the self-scan clean, and it is declared in the class KDoc
      * as blind axis 9 rather than sold as a feature.
      */
-    private fun fileWalk(file: File): List<String> = dropRawStringInteriors(file.readLines())
+    private fun fileWalk(file: File): List<String> = dropRawStringInteriors(relativePath(file), file.readLines())
 
-    private fun dropRawStringInteriors(lines: List<String>): List<String> {
+    private fun dropRawStringInteriors(
+        sourceId: String,
+        lines: List<String>,
+    ): List<String> {
         var inside = false
-        return lines.map { line ->
-            val startedInside = inside
-            // A COMMENT LINE NEVER OPENS OR CLOSES A RAW STRING, so it must not toggle the state.
-            // This is not tidiness. MEASURED on this very file: the class KDoc above quotes a bare
-            // triple quote while explaining what this walk does, which is an ODD toggle, and it
-            // INVERTED the state for every line below it — the fixtures read as code and the code
-            // read as fixture. The self-scan caught it loudly. The dangerous direction is the other
-            // one: an odd toggle in prose can also blank REAL code and make the tree scan miss a
-            // real survival pin SILENTLY. The KDoc's triple quote is deliberately left in place, so
-            // this rule stays exercised by the file itself rather than by nothing.
-            if (!isCommentOnly(line)) {
-                var index = 0
-                while (index <= line.length - TRIPLE_QUOTE.length) {
-                    if (line.regionMatches(index, TRIPLE_QUOTE, 0, TRIPLE_QUOTE.length)) {
-                        inside = !inside
-                        index += TRIPLE_QUOTE.length
-                    } else {
-                        index++
+        val walked =
+            lines.map { line ->
+                val startedInside = inside
+                // A COMMENT LINE NEVER OPENS OR CLOSES A RAW STRING, so it must not toggle the
+                // state. This is not tidiness. MEASURED on this very file: a KDoc above quotes a
+                // bare triple quote while explaining what this walk does, which is an ODD toggle,
+                // and it INVERTED the state for every line below it — the fixtures read as code and
+                // the code read as fixture. The self-scan caught it loudly.
+                //
+                // THE DANGEROUS DIRECTION IS THE OTHER ONE, and as of plan 27-15 it is ASSERTED
+                // rather than merely named. An odd toggle in prose can blank REAL code, and a tree
+                // scan over blanked code returns zero with every other test in this file still
+                // green — a silently vacuous pass, which is worse than a red one. Two tests stand
+                // against it now:
+                //   - [theWalkPreservesRealCodeWhileSkippingRawStringInteriors] drives the walk and
+                //     the detector as ONE composition and demands EXACTLY ONE hit. Zero means the
+                //     walk has started blanking real code; two means the skip has stopped working.
+                //     Until 27-15 every proof the detector could produce a hit bypassed the walk,
+                //     and the only path that used the walk expected EMPTY.
+                //   - [theWalkFailsLoudlyWhenAFileEndsInsideARawString] covers the case no fixture
+                //     can reach from inside: a scanned file with an unbalanced quote, whose whole
+                //     tail this walk would otherwise blank and report as clean.
+                // The bare triple quote in the KDoc above is deliberately left in place, so this
+                // rule stays exercised by the file itself rather than by nothing.
+                if (!isCommentOnly(line)) {
+                    var index = 0
+                    while (index <= line.length - TRIPLE_QUOTE.length) {
+                        if (line.regionMatches(index, TRIPLE_QUOTE, 0, TRIPLE_QUOTE.length)) {
+                            inside = !inside
+                            index += TRIPLE_QUOTE.length
+                        } else {
+                            index++
+                        }
                     }
                 }
+                if (startedInside) "" else line
             }
-            if (startedInside) "" else line
-        }
+        return walked
     }
 
     // ── the detector: lines become hits ───────────────────────────────────────────────────
@@ -1267,6 +1331,65 @@ class RedactingPolicySurvivalSweepTest {
                 "shape 6 — the CONTROL: the one shape the pre-round detector could see",
             )
         }
+            """
+
+        /**
+         * THE WALK AND THE DETECTOR AS ONE COMPOSITION — the sweep's only production path, and until
+         * plan 27-15 the only one with no positive gate.
+         *
+         * Two halves, and the assertion is that the walk treats them DIFFERENTLY. The first is a
+         * companion-level raw string holding a survival-pin-shaped function, which the walk must
+         * BLANK. The second is a real-code survival pin, which the walk must LEAVE ALONE so the
+         * detector can flag it. Exactly one hit, and it must be the second one.
+         *
+         * Built by CONCATENATING [TRIPLE_QUOTE] rather than by embedding a literal triple quote:
+         * this file scans ITSELF, and an embedded literal would toggle the walk's state mid-fixture.
+         * That is the same reason [TRIPLE_QUOTE] is held at companion level at all.
+         */
+        val WALK_COMPOSITION_FIXTURE =
+            """
+val aFixtureTheWalkMustBlank =
+    """ + TRIPLE_QUOTE + """
+    fun aPinThatLivesInsideTheRawString() {
+        val redacted = contextWith(PrivacyMode.STRICT, "composition-salt").redactIfNeeded(payload)
+
+        assertTrue(
+            redacted.contains("sentinelinsidetherawstring"),
+            "this pin is INSIDE a raw string and must be blanked by the walk",
+        )
+    }
+    """ + TRIPLE_QUOTE + """
+
+fun aRealCodePinTheWalkMustPreserve() {
+    val redacted = contextWith(PrivacyMode.STRICT, "composition-salt").redactIfNeeded(payload)
+
+    assertTrue(
+        redacted.contains("sentinelrealcodepin"),
+        "this pin is REAL CODE and must survive the walk to be flagged",
+    )
+}
+            """
+
+        /** The one hit [WALK_COMPOSITION_FIXTURE] must produce, and which of its two halves it is. */
+        const val REAL_CODE_PIN_IDENTIFIER = "aRealCodePinTheWalkMustPreserve"
+
+        /**
+         * A file that ENDS INSIDE a raw string — an ODD triple-quote count.
+         *
+         * The walk blanks every line below the unbalanced quote, so a survival pin anywhere in that
+         * tail is invisible and the file's contribution to the tree scan is a vacuous zero. There is
+         * no way to notice this from the hit set, which is why it must be a thrown error and not a
+         * count.
+         */
+        val UNBALANCED_WALK_FIXTURE =
+            """
+val anUnbalancedFixture =
+    """ + TRIPLE_QUOTE + """
+    fun aPinBelowTheUnbalancedQuote() {
+        val redacted = contextWith(PrivacyMode.STRICT, "unbalanced-salt").redactIfNeeded(payload)
+
+        assertTrue(redacted.contains("sentinelbelowtheunbalancedquote"), "invisible to the walk")
+    }
             """
 
         /**
