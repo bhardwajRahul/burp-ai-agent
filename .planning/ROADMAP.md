@@ -396,7 +396,7 @@ reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Depends on:** Phase 26
 **Gap closure (2026-08-24):** `27-VERIFICATION.md` scored 7/9 and failed the two truths the goal rests on. `Serialization.kt` embeds a RAW HTTP message in a JSON string, `toolJson.encodeToString` escapes every CRLF to a literal two-character sequence, and both cookie rules are line-anchored `(?im)^…$` — so the CANONICAL `Cookie:` and `Set-Cookie:` headers leak verbatim in STRICT and BALANCED through `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`, across 14 measured emission sites with no `sanitizeHeaders` in front. Strictly broader than the variant-spelling defect that created the phase. `AR-27-01` is reclassified from accepted residual to live finding. Plans 27-04 to 27-06 close it; the maintainer chose to fix rather than to scope PRIV-05 down.
 
-**Plans:** 12/13 plans executed
+**Plans:** 13/13 plans executed
 
 Plans:
 **Wave 1**
@@ -485,7 +485,7 @@ Plans 27-10 to 27-13 close them and repair the records.
 
 **Wave 13** *(gap closure round 4 — blocked on Wave 12)*
 
-- [ ] 27-13-PLAN.md — Records, fourth time: T-26-02-01 clause (6), AR-27-09 and AR-27-10 defined from measurements, recomputed `threats_open` with its population restated, standing rule clauses (v) consumer polarity and (vi) green tests as evidence (wave 13)
+- [x] 27-13-PLAN.md — Records, fourth time: T-26-02-01 clause (6), AR-27-09 and AR-27-10 defined from measurements, recomputed `threats_open` with its population restated, standing rule clauses (v) consumer polarity and (vi) green tests as evidence (wave 13)
 
 **PHASE 27 COMPLETES WITH PRIV-05 NOT SATISFIED (2026-08-25, recorded by plan 27-09).** Stated here,
 in the phase record, rather than only in a SUMMARY. The goal line above is round-one text and is
@@ -634,7 +634,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
 | 26. Coverage, Static-Analysis Debt & Docs | 7/7 | In Progress|  |
-| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 12/13 | In Progress|  |
+| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 13/13 | In Progress|  |
 
 ## Backlog
 
