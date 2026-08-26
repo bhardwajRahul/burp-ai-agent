@@ -690,6 +690,7 @@ the evidence supports rather than rounded in either direction.
 | 2026-08-24 | 46 | 46 | 0 | Phase 27 (27-04, 27-05, 27-06) — **second** reopening of T-26-02-01 and its re-closure; `threats_open` COMPUTED from the rows, not asserted |
 | 2026-08-25 | 46 | 46 | 0 | Phase 27 (27-07, 27-08, 27-09) — **THIRD** reopening of T-26-02-01 and its re-closure on the COOKIE-typed PARAMETER carrier; `threats_open` recomputed from the rows AND the counter's POPULATION stated for the first time |
 | 2026-08-26 | 46 | 46 | 0 | Phase 27 (27-10, 27-11, 27-12, 27-13) — **FOURTH** reopening of T-26-02-01 and its re-closure on the ADMITTER-POLARITY and JSON-STRING-OPEN axes; `threats_open` recomputed from the rows (output `0`, 46 rows scanned, 46 closed) and the counter's POPULATION restated, now with an explicit statement that neither finding opened this round is at or above the blocking severity |
+| 2026-08-26 | 46 | 46 | 0 | Phase 27 (27-14, 27-15, 27-16) — **FIFTH** reopening of T-26-02-01 and its re-closure, this time on a CORRECTNESS regression this phase itself shipped (the bare-quote logical-line start) and on a defect of this REGISTER (clause (vi)'s stated bound wider than its control); `threats_open` recomputed from the rows (output `0`, 46 rows scanned, 46 closed), the counter's POPULATION restated in full for the third time with the question it forces answered for `AR-27-11`, and standing-rule clause (vii) added — a residual list must enumerate what the round INTRODUCED, not only what it INHERITED |
 
 **Note on the count.** 46 register rows across 46 distinct threat IDs. The seven PLAN files declare
 52 rows in total, but `T-26-0N-SC` is the same supply-chain threat declared identically in all seven
@@ -1208,6 +1209,85 @@ the verification not be narrower than the claim, (iii) that the sibling paths be
 the KIND of key be named — SOURCE or RENDERING. (v) adds that a width answer is meaningless without
 each consumer's POLARITY. (vi) adds that none of the five may be answered by pointing at a green
 test.**
+
+**(vii) A RESIDUAL LIST MUST ENUMERATE WHAT THE ROUND INTRODUCED, NOT ONLY WHAT IT INHERITED, AND
+THE TWO MUST BE VISIBLY SEPARATED.** Added 2026-08-26 by plan 27-16, because clauses (i) through (vi)
+were each honoured in the round that followed them and this threat was still closed wrongly a fifth
+time — and because the fifth failure was not in any control this register describes. It was in the
+register's own account of what remained.
+
+**The lesson.** A round's INHERITED residuals are the ones it has already thought about, which is
+exactly why they are the ones it lists: they arrived before the change, they were weighed while the
+change was being planned, and naming them costs nothing but a sentence. The residuals a round CREATES
+are invisible to it for the same structural reason the defect was — they arrive WITH the change, not
+before it, and the author's attention at that moment is on what the change FIXES. A list of inherited
+residuals therefore READS as completeness while being systematically blind in precisely the direction
+the round is most likely to be wrong. This is not carelessness and it cannot be fixed by care; the
+remedy is a required section heading, which is what this clause installs.
+
+**Worked example: round 4's own residual list, quoted rather than paraphrased.** It named SIX
+residuals — `AR-27-09`, `AR-27-10`, `AR-27-04`, `AR-27-08`, the `CONCERNS.md` vendor auth-header
+class, and the sweep's own vocabulary bound — and closed with the sentence "SIX NAMED RESIDUALS IS
+NOT A COMPLETENESS CLAIM." Every one of the six is REAL, correctly severity-assigned and correctly
+owned; the verifier re-measured two of them independently and both held exactly as recorded
+(`AR-27-09`'s indented header survives byte-unchanged under STRICT *and* BALANCED; all thirteen of
+`AR-27-10`'s tchars are admitted and leak under STRICT). **The failure is not in what the list names.
+It is that all six were INHERITED, and the two round 4 CREATED appear in none of them:** (a) the
+bare-quote logical-line start, a shipped correctness regression that destroyed 1589 of 1714
+characters of a realistic tool result and appeared in no source comment, no summary and no security
+record, gated by no test; and (b) the sweep's declaration-shape blindness, which this register
+affirmatively MISSTATED, because clause (vi) cited the sweep's eleven-axis enumeration as the check's
+STATED BOUND while a twelfth axis was live and undeclared. **A round whose central lesson was "a
+stated bound wider than its control is the defect" closed with a stated bound wider than its control
+in two places** — and the self-aware disclaimer at the end of its own list did not help, because a
+disclaimer about unknown unknowns says nothing about a residual the round itself manufactured and
+could have named.
+
+**THE OPERATIVE INSTRUCTION.** A residual list closing a round **must carry two separately headed
+groups: what this round INTRODUCED, and what it INHERITED.** The INTRODUCED group is written FIRST,
+because it is the one the author is structurally least likely to produce. It is populated by a
+specific question asked of every change the round shipped — *what does this change now fail to see,
+or newly do, that the previous state did not?* — and each entry carries the same apparatus an
+inherited entry does: a measurement, a severity with its provenance, and a named owner. An empty
+INTRODUCED group is permitted, but only as an explicit sentence saying the question was asked and
+the answer was none. **A list with no INTRODUCED heading at all is not a short list; it is an
+unanswered question presented as an answer.**
+
+**THIS CLAUSE IS APPLIED TO THE ROUND THAT WROTE IT, because a rule whose first application is to
+some future round is a rule that has not been tested.** Round 5's own residuals, in the two groups
+this clause now requires:
+
+*Residuals ROUND 5 INTRODUCED.* **(1) `AR-27-11`** — the JSON-ARRAY-ELEMENT logical-line start,
+created by plan 27-14's narrowing of `JSON_STRING_OPEN` to a colon-quote sequence. OPEN at LOW,
+MEASURED in both columns, with its reachability measured rather than assumed and its unmeasured half
+(the remote tool schemas on the external-tool args path) labelled UNMEASURED. **Owner: the
+maintainer**, item 12 of `27-HUMAN-UAT.md`. **(2) The sweep's AXIS 9** — a declaration whose opening
+parenthesis does not follow the identifier on its line, created by plan 27-15's widening of
+`FUNCTION_DECLARATION`, which also requires that parenthesis. **3** extension-receiver declarations
+measured live on this tree, one of them inside the sweep file itself, and **0** multi-line signatures
+— the plan anticipated the multi-line shape and the measurement found the other one, so the axis
+names BOTH shapes with BOTH counts. **Owner: the sweep's own KDoc**, where it is enumerated inside
+the machine-checked `STATED_BLIND_AXES = 13`.
+
+*Residuals ROUND 5 INHERITED.* `AR-27-04` (MEDIUM, open, **still owed a HUMAN decision** and
+deliberately NOT relitigated by round 5); `AR-27-08` and `InjectionPointExtractor.kt:29` (owned by
+Phase 28, untouched); `AR-27-09` (LOW, open, one-token fix written down); `AR-27-10` (LOW, open,
+partition measured and carry-over labelled inferred); the `CONCERNS.md` vendor auth-header class
+(open by prohibition); and the sweep's vocabulary bound, now stated as **THIRTEEN** machine-checked
+axes rather than eleven transcribed ones. Two of round 4's six are CLOSED by round 5 — its
+declaration-shape blindness and (as a defect rather than a residual) the bare-quote start — and the
+list says which, rather than letting a shrinking count imply progress it did not make.
+
+*One residual round 5 NAMED and deliberately did not fix,* recorded here because it belongs to
+neither group cleanly and hiding it in either would be this clause's own error: the
+compound-assertion NEGATION OVER-FIRE in `assertsPresenceAt` (the sweep's axis 10). Its fix is
+written down; applying it without a flip-pair fixture is how a detector gets quietly disarmed, which
+is the failure `theBenignExclusionCannotSwallowARealSentinel` exists to prevent for the other
+exclusion.
+
+**Read clause (vii) with (i) through (vi): those six are all about the CLAIM a round makes. This one
+is about the LIST a round leaves behind — and it says that a list of what a round inherited, however
+accurate, answers a narrower question than the one a reader will take it for.**
 
 ---
 

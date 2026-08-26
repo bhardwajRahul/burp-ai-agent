@@ -152,6 +152,16 @@ class LogicalLineBoundaryScopeTest {
                 "complete and is not — which is how this requirement has been closed wrongly three " +
                 "times already.",
         )
+        assertTrue(
+            text.contains(THIRD_OPEN_FINDING),
+            "the rationale must ALSO carry `$THIRD_OPEN_FINDING`, the JSON-ARRAY-ELEMENT string open " +
+                "that stopped being a recognised start when 27-14 narrowed the third start to a JSON " +
+                "string VALUE open. ALL THREE residuals have to stay traceable from source: the " +
+                "boundary now recognises a NARROWED set of logical line starts, and a comment that " +
+                "stops naming what the boundary cannot see leaves the next reader with a boundary " +
+                "that reads complete and is not — which is how this requirement has been closed " +
+                "wrongly FOUR times already.",
+        )
         COMPOSED_RULES.forEach { rule ->
             assertTrue(
                 text.contains(rule),
@@ -356,6 +366,21 @@ class LogicalLineBoundaryScopeTest {
          * boundary that reads complete and is not.
          */
         const val SECOND_OPEN_FINDING = "AR-27-09"
+
+        /**
+         * The THIRD residual (27-14): a header at the open of a JSON ARRAY ELEMENT string. An array
+         * element opens on a bracket-quote or comma-quote sequence, and since 27-14 narrowed
+         * [JSON_STRING_OPEN_DECLARATION]'s value to a colon-quote sequence — a JSON string VALUE
+         * open — that shape is no longer a recognised start. MEASURED in both directions: it matched
+         * under the bare quote 27-11 shipped and is byte-unchanged under the narrowed value.
+         *
+         * It is the residual the narrowing BOUGHT, and it is pinned here for the same reason
+         * `AR-27-04` and `AR-27-09` are: a residual that lives only in a planning document is one
+         * refactor away from disappearing. What is pinned is the CITATION, never the survival — a
+         * green assertion that this cookie value survives a redacting policy is the artifact class
+         * `26-SECURITY.md` standing-rule clause (vi) prohibits.
+         */
+        const val THIRD_OPEN_FINDING = "AR-27-11"
 
         /** The declaration [theJsonStringOpenIsAValueOpenAndNotABareQuote] reads the VALUE out of. */
         const val JSON_STRING_OPEN_DECLARATION = "private const val JSON_STRING_OPEN"
