@@ -555,7 +555,7 @@ result: [pending]
 
 ---
 
-## 12. NEW, a DISPOSITION rather than a test — `AR-27-11`, accept the array-element start or widen the boundary
+### 12. NEW, a DISPOSITION rather than a test — `AR-27-11`, accept the array-element start or widen the boundary
 
 > **STOP — EVERYTHING FROM HERE TO THE `CORRECTION 2026-08-26` MARKER BELOW IS SUPERSEDED, AND IT IS
 > LEFT BYTE-UNCHANGED RATHER THAN DELETED.** It states `AR-27-11` at **LOW** over **one** family, it
@@ -725,3 +725,31 @@ upgraded by anything round 5 did.** It is still owed, as item 9 above.
 
 `AR-27-08` and `InjectionPointExtractor.kt:29` are likewise untouched and still owned by Phase 28, and
 `T-27-06-06` is untouched.
+
+---
+
+### 13. NEW, a POLICY CALL rather than a test — is `CONCERNS.md` AMENDMENT 6 item (5) a third gap or a documentation nit?
+
+Added 2026-08-26 from `27-VERIFICATION-5.md` re-verification `human_verification` item 4. It had no
+UAT item, so without this entry it would never be put to you.
+
+**Test:** read `CONCERNS.md` AMENDMENT 6 item (5) against `git show 2a880f9:` of `27-14-SUMMARY.md:37`
+and `27-16-SUMMARY.md:45`, and against commit `6f48091`'s own message.
+
+**The facts, measured:** item (5) says *"Three further artifacts CITED the finding at the superseded
+LOW ... and none was found by the correction, only by the next verifier."* Five did — `27-14-SUMMARY.md`
+and `27-16-SUMMARY.md` both carried it, and `6f48091` amended both FOR THAT REASON, so the sentence is
+falsified by its own commit's other hunks. And "only by the next verifier" is wrong for this entry:
+`6f48091`'s message records CONCERNS as "FOUND BY GREP, named by no review and no verification".
+Three sibling records now state the fan-out as three, five and six; only six is right as a file count.
+
+**Expected:** a recorded call — either an appended one-sentence correction under AMENDMENT 6 (five,
+not three; and this entry was found by grepping the id, not by the verifier), or a recorded decision
+that a lesson narrative is not held to standing-rule clause (vi)'s standard.
+
+**Why human:** it is a consistency judgment about how strictly this phase applies its own standing
+rules to its own prose, on the one artifact that was itself the missed sixth. Nothing downstream
+depends on the number — the severity, four families, mechanism, reachability, bound and Option B/C
+correction are all correct in that same amendment — so this is a policy call, not a correctness one.
+
+result: [pending]
