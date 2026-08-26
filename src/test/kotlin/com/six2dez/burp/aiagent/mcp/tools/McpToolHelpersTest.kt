@@ -245,11 +245,16 @@ class McpToolHelpersTest {
             )
             // Measured, and the reason the guard above does NOT use the host: hostHeaderRegex is still
             // line-anchored, so STRICT host anonymisation cannot fire on this shape. AR-27-04.
-            assertTrue(
-                rawMessageFinalText.contains("api.example.com"),
-                "measured AR-27-04: the line-anchored host rule cannot fire on the serialized " +
-                    "raw-message shape (got: $rawMessageFinalText)",
-            )
+            //
+            // WHAT IS DELIBERATELY NOT ASSERTED HERE, and why the gap is not an omission. The host
+            // residual on this shape is MEASURED and OPEN. Its quoted probe output, its two
+            // source-read exclusion reasons and its disposition live in finding AR-27-04 in
+            // `.planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md`; they are not
+            // restated here, because a duplicated measurement is a second thing to keep in sync.
+            // The assertion is not here because a GREEN assertion that a sensitive value survives a
+            // redacting policy is a defect and not coverage — plan 27-05's own prohibition said so
+            // before this phase committed two of them, and a future audit reads such a pin as intent.
+            // `RedactingPolicySurvivalSweepTest` now fails CI on the next one.
 
             // Shape 2, the HEADER-MAP shape — what parsedRequestOf/ParsedRequest emits for
             // request_parse and response_parse, and the shape sanitizeHeaders actually guards.
@@ -281,10 +286,67 @@ class McpToolHelpersTest {
                 rawFinalText.contains("sentineltokenoscarwhisky"),
                 "redactIfNeeded must really have run under a redacting policy (got: $rawFinalText)",
             )
-            assertTrue(
-                rawFinalText.contains("api.example.com"),
-                "measured AR-27-04: the line-anchored host rule cannot fire on the header-map shape " +
-                    "either (got: $rawFinalText)",
+            // WHAT IS DELIBERATELY NOT ASSERTED HERE, for the same reason as the raw-message shape
+            // above. The host residual on the header-map shape is MEASURED and OPEN, and its
+            // measurement lives in finding AR-27-04 in
+            // `.planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md` rather than in
+            // this test. A green assertion that a sensitive value survives a redacting policy teaches
+            // a future reader that the leak is expected, which is exactly the artifact this phase
+            // exists to stop producing; so the measurement stays in the register and no pin stands
+            // here. The pass-through that the removed pins measured is asserted, byte-identically,
+            // under `PrivacyMode.OFF` in `offLeavesBothSerializedShapesByteIdentical` below — the one
+            // policy under which pass-through is the CORRECT behaviour.
+        }
+
+        /**
+         * (PRIV-05) Phase 27 plan 27-12 — the home for the pass-through that two removed `assertTrue`
+         * pins used to measure under `PrivacyMode.STRICT`.
+         *
+         * Those pins asserted, in green, that a real hostname survived the strongest privacy mode.
+         * That is a defect and not coverage. `PrivacyMode.OFF` is the one policy under which
+         * `redactIfNeeded` returning its input unchanged is the CORRECT contract, so this is where a
+         * pass-through assertion belongs.
+         *
+         * BYTE IDENTITY rather than containment, on purpose and not as a stylistic preference.
+         * `assertEquals(input, output)` proves pass-through without asserting anything about a
+         * sensitive value at all, so this replacement cannot itself become the artifact
+         * `RedactingPolicySurvivalSweepTest` exists to find.
+         *
+         * Both payload shapes are built exactly as
+         * `cookieVariantsAreStrippedEndToEndThroughRedactIfNeeded` builds them — the serialized
+         * raw-message shape and the header-map shape — so the OFF contract is measured on the same
+         * two shapes the redacting modes are measured on rather than on a shape invented here.
+         */
+        @Test
+        fun offLeavesBothSerializedShapesByteIdentical() {
+            val context = contextWith(PrivacyMode.OFF, "off-passthrough-salt")
+            val rawHeaders =
+                listOf(
+                    stubHeader("X-Cookie", "sentinelxrayninezulu"),
+                    stubHeader("Authorization", "Bearer sentineltokenoscarwhisky"),
+                    stubHeader("Host", "api.example.com"),
+                    stubHeader("X-Request-Id", "benignidcontrolvalue"),
+                )
+
+            val rawMessage =
+                "GET / HTTP/1.1\r\n" +
+                    rawHeaders.joinToString("") { "${it.name()}: ${it.value()}\r\n" } +
+                    "\r\n"
+            val rawMessageJson =
+                toolJson.encodeToString(HttpRequestResponse(request = rawMessage, response = null, notes = null))
+
+            assertEquals(
+                rawMessageJson,
+                context.redactIfNeeded(rawMessageJson),
+                "OFF must return the serialized raw-message shape byte-identically",
+            )
+
+            val rawJson = toolJson.encodeToString(parsedRequestOf(rawHeaders.associate { it.name() to it.value() }))
+
+            assertEquals(
+                rawJson,
+                context.redactIfNeeded(rawJson),
+                "OFF must return the header-map shape byte-identically",
             )
         }
 
