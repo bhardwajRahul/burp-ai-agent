@@ -20,7 +20,17 @@ import java.io.File
  * therefore a leak documented as a feature — it teaches the next audit that the leak is expected.
  * Plan 27-05 prohibited exactly that artifact, and this phase committed two of them anyway. A fourth
  * prose claim would be the fourth iteration of the same failure. This file is the claim made
- * MECHANICAL: it scans `src/test/kotlin` on every CI run and fails on the next such pin.
+ * MECHANICAL: it scans `src/test/kotlin` on every CI run and fails on the next such pin — written
+ * with a plain or a backtick-quoted name, under any modifier prefix, with or without a same-line
+ * annotation. NOT written with an opening parenthesis somewhere other than its declaration line;
+ * that shape is blind axis 9 below, and this sentence is scoped rather than deleted because a
+ * SCOPED TRUE claim is the artifact this phase exists to produce.
+ *
+ * That scoping was earned, not chosen. Until plan 27-15 the sentence was unqualified while the gate
+ * admitted ONE optional modifier and a word-character name only: MEASURED, 133 of 1781 declaration
+ * lines under `src/test/kotlin` were invisible — 67 of them backtick-named `@Test` methods across 9
+ * files, one of them in this very package — and a synthetic survival pin scored 1 of 6 declaration
+ * shapes. The claim was wider than the control, inside the file written to stop exactly that.
  *
  * WHAT THE SCAN CAN SEE — read this before quoting the file as evidence.
  *
@@ -417,10 +427,17 @@ class RedactingPolicySurvivalSweepTest {
                     .filter { it >= 0 }
                     .minOrNull() ?: return@forEachIndexed
 
+            // Group 1 is a plain identifier, group 2 a backtick-quoted one; exactly one is non-empty
+            // per match. Reading a single fixed index yields an empty identifier for the other
+            // spelling, which would make the allowlist-key comparison in
+            // [noGreenTestAssertsASensitiveValueSurvivesARedactingPolicy] compare blanks without
+            // failing anything. [DECLARATION_SHAPE_IDENTIFIERS] is the floor under this line.
+            val identifier = declaration.groupValues[1].ifEmpty { declaration.groupValues[2] }
+
             hits +=
                 candidatesIn(normalised, markerAt).mapNotNull { argument ->
                     vocabularyEntryFor(argument)?.let { entry ->
-                        Hit("$sourceId#${declaration.groupValues[2]}", argument, entry)
+                        Hit("$sourceId#$identifier", argument, entry)
                     }
                 }
         }
@@ -602,8 +619,11 @@ class RedactingPolicySurvivalSweepTest {
         const val MIN_EXPECTED_TEST_FILES = 100
 
         // Without the raw-string skip this file flags itself once per survival pin its positive
-        // fixtures carry. MEASURED at execution time on this file: 5 unskipped, 0 skipped — the four
-        // positive fixtures carry five pins between them, because the host-pin fixture carries two.
+        // fixtures carry. MEASURED at execution time on this file after plan 27-15: 11 unskipped,
+        // 0 skipped. Plan 27-12 measured 5 here and wrote 5 down; the number is restated at what it
+        // now IS rather than left to go quietly stale — the four vocabulary fixtures still carry
+        // five pins between them (the host-pin fixture carries two), and DECLARATION_SHAPE_FIXTURE
+        // adds SIX more, one per declaration shape. 5 + 6 = 11, which is the whole of the movement.
         // The floor stays well below the measurement for the same reason the file floor is 100: it
         // is here to catch a skip that has silently disarmed the detector, not to track a count.
         const val MIN_EXPECTED_UNSKIPPED_SELF_HITS = 2
@@ -625,7 +645,39 @@ class RedactingPolicySurvivalSweepTest {
         const val HOST_LITERAL_ENTRY = 3
 
         val WHITESPACE_RUN = Regex("\\s+")
-        val FUNCTION_DECLARATION = Regex("^\\s*(private |internal )?fun (\\w+)\\(")
+
+        /**
+         * THE GATE EVERYTHING ELSE IN THIS FILE IS DOWNSTREAM OF, which is why it gets its own
+         * paragraph rather than a trailing comment.
+         *
+         * [detect] returns early on a declaration line this does not match, so an unmatched
+         * declaration makes its ENTIRE BODY invisible — not merely unnamed. A miss here is not a
+         * naming defect and it is not an ordinary coverage gap: it is a hole in the scan itself.
+         *
+         * WHAT IT ADMITS, in order from the line start: leading whitespace; zero or more annotations,
+         * each an at-sign, a word and an optional parenthesised argument list; zero or more bare
+         * modifier tokens (`suspend`, `public`, `open`, `override`, `protected`, `inline`, `private`,
+         * `internal`, in any order and any number); `fun`; an optional generic parameter list; and
+         * then EITHER a plain identifier as CAPTURE GROUP 1 or a backtick-quoted one as CAPTURE
+         * GROUP 2. The two groups are the reason [detect] reads group 1 and falls back to group 2:
+         * reading a single fixed index silently yields an empty identifier for one of the two
+         * spellings, and an empty identifier fails nothing.
+         *
+         * WHAT IT STILL DOES NOT ADMIT, stated here because naming the axis a widening creates is
+         * the price of the widening: a declaration whose opening parenthesis does not follow the
+         * identifier on the declaration line. Two shapes, both MEASURED on this tree after the
+         * widening — an EXTENSION RECEIVER (`private fun String.indentWidth()`, 3 declarations, one
+         * of them in this very file), and a MULTI-LINE SIGNATURE whose parenthesis sits on the next
+         * line (0 today). Enumerated as blind axis 9 in the class KDoc.
+         *
+         * MEASURED before this widening, against the same tree: 133 of 1781 declaration lines
+         * invisible — 136 of 1784 on the wider population 27-REVIEW-2 CR-01 counted, which includes
+         * the 3 extension receivers above — 67 of them backtick-named `@Test` methods across 9 files,
+         * 61 of them `override fun`. [everyDeclarationShapeInUseInThisRepositoryIsVisibleToTheSweep]
+         * is the floor that keeps it from narrowing back.
+         */
+        val FUNCTION_DECLARATION =
+            Regex("^\\s*(?:@\\w+(?:\\([^)]*\\))?\\s+)*(?:\\w+\\s+)*fun\\s+(?:<[^>]*>\\s*)?(?:(\\w+)|`([^`]+)`)\\s*\\(")
 
         /**
          * The tokens whose presence in a function body puts that body IN SCOPE. A body that names
