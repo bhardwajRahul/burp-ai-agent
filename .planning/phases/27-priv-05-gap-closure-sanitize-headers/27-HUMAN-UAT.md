@@ -454,8 +454,25 @@ rationale_recorded: the LOW rested on an explicitly UNMEASURED reachability clai
   resting on an assumption — the exact defect class that reopened this phase five times —
   the maintainer chose the fix, which removes the dependence on that claim entirely.
   The fix widens only in the OVER-redacting direction.
-status: IMPLEMENTATION PENDING at the time this decision was recorded; see the commits
-  that follow and the register amendment closing `AR-27-09`.
+status: DONE — implemented in commit `c883947` (2026-08-26). Shipped spelling is
+  `REAL_LINE_START = "^[ \\t]*+"` (POSSESSIVE), not the bare `^[ \\t]*` this item
+  anticipated. The variable-width lookbehind `(?<=^[ \\t]*)` was measured to COMPILE on
+  JVM 21 — falsifying the premise that Java forbade it — and was rejected on measured cost
+  instead: ~221x (34237 ms vs 155 ms over 2000 scans), an unbounded look-back retried at
+  every position on rules that run with no per-pattern deadline.
+measured_after: indented canonical `Cookie:`, `Set-Cookie:`, plain-token `X-Api-Key:` and an
+  obs-folded continuation line are all now stripped in STRICT and BALANCED; un-indented
+  controls unchanged; a byte-identity negative gate proves indented NON-header content is
+  not eaten. Mutation-proved in BOTH directions (revert to `^` -> 7 RED; over-widen to
+  `^[^:]*` -> 2 RED).
+side_effect: `./gradlew check` is now GREEN. redact BRANCH moved 0.9278 -> 0.93299 against
+  the unchanged 0.930 floor, closing the coverage shortfall the maintainer had accepted as
+  red earlier in this session. The floor was NOT adjusted. Margin is 0.003 and one branch is
+  worth 0.005, so this must not be treated as durable headroom.
+correction_to_this_item: indented `Authorization: Bearer ...` was NOT byte-unchanged before
+  the fix — `bearerRegex` already redacted it at value level — so a gate built on that shape
+  would have been green pre-fix and proved nothing. The isolating shape is plain-token
+  `X-Api-Key`.
 
 ### 11. NEW, a DISPOSITION rather than a test — `AR-27-10`, accept at LOW or widen to the full RFC 9110 tchar set
 
