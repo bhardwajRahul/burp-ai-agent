@@ -255,19 +255,45 @@ object Redaction {
     // the functional regression `redactCookieSections`' comment below argues against, committed by
     // this file against its own stated standard.
     //
-    // (b) WHAT THE NARROWING COSTS, and it is accepted rather than hidden. `:"` recognises a JSON
-    // string VALUE open ONLY. A header at the open of a JSON ARRAY ELEMENT string — `["Cookie: …"]`
-    // — is NOT a recognised start after 27-14, since an array element opens on a bracket-quote or
-    // comma-quote sequence. MEASURED in both directions on the compiled classes:
+    // (b) WHAT THE NARROWING COSTS, and it is accepted rather than hidden. THE MECHANISM FIRST AND
+    // THE FAMILIES SECOND — because the previous spelling of this paragraph named ONE family as
+    // though it were the whole cost, and a severity was then derived from that short list
+    // (27-REVIEW-3 CR-01, corrected here and in 26-SECURITY.md's AR-27-11 row together).
     //
-    //   {"tags":["Cookie: a=SECRET8"]}  STRICT, bare quote   ->  Cookie: [STRIPPED]
-    //   {"tags":["Cookie: a=SECRET8"]}  STRICT, `:"` start   ->  byte-unchanged
+    // THE MECHANISM, IN ONE SENTENCE: `:"` is the two LITERAL characters COLON then QUOTE, so ANY
+    // shape that interposes a character BETWEEN the colon and the quote — a space, or the backslash
+    // of an escaped quote — and any shape carrying NO colon before the quote at all, is not a
+    // recognised start. FOUR families follow from that rule. All four MEASURED end-to-end through
+    // [apply] on the shipped classes, byte-identical in and out under STRICT *and* BALANCED, with a
+    // compact-shaped control STRIPPING in the same run, and all three composed rules
+    // (`cookieHeaderRegex`, `setCookieHeaderRegex`, `authHeaderRegex`) losing the same four:
     //
-    // Filed as open finding AR-27-11 rather than absorbed, and DELIBERATELY pinned by no test: a
-    // green assertion that a cookie value survives STRICT is the artifact class the 26-SECURITY.md
-    // standing rule prohibits. Accepted at LOW because no measured emission site in this repository
-    // puts a header at an array-element string open, and the alternative — the bare quote — is a
-    // high-severity correctness break on the primary path.
+    //   {"r":"…{\"k\":\"Cookie: a=S\"}"}  a NESTED / ESCAPED string value open. The two characters
+    //                                    before the header are `\` and `"`, not `:` and `"`. THIS
+    //                                    ONE SITS ON THE PRIMARY MCP EMISSION PATH: any tool result
+    //                                    whose captured RESPONSE BODY is itself JSON.
+    //   {"notes": "Cookie: a=S"}         WHITESPACE between `:` and `"` — pretty-printed JSON, which
+    //                                    is routine in a target's response body and reaches [apply]
+    //                                    verbatim through `redact_preview` and `ContextCollector`.
+    //   "Cookie: a=S"                    a BARE TOP-LEVEL JSON string document.
+    //   {"tags":["Cookie: a=S"]}         an ARRAY ELEMENT open, in the bracket-quote spelling and in
+    //   ,"Cookie: a=S"                   the comma-quote spelling. The one family this paragraph
+    //                                    used to name alone.
+    //
+    // THE BOUND ON ALL FOUR, RE-MEASURED rather than carried forward: ONLY a header that is the
+    // FIRST CONTENT of its string escapes. A realistic raw HTTP message inside any of the four is
+    // still stripped, because its header follows an escaped newline — which IS a recognised start.
+    // Verified in all four families, both modes, with the controls firing in the same run.
+    //
+    // Filed as open finding AR-27-11 — ALL FOUR shapes under that ONE id — rather than absorbed, and
+    // DELIBERATELY pinned by no test: a green assertion that a cookie value survives STRICT is the
+    // artifact class the 26-SECURITY.md standing rule prohibits. Accepted at MEDIUM, RAISED from LOW
+    // when the family list was corrected: the LOW rested on "no measured producer in this repository
+    // puts a value on this shape", and for the first three families the producer is not in this
+    // repository at all — it is the TARGET's response body, copied verbatim onto the default-posture
+    // emission path, MEASURED surviving on the exact `HttpRequestResponse` emission shape. The
+    // alternative is NOT re-widening: the bare quote is a high-severity correctness break on the
+    // primary path (see (a)).
     //
     // THE FOURTH START, WHICH IS STILL NOT RECOGNISED — read this before quoting the boundary as
     // complete. A header line preceded by LEADING HORIZONTAL WHITESPACE, including an RFC 7230
@@ -319,11 +345,17 @@ object Redaction {
     // quote is consumed atomically by [JSON_ESCAPED_HEADER_VALUE]'s escape-pair alternative, so the
     // tail cannot terminate on ANY escaped quote and runs to the JSON string's real closing quote.
     //
-    // THE COST OF THE NARROWING, stated rather than absorbed: a header at the open of a JSON ARRAY
-    // ELEMENT string is not a recognised start, because an array element's open is a bracket-quote
-    // or comma-quote sequence. MEASURED matching before this change and NOT matching after it:
-    // `{"tags":["Cookie: a=SECRET8"]}` under STRICT went from `Cookie: [STRIPPED]` to byte-unchanged.
-    // Filed as open finding AR-27-11.
+    // THE COST OF THE NARROWING, stated rather than absorbed, and stated as the MECHANISM rather
+    // than as one example: `:"` is COLON then QUOTE literally, so a character interposed between the
+    // two — a space, or the backslash of an escaped quote — or the absence of the colon leaves the
+    // header at a start this boundary does not recognise. FOUR MEASURED families, every one of them
+    // byte-unchanged under STRICT and BALANCED while a compact-shaped control stripped in the same
+    // run: a NESTED / ESCAPED value open (`\"k\":\"Cookie: …`, the primary MCP emission path when a
+    // captured response body is itself JSON), PRETTY-PRINTED JSON (`"k": "Cookie: …`), a BARE
+    // top-level JSON string (`"Cookie: …`), and an ARRAY ELEMENT (`["Cookie: …` and `,"Cookie: …`).
+    // In all four, only a header that is the FIRST CONTENT of the string escapes; one that follows an
+    // escaped newline is still stripped. Filed as open finding AR-27-11 — all four under one id — at
+    // MEDIUM. The full statement is paragraph (b) of the rationale region above.
     //
     // DECLARED BELOW JSON_ESCAPED_NEWLINE ON PURPOSE, and this is load-bearing rather than stylistic:
     // `LogicalLineBoundaryScopeTest.rationaleRegionAboveFragments` walks back from the first line

@@ -368,11 +368,27 @@ class LogicalLineBoundaryScopeTest {
         const val SECOND_OPEN_FINDING = "AR-27-09"
 
         /**
-         * The THIRD residual (27-14): a header at the open of a JSON ARRAY ELEMENT string. An array
-         * element opens on a bracket-quote or comma-quote sequence, and since 27-14 narrowed
-         * [JSON_STRING_OPEN_DECLARATION]'s value to a colon-quote sequence — a JSON string VALUE
-         * open — that shape is no longer a recognised start. MEASURED in both directions: it matched
-         * under the bare quote 27-11 shipped and is byte-unchanged under the narrowed value.
+         * The THIRD residual (27-14), with its BOUND CORRECTED after 27-REVIEW-3 CR-01 measured it
+         * four times wider than this KDoc and the register both stated it.
+         *
+         * THE MECHANISM, not one example: [JSON_STRING_OPEN_DECLARATION]'s value is `:"`, the two
+         * LITERAL characters colon then quote, so any shape that interposes a character between them
+         * — a space, or the backslash of an escaped quote — and any shape with no colon before the
+         * quote at all, is NOT a recognised start. FOUR families under this one id, every one of them
+         * MEASURED matching under the bare quote 27-11 shipped and byte-unchanged under the narrowed
+         * value, in STRICT and BALANCED alike, across all three composed rules:
+         *
+         *  1. a NESTED / ESCAPED string value open — `\"k\":\"Cookie: …` — which is what a captured
+         *     RESPONSE BODY that is itself JSON looks like once it is serialized into a tool result,
+         *     so this family sits on the PRIMARY MCP emission path;
+         *  2. PRETTY-PRINTED JSON — `"k": "Cookie: …` — a space between the colon and the quote;
+         *  3. a BARE TOP-LEVEL JSON string document — `"Cookie: …`;
+         *  4. an ARRAY ELEMENT open — `["Cookie: …` and `,"Cookie: …` — the ONE family this KDoc
+         *     named alone before the correction.
+         *
+         * In all four, only a header that is the FIRST CONTENT of its string escapes: one that
+         * follows an escaped newline is still stripped. Filed at MEDIUM, raised from LOW when the
+         * family list was corrected — see the `AR-27-11` row in `26-SECURITY.md` for the re-derivation.
          *
          * It is the residual the narrowing BOUGHT, and it is pinned here for the same reason
          * `AR-27-04` and `AR-27-09` are: a residual that lives only in a planning document is one
