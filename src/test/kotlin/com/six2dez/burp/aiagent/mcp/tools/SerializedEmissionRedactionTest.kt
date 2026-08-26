@@ -452,6 +452,15 @@ class SerializedEmissionRedactionTest {
          *
          * `notes` here ends IMMEDIATELY after the cookie value, so the tail's only available
          * terminator is the closing quote itself. That is the hardest form of this case.
+         *
+         * READ THIS BEFORE QUOTING IT AS A BLAST-RADIUS BOUND (27-14). The property above is exactly
+         * why this fixture is the DEGENERATE last-content case: with the value ending the string
+         * there is NOTHING between it and the terminator for an over-long tail to destroy, so this
+         * test can only observe a tail that ran ACROSS the closing quote and never one that ran up to
+         * it through live content. That blind spot is how the bare-quote start shipped with this gate
+         * green. [contentAfterTheCookieValueInTheSameJsonStringIsMeasuredNotAssumed] is the
+         * non-degenerate case; this one is kept because it still asserts a true thing about the
+         * cross-field bound.
          */
         @Test
         fun aMatchBeginningAtAJsonStringOpenStopsAtThatStringsClosingQuote() {
@@ -536,7 +545,196 @@ class SerializedEmissionRedactionTest {
             assertSameJsonShape(serialized, redacted)
         }
 
+        /**
+         * (PRIV-05) 27-14 — THE NEGATIVE GATE THIS NEST NEVER HAD, and the direct reason the round-4
+         * defect shipped green.
+         *
+         * WHY IT DID NOT EXIST BEFORE. The two over-match gates above bound the JSON case ONLY.
+         * [aMatchBeginningAtAJsonStringOpenStopsAtThatStringsClosingQuote] uses a fixture whose cookie
+         * value is the LAST content of its JSON string, so it can never see content destroyed between
+         * a value and its terminator; [theHeaderMapShapeIsStillOutOfTheComposersReach] bounds JSON
+         * object KEYS, which are structurally immune because that shape carries no line boundary at
+         * all. Neither could observe a NON-JSON over-match, and both stayed green while the shipped
+         * bare-quote start destroyed 1589 of 1714 characters of a realistic `proxy_http_history`
+         * result — all forty of its content markers — and left the JSON structurally valid, so every
+         * shape assertion in this file passed too.
+         *
+         * WHAT IT ASSERTS. A double quote is not a JSON string open: it also opens HTML attribute
+         * values, JS string literals and quoted CSV fields. The payload here is an HTML fragment whose
+         * `title` attribute happens to open with a cookie-shaped run, carrying a BENIGN value — the
+         * payload is expected to SURVIVE, so a sentinel in that position would be a green pin on a
+         * value surviving a redacting policy, which is the artifact class 26-SECURITY.md clause (vi)
+         * prohibits. The claim is whole-payload BYTE IDENTITY under both redacting modes, which is a
+         * stronger statement than any containment check and names no sensitive value.
+         *
+         * THE NON-VACUITY CONTROL runs through the SAME context objects: a genuine JSON-string-value
+         * carrier loses its sentinel in the same call sequence, so the byte identity above is a
+         * statement about the rule's REACH and not about a policy that no-opped.
+         */
+        @Test
+        fun anHtmlAttributePayloadIsLeftByteIdenticalUnderBothRedactingModes() {
+            val serialized = toolJson.encodeToString(htmlAttributeFixture())
+            val control = toolJson.encodeToString(notesCarrier(cookieFirstNotes(Sentinel.JSON_STRING_OPEN_CONTROL)))
+
+            assertTrue(
+                serialized.contains("\\\"cookie:"),
+                "fixture guard: the cookie-shaped run must be preceded by an ESCAPED quote — the HTML " +
+                    "attribute open — or this test is not exercising the bare-quote shape at all (got: $serialized)",
+            )
+            assertFalse(
+                serialized.contains(":\"cookie:"),
+                "fixture guard: the run must NOT be preceded by a colon-quote sequence, or this test " +
+                    "silently becomes a JSON-string-value-open test and asserts the opposite of what " +
+                    "it claims (got: $serialized)",
+            )
+            assertTrue(
+                serialized.contains(HTML_CONTENT_MARKER),
+                "fixture guard: there must be content AFTER the attribute for an over-long tail to " +
+                    "destroy (got: $serialized)",
+            )
+
+            listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED).forEach { mode ->
+                val context = contextWith(mode, "html-attribute-byte-identity-salt-$mode")
+                val redacted = context.redactIfNeeded(serialized)
+
+                assertEquals(
+                    serialized,
+                    redacted,
+                    "$mode: a cookie-shaped run inside an HTML attribute is not a header and must be " +
+                        "left BYTE-IDENTICAL. The bare-quote start 27-11 shipped destroyed 1589 of " +
+                        "1714 characters of a realistic serialized tool result and removed all 40 of " +
+                        "its content markers; this is the gate that measurement should have tripped",
+                )
+
+                val controlRedacted = context.redactIfNeeded(control)
+                assertFalse(
+                    controlRedacted.contains(Sentinel.JSON_STRING_OPEN_CONTROL.value),
+                    "$mode: non-vacuity — a genuine JSON string VALUE open must still lose its cookie " +
+                        "value through the SAME context, or the byte identity above proves only that " +
+                        "the policy no-opped (got: $controlRedacted)",
+                )
+                assertSameJsonShape(serialized, redacted)
+            }
+        }
+
+        /**
+         * (PRIV-05) 27-14 — THE BLAST-RADIUS GATE, replacing an assumption with a measurement.
+         *
+         * THE REPAIR. [aMatchBeginningAtAJsonStringOpenStopsAtThatStringsClosingQuote] puts the cookie
+         * value LAST in its JSON string, so there is nothing between the value and the terminator to
+         * destroy and the tail's real blast radius inside a live string was never exercised. This
+         * fixture puts content there.
+         *
+         * FIXTURE 1 is the shape the rule is designed for: an escaped newline follows the value, so
+         * the tail terminates on the logical line end and everything after it is untouched. Asserted
+         * as BYTE IDENTITY of the whole tail region, not as containment of one marker.
+         *
+         * FIXTURE 2 is the STATED COST rather than a surprise. With no escaped newline between the
+         * value and the rest of the string, the tail's only remaining terminator is the closing quote,
+         * so the trailing content IS consumed. That is an INHERITED property of the escaped branch's
+         * logical-line semantics (plan 27-04) — a JSON string with no escaped newline in it is ONE
+         * logical line, and a header value runs to the end of its line — and not a regression
+         * introduced by the round-5 narrowing. It is asserted as an ABSENCE so the record is a
+         * measurement rather than a claim; see this plan's SUMMARY for the numbers. ONE MODE IS
+         * ENOUGH here because the two redacting modes both set `stripCookies` and the branch under
+         * test is the same tail in both — fixture 1 already pins that mode symmetry, and repeating it
+         * would assert the modes rather than the cost.
+         */
+        @Test
+        fun contentAfterTheCookieValueInTheSameJsonStringIsMeasuredNotAssumed() {
+            listOf(
+                PrivacyMode.STRICT to Sentinel.BLAST_RADIUS_STRICT,
+                PrivacyMode.BALANCED to Sentinel.BLAST_RADIUS_BALANCED,
+            ).forEach { (mode, sentinel) ->
+                val serialized = toolJson.encodeToString(notesCarrier(cookieFirstNotes(sentinel)))
+
+                assertTrue(
+                    serialized.contains("${sentinel.value}\\r\\n"),
+                    "fixture guard: the value must be followed by an ESCAPED NEWLINE inside the same " +
+                        "JSON string (got: $serialized)",
+                )
+                assertFalse(
+                    serialized.contains("${sentinel.value}\""),
+                    "fixture guard: the value must NOT be the last content of its JSON string — that " +
+                        "is the degenerate shape the existing gate already uses, and it cannot " +
+                        "measure a blast radius (got: $serialized)",
+                )
+
+                val redacted = contextWith(mode, "blast-radius-salt-$mode").redactIfNeeded(serialized)
+
+                assertFalse(
+                    redacted.contains(sentinel.value),
+                    "$mode: the cookie value at the JSON string value open must not survive (got: $redacted)",
+                )
+                assertTrue(
+                    redacted.contains("Cookie: [STRIPPED]"),
+                    "$mode: the name-preserving replacement must be what removed it (got: $redacted)",
+                )
+                assertEquals(
+                    serialized.substringAfter(sentinel.value),
+                    redacted.substringAfter("Cookie: [STRIPPED]"),
+                    "$mode: everything after the cookie value, inside the SAME JSON string and beyond " +
+                        "it, must be BYTE-IDENTICAL. A tail that ran to the string's closing quote " +
+                        "instead of stopping at the escaped newline would have consumed it",
+                )
+                assertSameJsonShape(serialized, redacted)
+            }
+
+            val noNewline =
+                toolJson.encodeToString(
+                    notesCarrier(
+                        "Cookie: wibble=${Sentinel.SAME_STRING_TAIL_COST.value} $SAME_STRING_TAIL_MARKER",
+                    ),
+                )
+
+            // The NOTES string only. `request` always carries escaped CRLFs on this carrier, so a
+            // whole-payload scan here would be a guard on the wrong field and could never pass.
+            val noNewlineNotes = noNewline.substringAfter("\"notes\":\"")
+
+            assertTrue(
+                noNewlineNotes.contains(SAME_STRING_TAIL_MARKER),
+                "fixture guard: the trailing content must be present in the notes string (got: $noNewline)",
+            )
+            assertFalse(
+                noNewlineNotes.contains("\\r") || noNewlineNotes.contains("\\n"),
+                "fixture guard: fixture 2's NOTES string must carry NO escaped newline, or it is " +
+                    "fixture 1 again (got: $noNewline)",
+            )
+
+            val noNewlineRedacted =
+                contextWith(PrivacyMode.STRICT, "same-string-tail-cost-salt").redactIfNeeded(noNewline)
+
+            assertFalse(
+                noNewlineRedacted.contains(SAME_STRING_TAIL_MARKER),
+                "the trailing content in a JSON string carrying NO escaped newline IS consumed by the " +
+                    "cookie value tail. That is an INHERITED property of the escaped branch's " +
+                    "logical-line semantics (plan 27-04) — such a string is one logical line and a " +
+                    "header value runs to the end of its line — not a regression introduced by the " +
+                    "27-14 narrowing. If this assertion has flipped, the tail's terminator set " +
+                    "changed and the 27-14 SUMMARY's measurement no longer describes the code " +
+                    "(got: $noNewlineRedacted)",
+            )
+            assertSameJsonShape(noNewline, noNewlineRedacted)
+        }
+
         private fun cookieFirstNotes(sentinel: Sentinel): String = "Cookie: wibble=${sentinel.value}\r\nX-Request-Id: ${Sentinel.BENIGN_CONTROL.value}"
+
+        /**
+         * The NON-JSON over-match carrier: an HTML fragment whose `title` attribute opens with a
+         * cookie-shaped run. The value is the benign literal `analytics` rather than a sentinel
+         * BECAUSE this payload is expected to survive intact.
+         *
+         * Deliberately free of anything another rule could claim, on the same discipline as the class
+         * KDoc: no `Host:` header, no URL, no `Bearer `/`Basic ` prefix, no dotted `eyJ` segment, no
+         * `SENSITIVE_WORDS` key, no `=`, and no `=== COOKIES ===` marker. If an unrelated rule ever
+         * breaks the byte identity, narrow THIS fixture — never the assertion.
+         */
+        private fun htmlAttributeFixture(): HttpRequestResponse =
+            notesCarrier(
+                "<div title=\"cookie: analytics disclosure notice\">" +
+                    List(HTML_CONTENT_MARKER_COUNT) { HTML_CONTENT_MARKER }.joinToString(" ") +
+                    "</div>",
+            )
 
         /**
          * The scanner_issues carrier with the cookie header at the open of `notes` and the whole
@@ -1113,6 +1311,17 @@ class SerializedEmissionRedactionTest {
         JSON_STRING_OPEN_BALANCED("sentinelnorth"),
         JSON_STRING_OPEN_CONTROL("sentinelsouth"),
         BENIGN_CONTROL("benignidcontrolvalue"),
+
+        // (PRIV-05) 27-14. The round-5 blast-radius repair. The 27-11 start above shipped as a BARE
+        // double quote, which is not a JSON string open, and the two over-match gates in this file
+        // bound the JSON case only — so nothing here could observe the destruction it caused between
+        // a cookie value and its string's terminator. These three carry the fixtures that can.
+        // Each is a bare lowercase alphabetic word in this file's convention, and each was checked
+        // NON-SUBSTRING against every other entry by `everySentinelInThisFileIsDistinct`, which is
+        // what enforces it rather than this comment.
+        BLAST_RADIUS_STRICT("sentinelwest"),
+        BLAST_RADIUS_BALANCED("sentineleast"),
+        SAME_STRING_TAIL_COST("sentinelcenter"),
     }
 
     private companion object {
@@ -1136,5 +1345,20 @@ class SerializedEmissionRedactionTest {
          * replaces the whole logical line, so the quoted value disappears into the replacement.
          */
         const val SHIPPED_REAL_MULTILINE_AUTH_OUTPUT = "GET /a HTTP/1.1\r\nX-API-Key: [REDACTED]\r\nAccept: text/html\r\n\r\n"
+
+        /**
+         * (PRIV-05) 27-14. The content an over-long tail destroys, and DELIBERATELY NOT a sentinel:
+         * these markers live in payloads that are expected to SURVIVE, so naming them in the
+         * `sentinel…` convention would put a survival assertion on a value the tree reads as
+         * sensitive. They carry no `=`, no `Bearer `/`Basic ` prefix and no dotted `eyJ` segment, so
+         * no rule other than the cookie composer can touch them.
+         */
+        const val HTML_CONTENT_MARKER = "IMPORTANTCONTENT"
+
+        /** Enough repetitions that a truncation is unmistakable in a failure message. */
+        const val HTML_CONTENT_MARKER_COUNT = 8
+
+        /** The trailing content of the fixture that carries NO escaped newline — the stated cost. */
+        const val SAME_STRING_TAIL_MARKER = "TAILCONTENTMARKER"
     }
 }
