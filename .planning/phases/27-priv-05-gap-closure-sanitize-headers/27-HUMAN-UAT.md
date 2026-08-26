@@ -8,7 +8,9 @@ updated: 2026-08-26
 
 ## Current Test
 
-[awaiting human testing]
+number: 2
+name: Re-test after the gap-closure fix lands
+awaiting: user response
 
 ## Tests
 
@@ -35,7 +37,7 @@ multi-line input and 0 on the JSON-encoded form. What static analysis cannot sup
 run through a real Burp session with a real MCP client and a real proxy history — which is how the
 original PRIV-05 was proven (live probe against `Custom-AI-Agent-full-1.0.0.jar`), and this finding
 deserves the same standard before it is written into a security register as fact.
-result: [pending]
+result: pass
 
 ### 2. Re-test after the gap-closure fix lands
 expected: Repeat test 1 against a build containing the gap-closure fix. **Neither sentinel appears in
@@ -753,3 +755,14 @@ depends on the number — the severity, four families, mechanism, reachability, 
 correction are all correct in that same amendment — so this is a policy call, not a correctness one.
 
 result: [pending]
+
+---
+
+## Summary
+
+total: 14
+passed: 1
+issues: 0
+pending: 13
+skipped: 0
+blocked: 0
