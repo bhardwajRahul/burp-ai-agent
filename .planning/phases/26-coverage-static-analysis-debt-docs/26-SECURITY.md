@@ -825,6 +825,7 @@ test. It touches no other register row and closes no requirement: **PRIV-05 rema
 | 2026-08-26 | 46 | 46 | 0 | Phase 27 (27-10, 27-11, 27-12, 27-13) — **FOURTH** reopening of T-26-02-01 and its re-closure on the ADMITTER-POLARITY and JSON-STRING-OPEN axes; `threats_open` recomputed from the rows (output `0`, 46 rows scanned, 46 closed) and the counter's POPULATION restated, now with an explicit statement that neither finding opened this round is at or above the blocking severity |
 | 2026-08-26 | 46 | 46 | 0 | Phase 27 (27-14, 27-15, 27-16) — **FIFTH** reopening of T-26-02-01 and its re-closure, this time on a CORRECTNESS regression this phase itself shipped (the bare-quote logical-line start) and on a defect of this REGISTER (clause (vi)'s stated bound wider than its control); `threats_open` recomputed from the rows (output `0`, 46 rows scanned, 46 closed), the counter's POPULATION restated in full for the third time with the question it forces answered for `AR-27-11`, and standing-rule clause (vii) added — a residual list must enumerate what the round INTRODUCED, not only what it INHERITED |
 | 2026-08-26 | 46 | 46 | 0 | **Out-of-plan correction** (maintainer-authorised, after `27-REVIEW-3.md` CR-01) — no reopening: `T-26-02-01` stays `closed` and no register row was added, amended or reclassified. `AR-27-11` RAISED from LOW to **MEDIUM** and its stated bound corrected from ONE family to the FOUR MEASURED, with the reachability re-derived and measured on the `HttpRequestResponse` emission shape. `threats_open` RECOMPUTED from the rows against the amended file (output `0`, 46 rows scanned, 46 closed); the counter is unmoved because an `AR-` row is outside its population at any severity. PRIV-05 remains `[ ]` |
+| 2026-08-26 | 46 | 46 | 0 | **Round-5 gap closure** (after `27-VERIFICATION-5.md`, 28/30) — no reopening: `T-26-02-01` stays `closed` and NO register row was added, amended or reclassified (`AR-27-04`, `AR-27-08`, `AR-27-11` and `T-26-02-01` all md5-identical to `2a880f9`). Two RECORD-DRIFT defects closed, neither a leak and neither a behaviour change. **Gap 1:** standing-rule clause (vi) stated `15 tests` and `returns 14` against a control with 16 and 15 — staled by `fb7cbd3`, the previous round's LAST commit. Re-measured here (16 and 15 at `2a880f9`), the clause amended to **18** and **15**, and both numbers made MACHINE-CHECKED from source, mutation-proved RED at the two stale values. **Gap 2:** `AR-27-11`'s LOW -> MEDIUM / one-family -> four-family correction propagated to all SIX artifacts that cite it, including `27-HUMAN-UAT.md` item 12, whose Option B was corrected from closing "the residual" to closing one family of four. **Standing-rule clause (viii) added** — a correction must fan out to every citing artifact, and a control change must re-measure every record's number about it, by a test where the number is source-derivable. `threats_open` RECOMPUTED from the rows against the amended file (output `0`, 46 rows scanned, 46 closed). PRIV-05 remains `[ ]` and `REQUIREMENTS.md` is md5-identical |
 
 **Note on the count.** 46 register rows across 46 distinct threat IDs. The seven PLAN files declare
 52 rows in total, but `T-26-0N-SC` is the same supply-chain threat declared identically in all seven
@@ -1488,6 +1489,101 @@ exclusion.
 **Read clause (vii) with (i) through (vi): those six are all about the CLAIM a round makes. This one
 is about the LIST a round leaves behind — and it says that a list of what a round inherited, however
 accurate, answers a narrower question than the one a reader will take it for.**
+
+**(viii) A RECORD IS NOT WRITTEN ONCE. WHEN A FINDING IS CORRECTED, THE CORRECTION MUST REACH EVERY
+ARTIFACT THAT CITES IT; WHEN A COMMIT CHANGES A CONTROL, EVERY RECORD STATING A NUMBER ABOUT THAT
+CONTROL MUST BE RE-MEASURED IN THE SAME CHANGE — AND WHERE THE NUMBER CAN BE READ FROM SOURCE, BY A
+TEST RATHER THAN BY CARE.** Added 2026-08-26 by the round-5 gap closure, after `27-VERIFICATION-5.md`
+found round 5 had closed with 28 of 30 truths verified and BOTH remaining gaps in this shape.
+
+**Why this is a new clause and not a sentence inside (vii).** Clause (vii) worked exactly as written.
+Round 5 DID produce an INTRODUCED heading, DID put its own new residual under it, and DID name the
+owner. Both of round 5's gaps happened AFTER that, to filings that were correct when they were made.
+Clauses (i) through (vii) are all about the moment a claim is authored. **This one is about every
+moment after it** — and the two ways a record that was true on Tuesday is false on Wednesday without
+anybody editing it.
+
+**THE LESSON, FIRST HALF — a severity correction is not done when the register is amended.** A
+finding's severity and bound are quoted OUTWARD: into a roadmap's residual list, into a codebase
+concerns entry, into a source comment, into an assertion's failure message, and — the one that has a
+consequence — into the human decision item where a maintainer will actually weigh it. Amending the
+register corrects the SOURCE of the claim and leaves every COPY of it standing. Those copies are not
+duplicates of the register; they are the places the claim is USED, and the decision venue is the
+place it is used to decide something.
+
+**Worked example: `AR-27-11`, quoted rather than paraphrased.** `2ed1a12` raised it from LOW over one
+family to MEDIUM over four, and the correction was exemplary where it landed: byte-exact prefix
+preservation, an explicit `CORRECTION` marker, all four families independently re-measured, the
+reachability re-derived on the emission shape. `git show --name-only 2ed1a12` lists THREE files.
+**Six artifacts cited the finding.** `.planning/ROADMAP.md`'s round-5 INTRODUCED entry (1) still read
+`OPEN at LOW` with no marker at all. `.planning/codebase/CONCERNS.md` AMENDMENT 5 item (3) still read
+`OPEN at LOW` — and that entry OWNS `authHeaderRegex`, one of the three composed rules that loses all
+four families, so it was not a neighbouring concern. Two plan SUMMARYs still recorded the LOW as a key
+decision. **And `27-HUMAN-UAT.md` item 12 — which THIS FILE names by name, in the row's own OWNER
+field — was worse than stale, because it is a DECISION document and it presented the superseded
+reasoning as the case for the decision:** it argued acceptance from the `List<String>`-fields
+enumeration the same round had measured to be the wrong question, and its OPTION B claimed to close
+"the residual at the control" while in fact closing ONE family of four. **The maintainer was being
+offered a binary between accepting at the wrong severity and a fix worth a quarter of what it
+claimed.** None of the six was found by the correction. All six were found by the next verifier, and
+the sixth only by grepping the finding id.
+
+**THE LESSON, SECOND HALF — a commit that changes a control has changed every record that counts it.**
+A record's numbers are measurements of a control at a moment. The commit that moves the control is
+the only commit that knows the number moved, and it is also the commit whose author's attention is
+entirely on the fix. Care does not survive this. **A number that can be read from source must be read
+from source by a test**, so that the failure arrives as a red build in the commit that caused it
+rather than as a false sentence discovered a round later.
+
+**Worked example, and it is clause (vi)'s, again.** Clause (vi) cites its control with three numbers.
+Round 5 made ONE of them machine-checked — `STATED_BLIND_AXES`, because that one had already gone
+stale once — and left the two beside it as prose. `fb7cbd3`, **the last commit of that same round**,
+added a sixteenth `@Test` and a raw-string fixture, listed exactly ONE file, and amended no record.
+From that commit the clause said **15 tests** where the control had **16**, and **returns 14** where
+it returned **15**. `fb7cbd3`'s own message reasons about the machine-checked number — "the
+thirteen-axis enumeration is unchanged because this is a fix, not a deferral" — and never asks the
+same question of the two beside it. **The number that was checked did not drift. Both numbers that
+were not, did, inside one round, in the clause written to prohibit exactly that, whose own worked
+example is exactly that.** That is as clean a controlled experiment as this register is ever going to
+get, and it is the whole argument for the operative instruction below.
+
+**THE OPERATIVE INSTRUCTION, two parts.**
+
+**(a) CORRECTION FAN-OUT.** A change that alters a finding's SEVERITY, its stated BOUND, or its
+REACHABILITY must, IN THE SAME CHANGE, amend every artifact that cites that finding. The list is not
+guesswork and it is not the reviewer's to supply: **`grep -rn '<finding-id>'` over the repository is
+the list**, and the register's own OWNER field names the decision venue explicitly. Each cited
+artifact gets a dated marker; superseded text is MARKED, never deleted, on this file's existing
+byte-exact-prefix discipline. **A correction commit that touches only the register is an INCOMPLETE
+correction, and the artifact it is most likely to have missed is the one where a human decides.**
+
+**(b) COUNT RE-MEASUREMENT, and its durable form.** A commit that changes a control must re-measure
+every number a record states about that control, in the same change — and where the number is
+derivable from source, the commit must instead make a TEST derive it. A prose number is a promise
+about future diligence; a source-read assertion is a gate. **Preferring the gate is not
+belt-and-braces: it is the only version of this instruction that has been observed to work here.**
+Corollary, because it was the actual failure: **an out-of-plan fix is not exempt.** Both of round 5's
+gaps were introduced by out-of-plan commits that ran the test suite, passed it, and touched no record
+— which is precisely the state a machine check converts into a red build.
+
+**THIS CLAUSE IS APPLIED TO THE CHANGE THAT WROTE IT**, for the same reason clause (vii) was. Under
+(a): the `AR-27-11` correction was propagated to all six citing artifacts in one change —
+`27-HUMAN-UAT.md` item 12 (SUPERSEDED banner plus a restatement at MEDIUM with Option B corrected and
+an Option C added), `ROADMAP.md` entry (1), `CONCERNS.md` AMENDMENT 6, the two assertion failure
+messages in `LogicalLineBoundaryScopeTest.kt`, and appended notes on `27-14-SUMMARY.md` and
+`27-16-SUMMARY.md`. PLAN files were deliberately left alone: a plan records intent BEFORE execution,
+and rewriting one backwards is a different defect. Under (b): clause (vi)'s two prose numbers are
+amended to **18** and **15** and are now read from source by
+`theStatedTestMethodCountMatchesThisFilesOwnDeclarations` and
+`theStatedUnskippedSelfHitCountMatchesThisFile`, both mutation-proved RED against the two stale values
+this clause's own worked example describes.
+
+**Read clause (viii) with (i) through (vii): (i)-(vi) govern the CLAIM a round makes, (vii) governs
+the LIST it leaves behind, and this one governs the DECAY of both. It says that the moment a record
+is written is not the last moment it can become false, and that the two ways it does — a correction
+that does not fan out, and a control change that outruns the numbers describing it — are structural
+rather than careless, so the remedy is a required sweep and a machine check rather than an
+instruction to be careful.**
 
 ---
 
