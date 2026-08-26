@@ -296,6 +296,38 @@ class RedactingPolicySurvivalSweepTest {
         )
     }
 
+    // ── the declaration gate everything else is downstream of ─────────────────────────────
+
+    @Test
+    fun everyDeclarationShapeInUseInThisRepositoryIsVisibleToTheSweep() {
+        // Driven through `detect` DIRECTLY, like every other positive fixture here, because the
+        // fixture lives inside a raw string the walk exists to skip.
+        val hits = detect(FIXTURE_ID, DECLARATION_SHAPE_FIXTURE.lines())
+
+        assertEquals(
+            EXPECTED_DECLARATION_SHAPE_HITS,
+            hits.size,
+            "a survival pin is invisible to this sweep unless its DECLARATION LINE matches " +
+                "FUNCTION_DECLARATION: detect() returns early on a non-matching declaration, so an " +
+                "unmatched declaration hides its ENTIRE body, not merely its name. MEASURED on this " +
+                "tree before plan 27-15 widened the regex: 133 of 1781 declaration lines invisible " +
+                "(136 of 1784 counting extension receivers, which is the population 27-REVIEW-2 " +
+                "CR-01 reported), 67 of them backtick-named @Test methods across 9 files including " +
+                "redact/SecretTripwireHooksTest.kt, and 61 of them `override fun`. This fixture " +
+                "scored 1 of 6 then. If it scores less than 6 now, the gate has narrowed back and " +
+                "that population is invisible again. Hits: $hits",
+        )
+        assertEquals(
+            DECLARATION_SHAPE_IDENTIFIERS,
+            hits.map { it.identifier.substringAfter('#') }.toSet(),
+            "the hit COUNT can be right while every identifier is wrong. The widened regex carries " +
+                "TWO name groups — group 1 plain, group 2 backtick-quoted — and reading the wrong " +
+                "one yields empty identifiers for every plain-named hit, which would silently make " +
+                "the allowlist-key comparison in " +
+                "noGreenTestAssertsASensitiveValueSurvivesARedactingPolicy compare blanks. Hits: $hits",
+        )
+    }
+
     // ── non-vacuity of the walk itself ────────────────────────────────────────────────────
 
     @Test
@@ -577,6 +609,10 @@ class RedactingPolicySurvivalSweepTest {
         const val MIN_EXPECTED_UNSKIPPED_SELF_HITS = 2
 
         const val EXPECTED_NEGATIVE_FIXTURES = 6
+
+        // One hit per declaration shape in DECLARATION_SHAPE_FIXTURE. MEASURED against the SHIPPED
+        // detector before this round's widening: 1 of 6 — only the plain-named control was seen.
+        const val EXPECTED_DECLARATION_SHAPE_HITS = 6
 
         const val FIXTURE_ID = "<fixture>"
         const val TRIPLE_QUOTE = "\"\"\""
@@ -1109,6 +1145,95 @@ class RedactingPolicySurvivalSweepTest {
         }
     }
             """
+
+        /**
+         * THE DECLARATION GATE, machine-checked over the six shapes this repository actually writes.
+         *
+         * One survival pin per declaration shape, each in the SAME assertion form the vocabulary
+         * fixtures use, so the only variable between them is the DECLARATION LINE. Shape 6 is the
+         * plain-named control: it was the ONE shape the pre-round detector could see, which is what
+         * makes the other five a measurement rather than an assertion.
+         *
+         * These are shapes, not verbatim copies, and that departure from the file's verbatim rule is
+         * deliberate and bounded: the repository carries no survival pin in ANY of these shapes today
+         * — that is precisely the gap — so a verbatim copy is not available to take. What IS taken
+         * from the tree is the POPULATION each shape stands in for, measured in
+         * [everyDeclarationShapeInUseInThisRepositoryIsVisibleToTheSweep]'s failure message.
+         */
+        val DECLARATION_SHAPE_FIXTURE =
+            """
+        fun `a backtick quoted name`() {
+            val redacted = contextWith(PrivacyMode.STRICT, "shape-salt").redactIfNeeded(payload)
+
+            assertTrue(
+                redacted.contains("sentinelbacktickshape"),
+                "shape 1 — a backtick-quoted name, the idiom 67 live @Test methods already use",
+            )
+        }
+
+        @Test fun anAnnotationAndFunOnTheSameLine() {
+            val redacted = contextWith(PrivacyMode.STRICT, "shape-salt").redactIfNeeded(payload)
+
+            assertTrue(
+                redacted.contains("sentinelannotationshape"),
+                "shape 2 — an annotation and fun on one line",
+            )
+        }
+
+        suspend fun aSuspendModifierPin() {
+            val redacted = contextWith(PrivacyMode.STRICT, "shape-salt").redactIfNeeded(payload)
+
+            assertTrue(
+                redacted.contains("sentinelsuspendshape"),
+                "shape 3 — a suspend modifier",
+            )
+        }
+
+        public fun aPublicModifierPin() {
+            val redacted = contextWith(PrivacyMode.STRICT, "shape-salt").redactIfNeeded(payload)
+
+            assertTrue(
+                redacted.contains("sentinelpublicshape"),
+                "shape 4 — an explicit public modifier",
+            )
+        }
+
+        override fun anOverrideModifierPin() {
+            val redacted = contextWith(PrivacyMode.STRICT, "shape-salt").redactIfNeeded(payload)
+
+            assertTrue(
+                redacted.contains("sentineloverrideshape"),
+                "shape 5 — an override modifier, 61 live declarations on this tree",
+            )
+        }
+
+        fun aPlainDeclarationControl() {
+            val redacted = contextWith(PrivacyMode.STRICT, "shape-salt").redactIfNeeded(payload)
+
+            assertTrue(
+                redacted.contains("sentinelplainshape"),
+                "shape 6 — the CONTROL: the one shape the pre-round detector could see",
+            )
+        }
+            """
+
+        /**
+         * The identifier each shape of [DECLARATION_SHAPE_FIXTURE] must be reported under.
+         *
+         * Asserted as well as the count, because the widening moved which capture group carries a
+         * plain name. A count that matches while every identifier is EMPTY would leave
+         * [noGreenTestAssertsASensitiveValueSurvivesARedactingPolicy]'s allowlist-key comparison
+         * comparing blanks, and it would do so without failing anything.
+         */
+        val DECLARATION_SHAPE_IDENTIFIERS =
+            setOf(
+                "a backtick quoted name",
+                "anAnnotationAndFunOnTheSameLine",
+                "aSuspendModifierPin",
+                "aPublicModifierPin",
+                "anOverrideModifierPin",
+                "aPlainDeclarationControl",
+            )
 
         /**
          * One positive fixture per [SENSITIVE_VALUE_VOCABULARY] entry, IN THE SAME ORDER, so an
