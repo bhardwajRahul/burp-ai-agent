@@ -302,6 +302,10 @@ Each `T-27-14-*` row from the plan's threat model, with its measured outcome.
 - **PRIV-05 is NOT closed by this plan.** `REQUIREMENTS.md` is untouched and PRIV-05 stays `[ ]`. `AR-27-08` and `InjectionPointExtractor.kt:29` remain owned by Phase 28 and were not touched.
 - `AR-27-09` — the leading-whitespace / obs-fold fourth start — is still unrecognised and still out of scope.
 
+## Self-Check: PASSED
+
+All four claimed files exist on disk; all four claimed commits (`2935165`, `796891d`, `bd31f42`, `3f44f2e`) are present in `c2d980f..HEAD`.
+
 ---
 *Phase: 27-priv-05-gap-closure-sanitize-headers*
 *Completed: 2026-08-26*
