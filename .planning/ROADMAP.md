@@ -444,6 +444,33 @@ content, so they ECHO a cookie the caller already holds; the maintainer chose to
 
 - [x] 27-09-PLAN.md — Records, third time: T-26-02-01 clause (5), AR-27-06 defined, computed `threats_open` with its population stated, standing rule (iv) on rendering-keyed versus source-keyed controls (wave 9)
 
+**Gap closure round 4 (2026-08-26):** `27-VERIFICATION-3.md` scored **12/15 must-haves** and failed
+three. The round-3 carrier work HELD — the COOKIE-typed parameter carrier is genuinely closed by a
+TYPE-KEYED control — and three separate truths were still false. **(1) 27-02's "the predicate is
+deliberately WIDER than the two regexes … wider on the redacting side is fail-safe" was measurably
+false for one of the predicate's three consumers.** `PassiveAiScannerFilters.sanitizeHeadersForPrompt`
+is an **ADMITTER**, not a redactor: a true result puts the header ONTO the outbound prompt, so wider
+than the downstream rule is fail-OPEN there. `COOKIE_NAME_PART` excluded `_`, a legal RFC 9110 tchar,
+and `my_cookie` / `X_Cookie` / `session_cookie` were measured leaking a cookie VALUE to a third-party
+AI backend under **STRICT and BALANCED** — on the PROMPT path, the path this phase's goal line calls
+the reference implementation. **It appeared in NO security record under `.planning/` at all**: not a
+deferral with an owner, unrecorded, living in a source comment and a GREEN test whose failure message
+told the next engineer not to fix it. Honest attribution: **the leak was PRE-EXISTING** — the
+admitter's conjunct was already a bare contains before plan 27-01, and the name class dates from
+Phase 21 — so phase 27 neither introduced nor widened it; what phase 27 did was mis-frame it and pin
+it green. **(2) 27-05's "recorded, NEVER PINNED BY A GREEN TEST" was falsified by this phase's own
+commit `09e9cae`**, which added two `assertTrue(… contains("api.example.com"))` assertions under
+STRICT, against plan 27-05's own high-severity prohibition. **(3) 27-08's "no green test asserting
+that a cookie value SURVIVES a redacting policy is committed anywhere under `src/`"** was falsified
+by the wave-2 underscore pin — a must-have authored in wave 8 and verified by a search narrower than
+the claim it made. A third boundary blind spot was measured in the same run: a CANONICAL `Cookie:`
+header survives STRICT when it is the FIRST content of a JSON string value, with the positive control
+firing on the same run. **The maintainer decided to FIX rather than accept, on BOTH axes** — widening
+the REGEX side and never narrowing the predicate, and putting the JSON-string-open boundary in scope
+for this round. Both decisions were made BEFORE planning and are recorded with their provenance in
+`27-HUMAN-UAT.md`, deliberately distinguishable from `AR-27-04`'s harness-auto-selected disposition.
+Plans 27-10 to 27-13 close them and repair the records.
+
 **Wave 10** *(gap closure round 4 — blocked on Wave 9)*
 
 - [x] 27-10-PLAN.md — The underscore name class: widen `COOKIE_NAME_PART` against a red probe, invert the green pin that asserted the leak, and state each consumer's polarity where a reader meets the shared predicate (wave 10)
@@ -463,7 +490,12 @@ content, so they ECHO a cookie the caller already holds; the maintainer chose to
 **PHASE 27 COMPLETES WITH PRIV-05 NOT SATISFIED (2026-08-25, recorded by plan 27-09).** Stated here,
 in the phase record, rather than only in a SUMMARY. The goal line above is round-one text and is
 deliberately **not rewritten** — it is qualified in place by this paragraph, on the same
-append-and-amend terms `26-SECURITY.md` is kept under.
+append-and-amend terms `26-SECURITY.md` is kept under. **RE-CONFIRMED 2026-08-26 AFTER ROUND 4 (plan 27-13): THIS PARAGRAPH STILL HOLDS, UNCHANGED.**
+Round 4 closed two boundary axes and repaired the records; it did NOT close PRIV-05. `AR-27-08` —
+the transitive issue-detail carrier, the one finding in this series carrying Burp-held proxied
+traffic and surviving STRICT — is untouched by plans 27-10 through 27-13 and is still owned by
+Phase 28, together with `InjectionPointExtractor.kt:29`. A round that closes two carriers and leaves
+the parent requirement refuted must say so, and this is the fourth round in which it does.
 
 **What phase 27 DID close:** the COOKIE-typed parameter carrier, at the producer — one type-keyed
 predicate (`Redaction.isCookieParameterType`) and one shared sanitizer
@@ -477,13 +509,50 @@ carrier — a COOKIE-typed injection point's value reaching the `scanner_issues`
 three preconditions — together with the one unconverted cookie-type predicate at
 `InjectionPointExtractor.kt:29` whose value feeds it. **Both are owned by Phase 28 below.** The
 deferral is deliberate: a fix without its own red probe and source-cited reachability analysis is the
-same-day closure pattern that has now failed three times in this phase.
+same-day closure pattern that has now failed three times in this phase. **AMENDED 2026-08-26 (plan 27-13) — APPENDED, NOT REWRITTEN. Round 4 opened two more residuals, so
+the full list is now SIX, and every one is named here with an owner.** **(1) `AR-27-04`** — `Host:`
+and `SiteMapEntry.url` reaching an AI backend un-anonymised under STRICT on the serialized emission
+shape. **OPEN at MEDIUM, and STILL OWED A HUMAN DECISION**: its disposition on record was
+AUTO-SELECTED by `mode: yolo`, not maintainer-chosen. Plan 27-12 deleted the two green STRICT
+assertions that pinned it and re-pointed their pass-through at a `PrivacyMode.OFF` byte-identity
+fixture — **a test-artifact repair that supplies no human judgment and does not upgrade that
+provenance.** **Owner: the maintainer**, carried as item 9 of the round-4 section of
+`27-HUMAN-UAT.md`. **(2) `AR-27-08` and (3) `InjectionPointExtractor.kt:29`** — unchanged from the
+paragraph above, **owned by Phase 28**, untouched by round 4. **(4) `AR-27-09`** — NEW this round:
+the FOURTH logical-line start, a leading-whitespace or obs-folded header line, which
+`logicalLineHeaderRule` still cannot recognise. **OPEN at LOW, MEASURED surviving BYTE-UNCHANGED
+under STRICT *and* BALANCED** — one mode wider than `27-VERIFICATION-3.md` recorded, because plan
+27-11 re-measured instead of copying the prediction forward. Bounded `low` because no measured
+emission site in this repository indents a header line; open because reachability through
+analyst-authored `HttpRequestResponse.notes` text is UNMEASURED. Its one-token fix (`^[ \t]*` for
+`^`) is written down beside it. **Owner: the maintainer**, item 10 of `27-HUMAN-UAT.md`. **(5)
+`AR-27-10`** — NEW this round: the **13** RFC 9110 tchars still outside the widened
+`COOKIE_NAME_PART`, from a source-pinned partition of 77 = 64 + 13. **OPEN at LOW.** The partition
+and the fail-open mechanism are MEASURED; the carry-over to those thirteen characters is INFERRED
+and is labelled as inferred, and **no leak was measured for any of them.** **Owner: the maintainer**,
+item 11 of `27-HUMAN-UAT.md`. **(6) The `CONCERNS.md` vendor auth-header class** — every vendor auth
+header outside `authHeaderRegex`'s 16-name alternation (`x-shopify-access-token`,
+`x-amz-security-token`, `stripe-signature` and whatever ships next quarter) is matched by no rule at
+all. **OPEN BY PROHIBITION**, unchanged since 2026-08-13 and untouched by round 4: an open-ended
+vendor list is never complete, which is the stated reason it stays deferred while the bounded cookie
+class does not. **AND A SEVENTH THING THAT IS NOT A FINDING BUT IS A BOUND, named because omitting it
+would be the error clause (vi) of `26-SECURITY.md` describes:** `RedactingPolicySurvivalSweepTest`,
+the CI gate that now enforces "no green survival pin", is a **TRIPWIRE OVER A MEASURED VOCABULARY,
+NOT A PROOF OF COVERAGE** — its own KDoc names eleven things it cannot see before its first
+assertion. **SIX NAMED RESIDUALS IS NOT A COMPLETENESS CLAIM.** Naming what is known to be open says
+nothing whatever about what is not yet known, and this phase has now been refuted four times by
+exactly the thing no list contained. No sentence in this record may be read as implying otherwise.
 
 **The `- [x] **PRIV-05**` tick at `REQUIREMENTS.md:23` is wrong for the third time and is NOT
 corrected by this phase.** `REQUIREMENTS.md` is untouched (0 added, 0 removed). Re-deriving the tick
 is the milestone owner's job, from the clauses of `26-SECURITY.md` T-26-02-01 rather than from any
 sentence phase 27 wrote about itself — a phase that grades its own homework produces exactly the
-record this phase spent nine plans repairing.
+record this phase spent nine plans repairing. **APPENDED 2026-08-26 (plan 27-13): the milestone owner has since REVERTED that tick, and
+`REQUIREMENTS.md:23` now reads `- [ ] **PRIV-05**`.** That is the outcome this paragraph asked for,
+so the paragraph is recorded as ANSWERED and is deliberately NOT deleted — a paragraph that produced
+a correction is worth more on the record than a silence where the correction used to be needed.
+`REQUIREMENTS.md` remains untouched by round 4 as it was by 27-03, 27-06 and 27-09 (0 added, 0
+removed), and PRIV-05 stays unticked because `AR-27-08` is open and owned by Phase 28.
 
 ### Phase 28: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`
 

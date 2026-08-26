@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 38
+open_count: 40
 waived_count: 0
 fixed_count: 0
-total_count: 38
-last_updated: 2026-08-26T11:34:49.404Z
+total_count: 40
+last_updated: 2026-08-26T11:40:14.600Z
 ---
 
 # Broken Windows Ledger
@@ -53,6 +53,8 @@ last_updated: 2026-08-26T11:34:49.404Z
 | 36 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt |  | Plan 27-12 projection falsified, second figure with the same cause as the BENIGN_ACCESSORS entry: it states the unqualified vocabulary reports 7 hits on the post-fix tree. MEASURED: 9. The arithmetic closes on the measured numbers — 7 (BENIGN_ACCESSORS) + 1 (POSITION RULE) + 1 (NEGATION RULE) = 9 unqualified, and 9 minus 9 = 0 qualified, the measured hit set on the tree as shipped with an EMPTY ALLOWLIST. Filed separately from the BENIGN_ACCESSORS entry because it is a separately stated plan projection, and recorded so no later reader silently inherits the projected 7. Three other plan projections matched exactly: all four red-probe boundary values, the pre-round detector count of 3, and the post-fix qualified count of 0. | open |  | 2026-08-26T11:34:49.246Z |  |
 | 37 | 27 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt |  | Plan 27-12 threat T-27-12-09 predicted the self-scan failure MODE but not its CAUSE, and predicted the wrong number: it measured 2 self-hits on a mock. MEASURED on the real file: 5 self-hits, and noGreenTestAssertsASensitiveValueSurvivesARedactingPolicy failed with those same 5. Cause the plan's mechanism excluded — it assumed only fixture literals could toggle raw-string state, but dropRawStringInteriors toggled on EVERY line including comments, and the class KDoc quotes a bare triple quote while explaining the walk, an ODD toggle that inverted the skip for every line below it. A REAL bug, fixed by consulting isCommentOnly in the FILE WALK only. The KDoc triple quote was deliberately LEFT so the rule is not vacuous; measured after the fix: 0 self-hits with the skip, 5 without. | open |  | 2026-08-26T11:34:49.315Z |  |
 | 38 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/27-13-PLAN.md |  | GATE DEFECT, same family as entry 18 and applicable to any GSD plan reusing it. Plan 27-13 task 1 acceptance criterion 11 is 'git diff HEAD -- 26-SECURITY.md \| grep -c Reopening-2026-08-24 returns 0', intended to prove the 2026-08-24 reopening narrative is on no ADDED and no REMOVED line. Plain git diff emits three lines of CONTEXT, so any insertion within three lines of that heading prints it as a context line and the gate reads 1 while nothing was edited. OBSERVED 1. Both precise forms return 0: filtering to +/- lines returns 0, and git diff --unified=0 returns 0. Standing-rule clauses (v) and (vi) were anchored INSIDE the standing-rule section (after clause (iv)'s last line) rather than above the heading, which is also the structurally correct placement, and the residual 1 is a context line only. | open |  | 2026-08-26T11:34:49.404Z |  |
+| 39 | 27 | deviation | .planning/phases/27-priv-05-gap-closure-sanitize-headers/COVERAGE.md |  | Plan 27-13 task 3 part B premise falsified by the tree it describes: it states the 27-10..27-13 plan bodies 'name the passive-scan prompt path, the MCP tool result shapes and the Montoya host API repeatedly'. MEASURED 2026-08-26 with grep -ohc per file: the MCP tool NAMES (request_parse, response_parse, params_extract, scanner_issues, proxy_http_history, proxy_http_history_regex, site_map, site_map_regex) appear ZERO times in all four - and those are the exact tokens that made this COVERAGE declaration necessary for 27-07 and 27-08. Montoya appears ONCE and API 3 times on 2 lines, ALL of them inside 27-13-PLAN.md and one of them being the instruction sentence itself. What IS present: HttpRequestResponse 6 (27-11 only), toolJson.encodeToString 3 (27-12 only), ParsedRequest 2, SiteMapEntry / McpToolContext.redactIfNeeded / AuditIssue.detail() 1 each. COVERAGE.md records the measured inventory as a table with the divergence stated rather than the projected 'repeatedly'; the declaration still stands, and on this evidence more easily than in 2026-08-25. | open |  | 2026-08-26T11:39:25.509Z |  |
+| 40 | 27 | deviation | .planning/STATE.md |  | Plan 27-13 task 3 part C directs the executor to write STATE.md fields that the execute-phase orchestrator OWNS and overwrites in worktree mode - last_activity, last_activity_desc, the Current Position block and the progress counters. Same two-owner class as ledger entry 27 (the ROADMAP plans counter), now recurring for STATE.md, and execute-plan.md's update_current_position step explicitly says to SKIP it when running in a worktree. STATE.md was therefore left UNTOUCHED by plan 27-13. MEASURED: both halves of the task's own acceptance criterion already hold on disk with no edit - Current Position reads 'Plan: 1 of 13' (13 = the number of 27-*-PLAN.md files) and nothing claims the phase is verified (status: executing, 'Phase: 27 ... - EXECUTING'; the only two 'verified' strings in the file are about phases 16 and an unrelated coverage note). Recorded so the untouched file is not read later as an omission, and so the criterion is not 'satisfied' next round by an executor writing a field it does not own. | open |  | 2026-08-26T11:40:14.600Z |  |
 
 ````json
 [
@@ -510,6 +512,30 @@ last_updated: 2026-08-26T11:34:49.404Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-26T11:34:49.404Z",
+    "resolved_at": null
+  },
+  {
+    "id": 39,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/phases/27-priv-05-gap-closure-sanitize-headers/COVERAGE.md",
+    "line": null,
+    "description": "Plan 27-13 task 3 part B premise falsified by the tree it describes: it states the 27-10..27-13 plan bodies 'name the passive-scan prompt path, the MCP tool result shapes and the Montoya host API repeatedly'. MEASURED 2026-08-26 with grep -ohc per file: the MCP tool NAMES (request_parse, response_parse, params_extract, scanner_issues, proxy_http_history, proxy_http_history_regex, site_map, site_map_regex) appear ZERO times in all four - and those are the exact tokens that made this COVERAGE declaration necessary for 27-07 and 27-08. Montoya appears ONCE and API 3 times on 2 lines, ALL of them inside 27-13-PLAN.md and one of them being the instruction sentence itself. What IS present: HttpRequestResponse 6 (27-11 only), toolJson.encodeToString 3 (27-12 only), ParsedRequest 2, SiteMapEntry / McpToolContext.redactIfNeeded / AuditIssue.detail() 1 each. COVERAGE.md records the measured inventory as a table with the divergence stated rather than the projected 'repeatedly'; the declaration still stands, and on this evidence more easily than in 2026-08-25.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:39:25.509Z",
+    "resolved_at": null
+  },
+  {
+    "id": 40,
+    "kind": "deviation",
+    "phase": "27",
+    "file": ".planning/STATE.md",
+    "line": null,
+    "description": "Plan 27-13 task 3 part C directs the executor to write STATE.md fields that the execute-phase orchestrator OWNS and overwrites in worktree mode - last_activity, last_activity_desc, the Current Position block and the progress counters. Same two-owner class as ledger entry 27 (the ROADMAP plans counter), now recurring for STATE.md, and execute-plan.md's update_current_position step explicitly says to SKIP it when running in a worktree. STATE.md was therefore left UNTOUCHED by plan 27-13. MEASURED: both halves of the task's own acceptance criterion already hold on disk with no edit - Current Position reads 'Plan: 1 of 13' (13 = the number of 27-*-PLAN.md files) and nothing claims the phase is verified (status: executing, 'Phase: 27 ... - EXECUTING'; the only two 'verified' strings in the file are about phases 16 and an unrelated coverage note). Recorded so the untouched file is not read later as an omission, and so the criterion is not 'satisfied' next round by an executor writing a field it does not own.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-26T11:40:14.600Z",
     "resolved_at": null
   }
 ]
