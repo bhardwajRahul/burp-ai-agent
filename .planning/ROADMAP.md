@@ -396,7 +396,7 @@ reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Depends on:** Phase 26
 **Gap closure (2026-08-24):** `27-VERIFICATION.md` scored 7/9 and failed the two truths the goal rests on. `Serialization.kt` embeds a RAW HTTP message in a JSON string, `toolJson.encodeToString` escapes every CRLF to a literal two-character sequence, and both cookie rules are line-anchored `(?im)^…$` — so the CANONICAL `Cookie:` and `Set-Cookie:` headers leak verbatim in STRICT and BALANCED through `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`, across 14 measured emission sites with no `sanitizeHeaders` in front. Strictly broader than the variant-spelling defect that created the phase. `AR-27-01` is reclassified from accepted residual to live finding. Plans 27-04 to 27-06 close it; the maintainer chose to fix rather than to scope PRIV-05 down.
 
-**Plans:** 8/9 plans executed — 6 executed, 3 planned (gap closure round 3, `27-VERIFICATION-2.md`)
+**Plans:** 9/9 plans executed — 6 in rounds 1-2, 3 in gap closure round 3 (`27-VERIFICATION-2.md`)
 
 Plans:
 **Wave 1**
@@ -442,7 +442,7 @@ content, so they ECHO a cookie the caller already holds; the maintainer chose to
 
 **Wave 9** *(gap closure round 3 — blocked on Wave 8)*
 
-- [ ] 27-09-PLAN.md — Records, third time: T-26-02-01 clause (5), AR-27-06 defined, computed `threats_open` with its population stated, standing rule (iv) on rendering-keyed versus source-keyed controls (wave 9)
+- [x] 27-09-PLAN.md — Records, third time: T-26-02-01 clause (5), AR-27-06 defined, computed `threats_open` with its population stated, standing rule (iv) on rendering-keyed versus source-keyed controls (wave 9)
 
 **PHASE 27 COMPLETES WITH PRIV-05 NOT SATISFIED (2026-08-25, recorded by plan 27-09).** Stated here,
 in the phase record, rather than only in a SUMMARY. The goal line above is round-one text and is
@@ -511,15 +511,20 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 
 1. A COOKIE-typed injection point's `originalValue` does not appear in the `scanner_issues` tool
    result in STRICT or BALANCED. Cookie NAMES may remain; VALUES must not.
+
 2. Under `OFF` the value still appears — so the fix is proven to be policy-driven and not an
    unconditional rewrite.
+
 3. A red probe reverting the control turns a NAMED assertion red, and the specific assertion and its
    failure message are recorded — not "the suite went red".
+
 4. `InjectionPointExtractor.kt:29` is resolved in the same phase as the route, with its two
    consumers' differing dispositions preserved (`AdaptivePayloadEngine.kt:52` already controls its
    own path and must not be double-redacted into a misleading prompt).
+
 5. `26-SECURITY.md`'s `AR-27-08` row is amended — append-and-amend, prior text byte-prefix intact —
    and `threats_open` is recomputed rather than asserted.
+
 6. `ResponseAnalyzer`'s narrow transitive tail is examined in the same pass: a MATCHED substring of a
    vuln-class signature, capped at 80 chars, can be written into `VulnConfirmation.evidence`, which
    `ActiveAiScanner.kt:1246` places in the SAME `AuditIssue` detail as this finding.
@@ -544,7 +549,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
 | 26. Coverage, Static-Analysis Debt & Docs | 7/7 | In Progress|  |
-| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 8/9 | In Progress|  |
+| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 9/9 | In Progress|  |
 
 ## Backlog
 
