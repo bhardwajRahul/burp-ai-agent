@@ -358,6 +358,32 @@ Plan 27-16 owns the register counter recomputation and the `AR-27-11` row. It sh
 
 Two open axes are carried forward with owners: axis 9 (3 extension-receiver declarations invisible) and axis 10 (compound-assertion negation over-fire, fix written down). Neither is a new leak; both are bounds on the sweep.
 
+## Self-Check: PASSED
+
+Files claimed as modified, verified present on disk:
+
+- `src/test/kotlin/com/six2dez/burp/aiagent/redact/RedactingPolicySurvivalSweepTest.kt` — FOUND
+- `.planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md` — FOUND
+- `.planning/phases/27-priv-05-gap-closure-sanitize-headers/27-15-SUMMARY.md` — FOUND
+
+Commits claimed, verified in `git log 5f5aeab..HEAD`: `db7925f`, `915b2fa`, `cff00b7`, `38081c8`, `b3be819`, `b4f6e86` — all FOUND.
+
+Plan-level verification command re-run and green:
+
+```
+./gradlew test --tests '…RedactingPolicySurvivalSweepTest' --tests '…CookieHeaderNameParityTest' \
+              --tests '…McpToolHelpersTest' --tests '…SerializedEmissionRedactionTest'
+BUILD SUCCESSFUL
+```
+
+`./gradlew ktlintCheck` — BUILD SUCCESSFUL. `RedactingPolicySurvivalSweepTest` — `tests="15" skipped="0" failures="0" errors="0"`.
+
+Every acceptance criterion in the plan was re-checked at close-out, including the two greps: `ALLOWLIST = emptyMap` returns one line (`:746`), `BENIGN_ACCESSORS = setOf` shows a single-element set (`:734`), and every `dropRawStringInteriors(` call site passes a source identifier.
+
+## Known Stubs
+
+None. No hardcoded empty value, placeholder string, TODO or FIXME was introduced. The two temporary measurement probes used to produce the evidence above were removed before their task commits and appear in no commit (`grep -c zzTemporary` over the final file → `0`).
+
 ---
 *Phase: 27-priv-05-gap-closure-sanitize-headers*
 *Completed: 2026-08-26*
