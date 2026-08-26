@@ -8,8 +8,8 @@ updated: 2026-08-26
 
 ## Current Test
 
-number: 2
-name: Re-test after the gap-closure fix lands
+number: 6
+name: Live confirmation of the AR-27-08 issue-detail route, with its exact scan preconditions
 awaiting: user response
 
 ## Tests
@@ -45,7 +45,7 @@ any tool result in STRICT or BALANCED**, on `proxy_http_history`, `proxy_http_hi
 `site_map`, `site_map_regex` or `scanner_issues`. Cookie NAMES may remain; values must not.
 why_human: Same reason as test 1 — the fix must be proven on the real emission path, not only by
 unit tests over a synthetic payload shape.
-result: [pending]
+result: pass
 
 ## Notes
 
@@ -124,7 +124,7 @@ live Burp**. `HttpRequest.httpRequest()` is a Montoya static factory requiring B
 `ObjectFactory` and cannot run in a pure-JVM test; `McpToolScopeEnforcementTest` records the same
 constraint. Carried unchanged from `27-VERIFICATION-2.md` item 1, and re-carried by both
 `27-07-SUMMARY.md` (coverage D5) and `27-08-SUMMARY.md` (coverage D7).
-result: [pending]
+result: pass
 
 ### 4. CARRIED FORWARD, still unactioned — `T-27-06-06`: the user-facing STRICT host-anonymisation overclaim
 expected: `README.md:247` ("STRICT privacy mode anonymizes hosts using real HKDF …") and `SPEC.md:80`
@@ -144,7 +144,11 @@ is least likely to open.** No backlog file was created by plan 27-09 to "fix" th
 inventing a file the project does not use would relocate the item rather than surface it. Its
 visibility now rests on this file and on a `ROADMAP.md` Backlog line. If neither is read, the item
 is lost — that is the standing risk, stated rather than assumed away.
-result: [pending]
+result: pass
+note: ACCEPTED AS-IS 2026-08-26 by the maintainer during UAT. The README.md:247 /
+  SPEC.md:80,86 edit was NOT made — the user-facing overclaim STANDS as shipped, and
+  `T-27-06-06` remains OPEN. This `pass` records acceptance of the current state, not
+  verification that the documentation was corrected.
 
 ### 5. NEW — live-Burp confirmation that the wave-7 parameter fix holds end to end
 expected: Same session as test 3. In **STRICT**, call `params_extract` and `request_parse` with a
@@ -166,7 +170,7 @@ why_human: 22 behavioural probes cover the sanitizer and a source-scan pin cover
 production branch (`HttpRequest.httpRequest()`, as in test 3), and the pin proves only that the call
 exists in source. An end-to-end run inside a real Burp with a real MCP client is the only thing that
 exercises both at once.
-result: [pending]
+result: pass
 
 ### 6. NEW — live confirmation of the `AR-27-08` issue-detail route, with its exact scan preconditions
 expected: This route was **MEASURED as surviving STRICT and BALANCED** (`27-08-SUMMARY.md`,
@@ -761,8 +765,8 @@ result: [pending]
 ## Summary
 
 total: 14
-passed: 1
+passed: 5
 issues: 0
-pending: 13
+pending: 9
 skipped: 0
 blocked: 0
