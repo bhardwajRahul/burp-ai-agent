@@ -154,8 +154,10 @@ object Redaction {
     //
     // ── (PRIV-05) 27-04 / D-27-06 · D-27-07 · D-27-08 · D-27-15: WHAT COUNTS AS A LINE START ──
     //
-    // Both rules recognise TWO logical line boundaries, because the MCP tool-RESULT path emits a raw
-    // HTTP message with no real newline in it. `mcp/schema/Serialization.kt` puts the whole raw
+    // These rules recognise THREE logical line starts (two at 27-04, a third at 27-11), because the
+    // MCP tool-RESULT path emits a raw HTTP message with no real newline in it. The three are
+    // enumerated in the 27-11 block further down, together with the FOURTH that is still not one.
+    // `mcp/schema/Serialization.kt` puts the whole raw
     // message into a JSON string (`request = request()?.toString()`), and `toolJson.encodeToString`
     // then escapes every CR and LF into the two literal characters backslash-r / backslash-n. The
     // shipped `(?im)^` anchor therefore never landed, and canonical `Cookie:` / `Set-Cookie:` values
@@ -208,6 +210,51 @@ object Redaction {
     // closed and is not. Recorded as open finding AR-27-04 for plan 27-06 with the probe output
     // quoted, not silently fixed and not silently dropped.
     //
+    // ── (PRIV-05) 27-11 · THE THIRD START, AND THE FOURTH THAT IS STILL NOT ONE ──
+    //
+    // The recognised starts, in the order the composer offers them:
+    //   1. a REAL line start      `(?im)^`        — the pattern that shipped
+    //   2. a JSON-ESCAPED newline `(?<=\\[rn])`   — plan 27-04, the serialized emission shape
+    //   3. a JSON STRING OPEN     `(?<=")`        — plan 27-11, this one
+    //
+    // Start 3 exists because a header that is the FIRST content of a JSON string value has neither a
+    // real `^` nor a preceding escaped newline, so the CANONICAL `Cookie:` header — not a variant,
+    // not an underscore name, not a typed parameter — survived STRICT there. MEASURED on the shipped
+    // classes in round 3, with the positive control firing in the SAME run, which is what makes it a
+    // statement about the rule's REACH rather than a broken probe:
+    //
+    //   {"notes":"Cookie: a=SECRET1\r\nX: y"}  STRICT ->  unchanged            (the gap)
+    //   {"notes":"X: y\r\nCookie: a=SECRET9"}  STRICT ->  Cookie: [STRIPPED]   (the control)
+    //
+    // Reachable through `HttpRequestResponse.notes`, which carries ANALYST annotations, so its first
+    // characters are whatever the analyst typed. The `request` field always begins `GET / HTTP/1.1`,
+    // which is why the fourteen pinned emission sites' PRIMARY payload was never affected — and why
+    // this survived three rounds of verification unseen.
+    //
+    // THE TWO LOOKBEHINDS ARE SPELLED SEPARATELY and each is FIXED-WIDTH: width two on the escaped
+    // newline, width one on the string open, grouped non-capturing. Collapsing them into ONE
+    // lookbehind holding an alternation of differing widths is shorter and silently trades away the
+    // 2.4x measured just below, because Java would then try two look-back widths at every position of
+    // every serialized emission. If a fourth start is ever added, add a THIRD separate lookbehind.
+    //
+    // THE FOURTH START, WHICH IS STILL NOT RECOGNISED — read this before quoting the boundary as
+    // complete. A header line preceded by LEADING HORIZONTAL WHITESPACE, including an RFC 7230
+    // obs-folded continuation line, matches NONE of the three: the real-line branch anchors `^`
+    // directly against the header name, and both lookbehinds see a space rather than a newline or a
+    // quote. MEASURED surviving under STRICT in round 3, and RE-MEASURED against the compiled classes
+    // at the end of round 4 — where it survives BYTE-UNCHANGED under BOTH STRICT and BALANCED, which
+    // is one mode WIDER than round 3 recorded:
+    //
+    //   GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n   STRICT   ->  unchanged
+    //   GET / HTTP/1.1\r\n Cookie: a=SECRET5\r\n\r\n   BALANCED ->  unchanged
+    //
+    // DELIBERATELY out of this round's scope — the
+    // maintainer scoped round 4 to the string-open case — and filed as open finding AR-27-09 rather
+    // than left as an aside. THE FIX IS WRITTEN DOWN so a successor need not re-derive it: allow
+    // leading horizontal whitespace on the real-line branch, `^[ \t]*` in place of `^`. That is one
+    // token, it moves only in the over-redacting direction, and it is unshipped here because of
+    // scope, not because it is hard.
+    //
     // Nothing here makes redaction complete: the claim is bounded to the serialized emission path,
     // and to the cookie-header and exact-name auth-header classes.
 
@@ -217,6 +264,17 @@ object Redaction {
     // alternation over all nine fixtures and 2.4x cheaper, because Java need not try two look-back
     // widths at every position.
     private const val JSON_ESCAPED_NEWLINE = "\\\\[rn]"
+
+    // The open of a JSON string value — the THIRD logical line start (27-11). FIXED-WIDTH at one
+    // character, and named as its own constant so the composer can carry it in a SECOND lookbehind
+    // instead of widening the first one into a variable-width alternation.
+    //
+    // DECLARED BELOW JSON_ESCAPED_NEWLINE ON PURPOSE, and this is load-bearing rather than stylistic:
+    // `LogicalLineBoundaryScopeTest.rationaleRegionAboveFragments` walks back from the first line
+    // beginning `private const val JSON_ESCAPED_NEWLINE` and stops at the first line of real code
+    // above it, so a constant inserted ABOVE would truncate the rationale region and break that
+    // file's line floor for a reason with nothing to do with the boundary.
+    private const val JSON_STRING_OPEN = "\""
 
     // The SHIPPED value tail, character for character. Named rather than inlined so the byte-identity
     // claim is visible in source as "this branch uses the pattern that shipped".
@@ -242,6 +300,11 @@ object Redaction {
      * replacement lambdas call `substringBefore(":")` on the match value: the match must still BEGIN
      * at the header name.
      *
+     * That branch carries TWO start boundaries as of 27-11 — [JSON_ESCAPED_NEWLINE] and
+     * [JSON_STRING_OPEN] — written as two SEPARATE fixed-width lookbehinds in a non-capturing
+     * alternation, never as one lookbehind holding differing-width alternatives. The rationale block
+     * above states why that spelling is the cost model and not a formatting preference.
+     *
      * This is a member of the `Redaction` object called from property initializers in that same
      * object. It is safe only because it reads `const val` compile-time constants and no other
      * property — keep it that way, or the object's initialization order becomes load-bearing.
@@ -249,7 +312,8 @@ object Redaction {
     private fun logicalLineHeaderRule(namePattern: String): Regex =
         Regex(
             "(?im)(?:^" + namePattern + REAL_LINE_HEADER_VALUE +
-                "|(?<=" + JSON_ESCAPED_NEWLINE + ")" + namePattern + JSON_ESCAPED_HEADER_VALUE + ")",
+                "|(?:(?<=" + JSON_ESCAPED_NEWLINE + ")|(?<=" + JSON_STRING_OPEN + "))" +
+                namePattern + JSON_ESCAPED_HEADER_VALUE + ")",
         )
 
     private val cookieHeaderRegex =

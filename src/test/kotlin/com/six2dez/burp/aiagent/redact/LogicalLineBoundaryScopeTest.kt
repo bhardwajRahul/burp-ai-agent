@@ -143,6 +143,15 @@ class LogicalLineBoundaryScopeTest {
             "the rationale must carry the open-finding id `$OPEN_FINDING`, so the residual stays " +
                 "traceable from source to the phase record rather than surviving as an aside",
         )
+        assertTrue(
+            text.contains(SECOND_OPEN_FINDING),
+            "the rationale must ALSO carry `$SECOND_OPEN_FINDING`, the leading-whitespace / obs-fold " +
+                "start the boundary still does not recognise. BOTH residuals have to stay traceable " +
+                "from source: the composer now recognises three logical line starts, and a comment " +
+                "that stops naming the fourth leaves the next reader with a boundary that reads " +
+                "complete and is not — which is how this requirement has been closed wrongly three " +
+                "times already.",
+        )
         COMPOSED_RULES.forEach { rule ->
             assertTrue(
                 text.contains(rule),
@@ -240,16 +249,45 @@ class LogicalLineBoundaryScopeTest {
         const val EXCLUDED_RULE = "hostHeaderRegex"
         const val OPEN_FINDING = "AR-27-04"
 
-        /** The composer and the three fragments the boundary rationale is written against. */
+        /**
+         * The SECOND residual (27-11): a header line preceded by leading horizontal whitespace, or an
+         * obs-folded continuation, matches none of the three recognised starts. MEASURED surviving
+         * STRICT in round 3 and deliberately out of that round's scope.
+         *
+         * It is pinned here for the same reason `AR-27-04` is: a residual that lives only in a
+         * planning document is one refactor away from disappearing, and the next reader then meets a
+         * boundary that reads complete and is not.
+         */
+        const val SECOND_OPEN_FINDING = "AR-27-09"
+
+        /**
+         * The composer and the four fragments the boundary rationale is written against.
+         *
+         * ORDER IS LOAD-BEARING, and only for the FIRST element: `rationaleRegionAboveFragments`
+         * anchors its walk-back on `REQUIRED_DECLARATIONS.first()`, so promoting a different
+         * declaration to index 0 would move the anchor and change what [MIN_RATIONALE_LINES]
+         * measures — silently, with nothing turning red. `private const val JSON_ESCAPED_NEWLINE`
+         * stays first. New fragments are APPENDED, as `JSON_STRING_OPEN` was at 27-11.
+         *
+         * Nothing here may be REMOVED to make room, either. Each entry is a live guard, and the
+         * composer entry — the only non-fragment in the list — is the one a "tidy-up" would reach
+         * for first.
+         */
         val REQUIRED_DECLARATIONS =
             listOf(
                 "private const val JSON_ESCAPED_NEWLINE",
                 "private const val REAL_LINE_HEADER_VALUE",
                 "private const val JSON_ESCAPED_HEADER_VALUE",
                 "private fun logicalLineHeaderRule",
+                "private const val JSON_STRING_OPEN",
             )
 
-        /** A floor on the rationale region, so a one-line comment cannot pass as a stated bound. */
-        const val MIN_RATIONALE_LINES = 20
+        /**
+         * A floor on the rationale region, so a one-line comment cannot pass as a stated bound.
+         * MEASURED at 125 comment lines after plan 27-11 extended the region (78 before it). A
+         * FLOOR, not a count — the same discipline as [MIN_EXPECTED_LINES] — so prose edits are free
+         * while gutting the stated bounds turns red.
+         */
+        const val MIN_RATIONALE_LINES = 90
     }
 }

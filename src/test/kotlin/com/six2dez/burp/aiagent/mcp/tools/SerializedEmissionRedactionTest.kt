@@ -16,6 +16,7 @@ import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -317,6 +318,275 @@ class SerializedEmissionRedactionTest {
                 assertSameJsonShape(serialized, redacted)
             }
         }
+    }
+
+    // ── carrier 4: a header at the OPEN of a JSON string, the third logical-line start ────
+
+    /**
+     * (PRIV-05) Phase 27 plan 27-11. The start boundary the round-3 verification measured as
+     * missing — and the one gap in this phase where the CANONICAL spelling, not a variant and not an
+     * underscore name, defeated the strongest privacy mode.
+     *
+     * `logicalLineHeaderRule`'s escaped branch required a PRECEDING escaped newline. A header that is
+     * the FIRST content of a JSON string value has neither a real `^` nor a preceding escaped
+     * newline, so no branch of the composed rules could reach it at all. Measured on the shipped
+     * classes in round 3:
+     *
+     * ```
+     * {"notes":"Cookie: a=SECRET1\r\nX: y"}  STRICT ->  unchanged            (the gap)
+     * {"notes":"X: y\r\nCookie: a=SECRET9"}  STRICT ->  Cookie: [STRIPPED]   (control fired)
+     * ```
+     *
+     * `HttpRequestResponse.notes` is what makes this reachable rather than theoretical: it carries
+     * analyst annotations, so its first characters are whatever the analyst typed. The `request`
+     * field always begins `GET / HTTP/1.1`, which is why the 14 pinned emission sites' PRIMARY
+     * payload was never affected — and why this survived three rounds of verification unseen.
+     *
+     * SCOPE OF WHAT THIS NESTED CLASS PROVES: that the composed rules now REACH a header at a JSON
+     * string open, and that reaching it does not let a match run past that string's closing quote.
+     * It says nothing about the FOURTH start — a leading-whitespace or obs-folded header line —
+     * which is MEASURED still unmatched and filed as `AR-27-09`. See `Redaction.kt`'s rationale
+     * block for that bound stated where a reader meets the rule.
+     */
+    @Nested
+    inner class JsonStringOpenBoundary {
+        @Test
+        fun aCanonicalCookieAtTheOpenOfAJsonStringDoesNotSurviveStrict() {
+            val serialized = toolJson.encodeToString(notesCarrier(cookieFirstNotes(Sentinel.JSON_STRING_OPEN_STRICT)))
+
+            assertTrue(
+                serialized.contains("\"notes\":\"Cookie:"),
+                "fixture guard: the cookie header must really be the FIRST content of the notes " +
+                    "string. If it is not, this probe silently tests the escaped-newline branch that " +
+                    "already shipped and proves nothing (got: $serialized)",
+            )
+
+            val redacted = contextWith(PrivacyMode.STRICT, "json-string-open-strict-salt").redactIfNeeded(serialized)
+
+            assertFalse(
+                redacted.contains(Sentinel.JSON_STRING_OPEN_STRICT.value),
+                "a canonical Cookie value at the OPEN of a JSON string must not survive STRICT (got: $redacted)",
+            )
+            assertTrue(
+                redacted.contains(Sentinel.BENIGN_CONTROL.value),
+                "negative control: the non-cookie header in the same notes value must survive, so a " +
+                    "pass cannot be produced by blanket destruction of the field (got: $redacted)",
+            )
+            assertSameJsonShape(serialized, redacted)
+        }
+
+        @Test
+        fun aCanonicalCookieAtTheOpenOfAJsonStringDoesNotSurviveBalanced() {
+            val serialized = toolJson.encodeToString(notesCarrier(cookieFirstNotes(Sentinel.JSON_STRING_OPEN_BALANCED)))
+
+            assertTrue(
+                serialized.contains("\"notes\":\"Cookie:"),
+                "fixture guard: the cookie header must really be the FIRST content of the notes string (got: $serialized)",
+            )
+
+            val redacted = contextWith(PrivacyMode.BALANCED, "json-string-open-balanced-salt").redactIfNeeded(serialized)
+
+            assertFalse(
+                redacted.contains(Sentinel.JSON_STRING_OPEN_BALANCED.value),
+                "BALANCED sets stripCookies too, so the value must not survive there either (got: $redacted)",
+            )
+            assertTrue(
+                redacted.contains(Sentinel.BENIGN_CONTROL.value),
+                "negative control on the BALANCED probe (got: $redacted)",
+            )
+            assertSameJsonShape(serialized, redacted)
+        }
+
+        /**
+         * THE POSITIVE CONTROL, and the reason the two probes above are a statement about the rule's
+         * REACH rather than a dead fixture. Same header, same field, same modes — only the POSITION
+         * differs: here it follows an escaped newline, the boundary the escaped branch already had.
+         *
+         * EXPECTED GREEN BOTH BEFORE AND AFTER the boundary change, and that is the whole point. A
+         * red run in which this ALSO failed would mean the fixture was wrong and the probes proved
+         * nothing; a red run in which ONLY the probes failed — which is what was recorded — means the
+         * rule could not REACH that position. Without this test the two probes above are
+         * unfalsifiable, so it is not redundant coverage of the shipped branch.
+         */
+        @Test
+        fun theSameCookieHeaderAfterAnEscapedNewlineIsStrippedInBothRedactingModes() {
+            val notes =
+                "X-Request-Id: ${Sentinel.BENIGN_CONTROL.value}\r\n" +
+                    "Cookie: wibble=${Sentinel.JSON_STRING_OPEN_CONTROL.value}"
+            val serialized = toolJson.encodeToString(notesCarrier(notes))
+
+            assertTrue(
+                serialized.contains("\\r\\nCookie:"),
+                "fixture guard: the control's cookie header must follow an ESCAPED newline, or it is " +
+                    "not testing the branch that shipped (got: $serialized)",
+            )
+
+            listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED).forEach { mode ->
+                val redacted = contextWith(mode, "json-string-open-control-salt-$mode").redactIfNeeded(serialized)
+
+                assertFalse(
+                    redacted.contains(Sentinel.JSON_STRING_OPEN_CONTROL.value),
+                    "$mode: the escaped-newline branch shipped working — if THIS fails the fixture is " +
+                        "wrong and the probes above prove nothing (got: $redacted)",
+                )
+                assertTrue(
+                    redacted.contains("Cookie: [STRIPPED]"),
+                    "$mode: the control must produce the name-preserving replacement (got: $redacted)",
+                )
+                assertSameJsonShape(serialized, redacted)
+            }
+        }
+
+        /**
+         * THE OVER-MATCH BOUND — the cost side of the new start boundary, gated rather than reasoned
+         * about. A start that can fire at a double quote could let the value tail run PAST the JSON
+         * string's closing quote and into the next field, corrupting the tool result. That is a
+         * correctness break worse than the leak the boundary was added to close, so it gets an
+         * assertion rather than an argument.
+         *
+         * THE CARRIER IS THE scanner_issues SHAPE for a structural reason, not an aesthetic one:
+         * `HttpRequestResponse` declares `notes` LAST, so on that carrier there is no sibling field
+         * AFTER the one under test and this assertion would have nothing to bite on. `IssueDetails`
+         * carries the same `notes` one level deeper, followed by `collaboratorInteractions` and
+         * `definition` — a real emission shape, not one invented to make the assertion possible.
+         *
+         * `notes` here ends IMMEDIATELY after the cookie value, so the tail's only available
+         * terminator is the closing quote itself. That is the hardest form of this case.
+         */
+        @Test
+        fun aMatchBeginningAtAJsonStringOpenStopsAtThatStringsClosingQuote() {
+            val serialized = toolJson.encodeToString(overMatchFixture())
+
+            assertTrue(
+                serialized.contains("wibble=${Sentinel.JSON_STRING_OPEN_STRICT.value}\"}"),
+                "fixture guard: the cookie value must be the LAST content of its JSON string, so the " +
+                    "closing quote is the only terminator available to the tail (got: $serialized)",
+            )
+
+            val redacted = contextWith(PrivacyMode.STRICT, "json-string-open-overmatch-salt").redactIfNeeded(serialized)
+
+            assertFalse(
+                redacted.contains(Sentinel.JSON_STRING_OPEN_STRICT.value),
+                "the cookie value must still be stripped on this carrier (got: $redacted)",
+            )
+            assertEquals(
+                definitionBackgroundOf(serialized),
+                definitionBackgroundOf(redacted),
+                "the sibling field AFTER the carrier string must be BYTE-IDENTICAL — a match that ran " +
+                    "across the closing quote would have consumed into it (got: $redacted)",
+            )
+            assertSameJsonShape(serialized, redacted)
+        }
+
+        /**
+         * THE HEADER-MAP NON-REGRESSION, the other side of the same bound. `ParsedRequest` — the shape
+         * `request_parse` and `response_parse` emit — carries headers as JSON OBJECT MEMBERS, not as
+         * lines. `McpToolHelpersTest` records the MEASURED fact that this shape carries no line
+         * boundary of ANY kind, and the new start boundary must not quietly falsify that by making the
+         * composer begin matching at the open of a member's key or value.
+         *
+         * THE ASSERTION IS A NEGATIVE ABOUT THE MARKER, deliberately, and never a positive about a
+         * sensitive value surviving a redacting policy. `[STRIPPED]` is produced by exactly two
+         * things in `Redaction.kt` — `cookieHeaderRegex` and `setCookieHeaderRegex` — so its absence
+         * IS the proof that the composer did not start matching a JSON object member. An assertion
+         * that some value survived STRICT would instead be a green pin on a leak, which is the
+         * artifact class this round exists to remove.
+         *
+         * `sanitizeHeaders`, NOT the composer, is the control on this shape for the cookie-header
+         * class, and `McpToolHelpersTest$SanitizeHeaders` is what gates that control end to end. This
+         * test is about the composer's REACH, not about that control.
+         */
+        @Test
+        fun theHeaderMapShapeIsStillOutOfTheComposersReach() {
+            val serialized =
+                toolJson.encodeToString(
+                    headerMapPayload(
+                        mapOf(
+                            "Cookie" to "wibble=harmless",
+                            "Authorization" to "Bearer ${Sentinel.JSON_STRING_OPEN_CONTROL.value}",
+                        ),
+                    ),
+                )
+
+            assertTrue(
+                serialized.contains("\"Cookie\":"),
+                "fixture guard: the header map must really carry a cookie-named KEY (got: $serialized)",
+            )
+            assertFalse(
+                serialized.contains("\\r") || serialized.contains("\\n"),
+                "fixture guard: the header-map shape must carry no line boundary at all — that, and " +
+                    "nothing cookie-specific, is why the composer cannot fire here (got: $serialized)",
+            )
+
+            val redacted = contextWith(PrivacyMode.STRICT, "header-map-reach-salt").redactIfNeeded(serialized)
+
+            // Non-vacuity, in the register McpToolHelpersTest uses on this same shape: redactIfNeeded
+            // really ran under a redacting policy, so the negative below is not standing in for a call
+            // that no-opped. bearerRegex is un-anchored, so it fires whatever line boundary the
+            // payload has — or does not have.
+            assertFalse(
+                redacted.contains(Sentinel.JSON_STRING_OPEN_CONTROL.value),
+                "redactIfNeeded must really have run under a redacting policy (got: $redacted)",
+            )
+            assertFalse(
+                redacted.contains("[STRIPPED]"),
+                "the composer must NOT have begun matching a JSON object member: no cookie-rule " +
+                    "marker may appear on the header-map shape (got: $redacted)",
+            )
+            assertSameJsonShape(serialized, redacted)
+        }
+
+        private fun cookieFirstNotes(sentinel: Sentinel): String = "Cookie: wibble=${sentinel.value}\r\nX-Request-Id: ${Sentinel.BENIGN_CONTROL.value}"
+
+        /**
+         * The scanner_issues carrier with the cookie header at the open of `notes` and the whole
+         * `notes` string ending there, so the fields that follow are the over-match target.
+         * `background` carries the benign control, which is what the byte-identity assertion reads.
+         */
+        private fun overMatchFixture(): IssueDetails =
+            IssueDetails(
+                name = "Reflected input",
+                detail = "detail",
+                remediation = "remediation",
+                httpService = HttpService(host = "shop.example", port = 443, secure = true),
+                baseUrl = "https://shop.example/",
+                severity = AuditIssueSeverity.HIGH,
+                confidence = AuditIssueConfidence.FIRM,
+                requestResponses =
+                    listOf(
+                        HttpRequestResponse(
+                            request = "GET /basket HTTP/1.1\r\nAccept: text/html\r\n\r\n",
+                            response = null,
+                            notes = "Cookie: wibble=${Sentinel.JSON_STRING_OPEN_STRICT.value}",
+                        ),
+                    ),
+                collaboratorInteractions = emptyList(),
+                definition =
+                    AuditIssueDefinition(
+                        id = "reflected_input",
+                        background = Sentinel.BENIGN_CONTROL.value,
+                        remediation = "remediation",
+                        typeIndex = 1,
+                    ),
+            )
+
+        private fun definitionBackgroundOf(payload: String): String {
+            val root = toolJson.parseToJsonElement(payload).jsonObject
+            val definition = root.getValue("definition").jsonObject
+            return definition.getValue("background").jsonPrimitive.content
+        }
+
+        /** The `request_parse` envelope: only `headers` varies, so every other field is fixed here. */
+        private fun headerMapPayload(headers: Map<String, String>): ParsedRequest =
+            ParsedRequest(
+                method = "GET",
+                path = "/basket",
+                url = "https://shop.example/basket",
+                headers = headers,
+                parameters = emptyList(),
+                body = null,
+                bodyLength = 0,
+            )
     }
 
     // ── the named hazards of this rule shape, each gated rather than reasoned about ───────
@@ -747,6 +1017,19 @@ class SerializedEmissionRedactionTest {
         )
 
     /**
+     * The `notes` carrier. `toSerializableForm()` fills this field from `annotations().notes()`, so
+     * unlike `request` its first characters are whatever an ANALYST typed rather than a request
+     * line — which is what makes a header at the open of a JSON string reachable rather than
+     * theoretical. It is the field the round-3 verification named.
+     */
+    private fun notesCarrier(notes: String): HttpRequestResponse =
+        HttpRequestResponse(
+            request = "GET /basket HTTP/1.1\r\nAccept: text/html\r\n\r\n",
+            response = null,
+            notes = notes,
+        )
+
+    /**
      * A REAL multi-line message. This deliberately never touches `toolJson`: its purpose is to pin
      * the branch that shipped, the one that only ever sees genuine CRLFs. No `Host:` header, so the
      * expectation is a plain literal rather than a salt-dependent anonymised host.
@@ -821,6 +1104,14 @@ class SerializedEmissionRedactionTest {
         AUTH_OFF_MODE("sentinelwhiskey"),
         AUTH_BACKSLASH_TAIL("sentinelxray"),
         AUTH_REAL_MULTILINE_QUOTE("sentinelyankee"),
+
+        // (PRIV-05) 27-11. The JSON-string-open family. Each is a bare lowercase alphabetic word
+        // like every entry above, and each was checked NON-SUBSTRING against every other entry —
+        // `everySentinelInThisFileIsDistinct` enforces both halves, because a sentinel contained in
+        // a longer one lets an absence assertion pass while the longer value leaks.
+        JSON_STRING_OPEN_STRICT("sentinelzulu"),
+        JSON_STRING_OPEN_BALANCED("sentinelnorth"),
+        JSON_STRING_OPEN_CONTROL("sentinelsouth"),
         BENIGN_CONTROL("benignidcontrolvalue"),
     }
 
