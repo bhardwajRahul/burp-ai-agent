@@ -8,8 +8,8 @@ updated: 2026-08-26
 
 ## Current Test
 
-number: 8
-name: DISPOSITION — AR-27-07, widen SENSITIVE_WORDS or keep the residual
+number: 11
+name: DISPOSITION — AR-27-10, accept at LOW or widen to the full RFC 9110 tchar set
 awaiting: user response
 
 ## Tests
@@ -259,7 +259,22 @@ all three consumer regexes at once. That is a real analysis-quality cost, not a 
 
 why_human: `27-08-SUMMARY.md` states it directly — the measurement is complete and its control
 fired, but the DISPOSITION is a maintainer judgment, not a test result.
-result: [pending]
+result: pass
+decision: KEEP THE RESIDUAL AT LOW — `SENSITIVE_WORDS` is NOT widened.
+decided: 2026-08-26, by the maintainer, from an explicit four-way choice during UAT
+  (keep at low / keep but re-rate to medium / widen now / keep plus a narrower
+  name-keyed fix later). The maintainer chose to keep at low.
+resolves_register_disagreement: YES. `26-SECURITY.md` carried an unresolved disagreement —
+  the 27-08 plan register authored `medium` BEFORE the measurement existed, and the
+  measurement returned `low`. This decision resolves it IN FAVOUR OF THE MEASUREMENT.
+  The pre-measurement `medium` is superseded, not deleted.
+rests_on: the caller-echo property (the caller already possesses the value), the fact that
+  it sits outside PRIV-05's cookie wording, and WR-01's MEASURED cost of the alternative —
+  32 false positives (`status_code`, `errorCode`, `primary_key`, `public_key`, ...) across
+  all three consumer regexes at once.
+not_taken: the narrower name-keyed fix (key on the parameter's `name` field rather than
+  widening the global word list) was offered and NOT taken. It remains unowned and
+  unscheduled — no follow-up item was created for it by this decision.
 
 ---
 
@@ -429,7 +444,18 @@ the real-line branch, it widens only in the OVER-redacting direction, and it is 
 why_human: A scope/risk decision on a shipped 1.0.0 release, and the `low` severity rests on an
 unmeasured reachability judgment about a free-text field. Recorded here rather than raised as a
 checkpoint, for the reason at the head of this section.
-result: [pending]
+result: pass
+decision: PULL THE ONE-TOKEN FIX FORWARD — apply `^[ \t]*` in place of `^` on the
+  real-line branch. `AR-27-09` is to be CLOSED BY FIX, not accepted at LOW.
+decided: 2026-08-26, by the maintainer, from an explicit three-way choice during UAT
+  (pull the fix forward / measure the notes path first / accept at LOW as filed).
+rationale_recorded: the LOW rested on an explicitly UNMEASURED reachability claim about
+  analyst-authored `HttpRequestResponse.notes` free text. Rather than accept a severity
+  resting on an assumption — the exact defect class that reopened this phase five times —
+  the maintainer chose the fix, which removes the dependence on that claim entirely.
+  The fix widens only in the OVER-redacting direction.
+status: IMPLEMENTATION PENDING at the time this decision was recorded; see the commits
+  that follow and the register amendment closing `AR-27-09`.
 
 ### 11. NEW, a DISPOSITION rather than a test — `AR-27-10`, accept at LOW or widen to the full RFC 9110 tchar set
 
@@ -784,8 +810,8 @@ result: [pending]
 ## Summary
 
 total: 14
-passed: 7
+passed: 9
 issues: 0
-pending: 7
+pending: 5
 skipped: 0
 blocked: 0
