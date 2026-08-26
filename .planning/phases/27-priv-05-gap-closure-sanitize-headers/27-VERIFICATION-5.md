@@ -2,8 +2,9 @@
 phase: 27
 round: 5
 verified: 2026-08-26T20:05:00Z
-status: gaps_found
-score: 28/30 must-haves verified
+status: human_needed
+score: 30/30 must-haves verified (re-verified 2026-08-26; the two gaps below are CLOSED)
+re_verified: 2026-08-26T21:05:00Z
 behavior_unverified: 0
 overrides_applied: 0
 git_range: c2d980f..fb7cbd3
@@ -315,3 +316,292 @@ correction reach every artifact that cites the finding.
 
 _Verified: 2026-08-26T20:05:00Z_
 _Verifier: Claude (gsd-verifier), round 5_
+
+---
+
+## Re-verification — 2026-08-26
+
+**Scope:** the TWO gaps recorded above, and nothing else. The 28 must-haves verified in the round-5
+pass are NOT re-scored; I found no evidence disturbing any of them, and they stand.
+**Range re-verified:** `2a880f9..4d7ebfe` — `818cc0f` (gap 1), `6f48091` (gap 2), `4d7ebfe` (clause viii).
+**Verified against:** HEAD `4d7ebfe`, working tree clean of tracked modifications before and after.
+**Verdict: BOTH GAPS ARE CLOSED.** Score moves 28/30 -> 30/30. One NEW finding of the same defect
+class, one level smaller, is recorded below as a WARNING with the severity call handed to the
+maintainer rather than taken here.
+
+### How this re-check was done
+
+Nothing below is taken from a commit message or from `SUMMARY`/`WINDOWS` prose. Every number was
+re-measured, and every claim of non-vacuity was re-proved by mutating the source myself:
+
+- **Four source mutations** applied to `RedactingPolicySurvivalSweepTest.kt` at HEAD, each run
+  through `./gradlew test --tests '*RedactingPolicySurvivalSweepTest*'`, each restored and the
+  restore confirmed with `git diff`.
+- **A standalone JDK-21 probe** compiled against `build/classes/kotlin/main` +
+  `kotlin-stdlib-2.2.21`, calling
+  `Redaction.INSTANCE.apply(raw, RedactionPolicy.Companion.fromMode(mode), "salt-probe", false)`
+  over the four AR-27-11 families and two positive controls, STRICT and BALANCED.
+- **A regex model of the composer** (`logicalLineHeaderRule`'s two fixed-width lookbehinds) with
+  Option B's proposed `["` / `,"` alternatives added, to test Option B's corrected coverage claim
+  rather than accept it.
+- **`grep -rn 'AR-27-11'`** run by me across the repository, not read from the fixer's list.
+- **Byte-level prefix comparison** (Python `SequenceMatcher` / exact slice equality) of the amended
+  `27-HUMAN-UAT.md` item 12 and `CONCERNS.md` AMENDMENT 5 against their text at `2a880f9`.
+- **Suite:** `ktlintCheck detekt test` BUILD SUCCESSFUL in 3m 7s — **175 classes, 1248 tests,
+  1 skipped, 0 failures, 0 errors** (tallied from the JUnit XML, not from Gradle's summary line).
+
+### Gap 1 — stale counts in `26-SECURITY.md` standing-rule clause (vi): **CLOSED**
+
+Closed by `818cc0f`, and closed at the MECHANISM rather than at the instance.
+
+**The amended numbers are correct against the tree.** Both re-measured here:
+
+| What | My measurement at HEAD | Clause (vi) now states |
+|---|---|---|
+| `@Test` methods the class declares | **18** — `grep -cE '^[[:space:]]*@Test\b'` returns 19 over raw lines; the 19th is line 1600, inside the `DECLARATION_SHAPE_FIXTURE` raw string. JUnit XML for the class: `tests="18" failures="0"`. | **18** |
+| Unskipped self-hits | **15** — read out of the mutated assertion's own failure text (`found 15 hits`) and pinned by the passing `assertEquals`. | **15** |
+
+**The two new checks genuinely go RED when the stated number drifts — mutation-proved by me, in both
+directions, not accepted from the fixer's transcript:**
+
+| # | Mutation | Result | Failure text I read out of the JUnit XML |
+|---|---|---|---|
+| A | `STATED_TEST_METHODS` 18 -> 15 **and** `STATED_UNSKIPPED_SELF_HITS` 15 -> 14 (the two stale values the register carried) | **2 RED** | `this class declares 18 @Test methods and states 15` · `the detector run over THIS FILE WITHOUT the raw-string skip found 15 hits; 14 is what` |
+| B | an extra `@Test` inserted **INSIDE** `DECLARATION_SHAPE_FIXTURE` (raw-string interior); constants untouched | **GREEN** | — the count is derived over `fileWalk`, so fixture text is not counted as a method |
+| C | an extra **real** `@Test` method added to the class body; constants untouched | **1 RED** | `this class declares 19 @Test methods and states 18` |
+| D | `MIN_EXPECTED_UNSKIPPED_SELF_HITS` 2 -> 99 | **1 RED, and only 1** | `expected at least 99 unskipped self-hits from the positive fixtures; found 15` |
+
+- **A** proves both checks are live against exactly the drift that occurred, and independently
+  reproduces my own 18 and 15.
+- **B and C together** answer the question this re-check was asked to settle: the `@Test` count is
+  **not fooled by the `@Test` inside `DECLARATION_SHAPE_FIXTURE`**. A fixture `@Test` moves nothing;
+  a real one moves it. Deriving over `fileWalk` rather than over raw lines is doing real work — a
+  raw-line count would state 19 today.
+- **D** proves the pre-existing floor is **still present and still doing its own job**:
+  `MIN_EXPECTED_UNSKIPPED_SELF_HITS = 2` remains at `:952`, is still asserted inside
+  `theRawStringSkipIsWhyTheSelfScanIsClean`, and fires **alone** — the exact-pin test stayed green
+  through it. The floor was kept beside the exact pin, not replaced by it, which is what the fix
+  claimed.
+
+All four mutations restored; `git diff` clean on the file after each.
+
+**Clause (vi) itself** (`26-SECURITY.md:1218-1245`) now reads `18 tests` and `returns 15`, amended in
+place with the drift, its cause (`fb7cbd3`) and the controlled experiment recorded at full width. The
+only surviving `15 tests` / `returns 14` strings in the file (`:1234`, `:1542`) are inside dated
+narratives describing the past state, which is correct. `STATED_BLIND_AXES = 13`, the one number that
+never drifted, is unchanged.
+
+**Truth 5 of plan 27-15 moves ✗ FAILED -> ✓ VERIFIED.**
+
+### Gap 2 — the LOW -> MEDIUM correction reaching its consumers: **CLOSED**
+
+Closed by `6f48091`. I ran my own `grep -rn 'AR-27-11'`; it returns **15 files**. Every one of them
+was read.
+
+**Nothing in the repository now states `AR-27-11` at LOW, or as array-element-only, as CURRENT and
+without a supersession marker.**
+
+| Artifact | State at HEAD | My check |
+|---|---|---|
+| `27-HUMAN-UAT.md` item 12 | SUPERSEDED banner under the heading; dated `CORRECTION 2026-08-26`; MEDIUM over four families; Option B corrected; Option C added and labelled derived-not-measured | Body byte-identical to `2a880f9` up to the correction marker, verified by exact slice comparison — **except the `why_human:` field**, see WARNING 2 |
+| `.planning/ROADMAP.md` entry (1) | inline `[SUPERSEDED at LOW / one family …]` tag plus a dated CORRECTION after the entry; entries (2)-(4) untouched | Read in full at `:627-667` |
+| `LogicalLineBoundaryScopeTest.kt` `:157`, `:233` | both failure messages carry the four-family mechanism, including `do not re-widen it to ["` / `,"` alone believing that closes AR-27-11: it closes ONE of the four` | Assertions unchanged (`text.contains(THIRD_OPEN_FINDING)`, `assertEquals(":\"", decoded)`); class green **4/4** |
+| `CONCERNS.md` AMENDMENT 5 item (3) | SUPERSEDED tag; AMENDMENT 6 appended | The AMENDMENT 5 edit is a **pure insertion** of the tag — machine-verified, no deletion, no reordering. But see WARNING 1 |
+| `27-14-SUMMARY.md`, `27-16-SUMMARY.md` | appended `SUPERSEDED SEVERITY` notes | Diffs are **pure appends** — every changed line is a `+` at end of file |
+| `Redaction.kt` `:261/:288/:357` | MEDIUM, all four under one id, with the raised-from-LOW history | Unchanged by these three commits and already correct |
+
+**The severity claim being propagated is factually right — re-measured at HEAD by me**, standalone
+probe over freshly compiled classes:
+
+```
+SURVIVES STRICT    F1 nested/escaped   {"response":"{\"cookie_header\":\"Cookie: sid=SECRETVALUE1\"}"}
+SURVIVES STRICT    F2 pretty-printed   {"notes": "Cookie: sid=SECRETVALUE1"}
+SURVIVES STRICT    F3 bare top-level   "Cookie: sid=SECRETVALUE1"
+SURVIVES STRICT    F4 array element    {"tags":["Cookie: sid=SECRETVALUE1"]}
+STRIPPED  STRICT   C0 compact control  -> {"notes":"Cookie: [STRIPPED]"}
+STRIPPED  STRICT   C1 escaped-newline  -> {"notes":"GET / HTTP/1.1\r\nCookie: [STRIPPED]"}
+```
+
+Identical results under BALANCED. All four families lost, both controls firing in the same run, so
+the null result is attributable to REACH and not to a dead probe.
+
+**Option B's correction is factually right, and I did not take it on the text.** Verified two ways.
+(i) Structurally: the shipped composer carries two fixed-width lookbehinds, `(?<=\\[rn])` and
+`(?<=:")`; the two characters preceding the header are `\"` in family 1, `` `"` `` (space-quote) in
+family 2, nothing at all in family 3, and `["` / `,"` in family 4. (ii) Empirically, with a regex
+model of the composer:
+
+```
+== SHIPPED                    F1 MISS   F2 MISS   F3 MISS   F4 MISS    C0 MATCH
+== OPTION B (+ [" and ,")     F1 MISS   F2 MISS   F3 MISS   F4 MATCH   C0 MATCH
+```
+
+**Widening to `["` and `,"` closes family 4 and only family 4.** Item 12's corrected statement —
+family 1 interposes a backslash, family 2 a space, family 3 has no colon — is correct, and Option C's
+"three different look-back widths (0, 2, 3)" is the right derivation.
+
+**Two citing files the propagation list did NOT name, found by my grep and cleared:**
+
+- `27-15-SUMMARY.md:353,357` — mentions `AR-27-11` only as register work reserved for plan 27-16, and
+  as clause (vi)'s axis count. States **no severity and no family**. No marker owed.
+- `COVERAGE.md:80` — records that `Serialization.kt` was READ by 27-16 "for the `AR-27-11`
+  reachability measurement". Records an activity, not the refuted conclusion. Info only; a reader
+  cannot take a severity or a bound from it.
+
+**The deliberate non-amendments are RIGHT, and each was checked rather than accepted:**
+
+- `27-14-PLAN.md` / `27-16-PLAN.md` — a plan records intent before execution; both pair with a
+  SUMMARY that now carries the correction. Rewriting a plan backwards would be a different defect.
+- `27-REVIEW-3.md` — it is the SOURCE of the correction. `:120` already reads "`AR-27-11` states ONE
+  family; the narrowing measurably gave up FOUR". Nothing to amend.
+- `27-VERIFICATION*.md` — verification records of a moment; this file's own gap 2 documents the
+  correction.
+- `26-SECURITY.md`'s internal citations — I checked `:111`, `:295` and `:653` directly. Each sits
+  ABOVE a later dated block in the same file's append-only sequence: the counter comment's
+  `RE-RUN 2026-08-26 (OUT-OF-PLAN CORRECTION …)` which states "`AR-27-11`'s SEVERITY was RAISED from
+  LOW to MEDIUM"; the row's own `CORRECTION` marker; and the evidence section's
+  `### CORRECTION 2026-08-26 — the enumeration above asked too narrow a question`. The claim holds.
+- `WINDOWS.md` #44 states the refuted `List<String>`-fields reachability, superseded by the later
+  #50 in the same dated append-only log — the same shape, consistently applied.
+
+**Truth 3 of plan 27-16 moves ✗ FAILED -> ✓ VERIFIED. Truth O2b (PARTIAL) resolves with it.**
+
+### Standing-rule clause (viii) — assessment: a FAIR reading, and it does close the mechanism
+
+Clause (viii) (`26-SECURITY.md:1493-1580`) is a correct diagnosis of what actually went wrong.
+
+**It is a fair reading.** Its central claim — that clause (vii) worked exactly as written and was
+still not enough, because clauses (i) through (vii) all govern *the moment a claim is authored* and
+both round-5 gaps happened AFTER a filing that was correct when made — is precisely the mechanism
+this report named in its own closing `missing` item. It does not overstate: it explicitly credits
+(vii) with having produced the INTRODUCED heading, the self-entry and the named owner.
+
+**It closes the mechanism, in the two places the mechanism failed.**
+Part **(a)** takes the fan-out list out of the reviewer's hands and makes it mechanical —
+`grep -rn '<finding-id>'` IS the list, and the register's own OWNER field names the decision venue —
+which is exactly right, because the sixth artifact was found only by grepping the id and the most
+consequential one was the venue the register already named by name.
+Part **(b)** does not merely say "re-measure"; it says that where a number is source-derivable the
+commit must make a TEST derive it, and it justifies that with the round's own controlled experiment
+(the machine-checked number did not drift; both prose ones did, inside one round, by that round's
+last commit). That is the correct lesson from the correct evidence.
+The **out-of-plan corollary** is the load-bearing part: both gaps came from commits that ran the
+suite, passed it, and touched no record. Without it the clause would have been evadable by exactly
+the route that produced both gaps.
+
+**One honest caveat, recorded rather than smoothed.** Part (b) has a gate — the two new tests. Part
+**(a) has only prose**: nothing gates a correction commit on having run the grep. That is the same
+class of promise about future diligence that (b) argues, with evidence, does not survive here. The
+new finding below is the first data point on how well (a)'s prose form holds.
+
+### NEW FINDING — WARNING 1: `CONCERNS.md` AMENDMENT 6 item (5) states a fan-out count its own siblings falsify
+
+This is a fresh instance of the same defect class, one level smaller, introduced by the commit that
+closed gap 2.
+
+`.planning/codebase/CONCERNS.md` AMENDMENT 6 item (5) reads:
+
+> Three further artifacts CITED the finding at the superseded LOW — this entry, `ROADMAP.md`'s
+> round-5 INTRODUCED list, and `27-HUMAN-UAT.md` item 12, the maintainer's own decision venue — and
+> none was found by the correction, only by the next verifier.
+
+**MEASURED BY ME at `2a880f9`, the tree that sentence describes — FIVE artifacts carried the
+superseded LOW, not three:**
+
+```
+27-14-SUMMARY.md:37  "Accept the array-element residual … at LOW, file it as AR-27-11"
+27-16-SUMMARY.md:45  "Assign AR-27-11 LOW from a MEASURED reachability enumeration"
+```
+
+Both are `git show 2a880f9:` reads. Both were amended by `6f48091` itself, with
+`SUPERSEDED SEVERITY` notes, *precisely because* they carried the LOW — so the sentence is falsified
+by its own commit's other hunks.
+
+**And the second half is wrong for "this entry".** `CONCERNS.md` was NOT found by the next verifier.
+`6f48091`'s own message says so — "**FOUND BY GREP**, named by no review and no verification" — and
+clause (viii) says "the sixth only by grepping the finding id". This report's gap 2 never named it.
+
+**Three sibling records, written across these same three commits, now state the fan-out size three
+different ways:** three (`CONCERNS.md` AMENDMENT 6), five (`WINDOWS.md` #50, whose item (5) names two
+files under one number), and six (clause (viii) and `6f48091`'s message). **Only the six is right as
+a file count.**
+
+**Why this is a WARNING and not a third gap.** It is a lesson narrative, not the stated bound of a
+control. Nothing depends on it: the severity, the four families, the mechanism, the reachability, the
+mitigating bound and the Option B/C correction are all correct in that same amendment and in every
+other propagated artifact — I checked each. No decision is misinformed by it.
+
+**Why it is recorded at full width anyway, and the call handed over.** The phase's own clause (vi)
+prohibits a stated bound diverging from its control; the control here is
+`grep -rn 'AR-27-11'` plus a read, and it returns five. Applied consistently, the standard round 5
+used on itself would make this a third gap. That call belongs to the maintainer, not to this
+verifier, and it is filed as human-verification item 4 below. **The remedy is one appended sentence**
+under AMENDMENT 6 — the file's own discipline, marked not rewritten — correcting "Three" to five and
+"only by the next verifier" to "and this entry only by grepping the finding id".
+
+### NEW FINDING — WARNING 2 (Info): the one non-append edit in the whole propagation
+
+`27-HUMAN-UAT.md` item 12 is byte-identical to `2a880f9` up to the correction marker — I verified this
+by exact slice comparison, not by reading the banner's claim — **with one exception**: the item's
+four-line `why_human:` field was **replaced in place**, not marked and appended. Its old text
+("*…with one measured carrier and one unmeasured remote half…*") now exists only in git history.
+
+The banner's literal claim ("everything from here to the `CORRECTION` marker … is left byte-unchanged")
+and the correction's ("Nothing above this marker is edited") are both **true as written** — the
+replaced field sits at the marker, not above it. The commit message's looser "the original body left
+BYTE-UNCHANGED" is what overstates. A stale `why_human:` would have been actively misleading, so the
+replacement is defensible; it is recorded because this file's discipline is mark-never-delete and
+this is the single place in three commits where text was deleted.
+
+### Invariants — all confirmed
+
+| Invariant | Result |
+|---|---|
+| `REQUIREMENTS.md` byte-unchanged; PRIV-05 still `- [ ]` | sha256 `9b321966…` **identical** at `c2d980f`, `2a880f9` and HEAD; `:23` still `- [ ] **PRIV-05**` |
+| `threats_open` = 0, recomputed not hand-edited | documented `awk` run verbatim by me: **0**; `grep -c '^\| T-26-'` = **46**; closed rows = **46**; frontmatter `:175` reads `0` |
+| `AR-27-04`, `AR-27-08`, `AR-27-09`, `AR-27-10`, `AR-27-11`, `T-26-02-01` rows unchanged | per-row sha256 across `2a880f9..HEAD`: `6106f921…`, `902c2ab7…`, `6df6ceb9…`, `3b057d9e…`, `c36811f9…`, `93b64145…` — **all six identical** |
+| `STATE.md`, `27-REVIEW*.md`, `27-VERIFICATION*.md`, `build.gradle.kts` untouched | none appears in `git diff --name-only 2a880f9..HEAD` (9 files, all listed above) |
+| No `src/main` file changed — no redaction behaviour touched | `git diff --name-only 2a880f9..HEAD -- src/main` returns **0 files**; `Redaction.kt` diff is empty |
+| Suite green | `ktlintCheck detekt test` BUILD SUCCESSFUL — **175 classes, 1248 tests, 1 skipped, 0 failures, 0 errors** |
+| Working tree clean after my mutations | `git status --porcelain -uno` empty at HEAD `4d7ebfe`; each of the four mutations restored and the restore confirmed |
+
+`./gradlew check` was deliberately NOT run — its `jacocoTestCoverageVerification` red is
+maintainer-accepted and filed (`WINDOWS.md` #47), and out of scope by instruction.
+
+### Re-verification scorecard
+
+| Round-5 gap | Status now | Basis |
+|---|---|---|
+| Gap 1 — clause (vi)'s two stale counts | **CLOSED** | numbers correct (18 / 15, both re-measured); both machine-checked; RED under mutation A and C; not fooled by the fixture (mutation B); floor intact and firing alone (mutation D) |
+| Gap 2 — AR-27-11 correction not reaching consumers | **CLOSED** | my own grep over 15 files; nothing states LOW or array-element-only as current without a marker; four families re-measured surviving; Option B's correction proved right two ways |
+
+**Score: 30/30 truths verified** (28 carried forward unchallenged, plus 27-15 truth 5 and 27-16
+truth 3). **0 gaps. 2 warnings. 0 regressions.**
+
+### Status: `human_needed`, not `passed`
+
+Both gaps are genuinely closed and no gap remains. The status is **not** `passed` because the
+`human_verification` block in this report's frontmatter is non-empty and every item in it is still
+open — `27-HUMAN-UAT.md` item 12 still reads `result: [pending]`, and `passed` is only valid with an
+empty human-verification section. Nothing here failed. Three items are carried forward verbatim; a
+fourth is added by this re-check:
+
+**4. DECIDE whether WARNING 1 is a third gap or a documentation nit.**
+*Test:* read `CONCERNS.md` AMENDMENT 6 item (5) against `git show 2a880f9:` of `27-14-SUMMARY.md:37`
+and `27-16-SUMMARY.md:45`, and against `6f48091`'s own message.
+*Expected:* a recorded call — either an appended one-sentence correction under AMENDMENT 6 (five, not
+three; and this entry was found by grepping the id, not by the verifier), or a recorded decision that
+a lesson narrative is not held to clause (vi)'s standard.
+*Why human:* it is a consistency judgment about how strictly this phase applies its own standing
+rules to its own prose, on the one artifact that was itself the missed sixth. Nothing downstream
+depends on the number, so this is a policy call rather than a correctness one.
+
+The **AR-27-11 re-decision (item 1 above) is now materially better posed than it was at round 5**:
+item 12 states MEDIUM over four families, its Option B is corrected to what it actually buys, and an
+Option C exists that covers all four with its cost honestly labelled derived-not-measured. That was
+the point of these three commits, and it landed.
+
+---
+
+_Re-verified: 2026-08-26T21:05:00Z_
+_Verifier: Claude (gsd-verifier), round 5 re-check at `4d7ebfe`_

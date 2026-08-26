@@ -1,9 +1,9 @@
 ---
 status: partial
 phase: 27-priv-05-gap-closure-sanitize-headers
-source: [27-VERIFICATION.md]
+source: [27-VERIFICATION.md, 27-VERIFICATION-2.md, 27-VERIFICATION-3.md, 27-VERIFICATION-4.md, 27-VERIFICATION-5.md]
 started: 2026-08-24
-updated: 2026-08-24
+updated: 2026-08-26
 ---
 
 ## Current Test
