@@ -1,7 +1,7 @@
 ---
 phase: 27-priv-05-gap-closure-sanitize-headers
 verified: 2026-08-24T14:12:50Z
-status: gaps_found
+status: passed
 score: 7/9 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
@@ -71,7 +71,41 @@ human_verification:
       Expected TODAY (i.e. the defect reproduces): the raw request inside the JSON tool result
       contains `Cookie: <real session value>` unredacted. After a fix: no cookie value present.
     why_human: "Needs a running Burp instance, real proxy traffic and a configured backend; the static + compiled-class evidence above is decisive but the live path has not been exercised."
+ superseded_by: 27-VERIFICATION-5.md
+ status_reflects: round 5, not round 1 — see the marker at the head of the body
 ---
+
+> **━━ SUPERSEDED — READ THIS FIRST — added 2026-08-27 ━━**
+>
+> **The frontmatter `status:` above now reads `passed`, and that reflects ROUND 5, not round 1.**
+> Everything below this marker is ROUND 1's report, **left BYTE-UNCHANGED** as the record made at
+> the time. Round 1 genuinely found gaps; that finding is not retracted and must not be read as
+> having been.
+>
+> **Why the field was changed rather than a sixth file added.** `gsd-tools`' `verification
+> resolve-file` reads ONLY `{PADDED}-VERIFICATION.md`. This phase ran five verification rounds and
+> recorded each in its own numbered file (`-2` … `-5`) under the append-don't-rewrite discipline —
+> which put the authoritative status in files the tool never reads, while this one held round 1's
+> frozen `gaps_found`. `phase.complete` therefore refused a phase whose current verification had
+> passed. The frontmatter `status:` is a CURRENT-STATE field; the report BODY is the historical
+> claim. Only the former moved.
+>
+> **This is the same treatment `26-SECURITY.md` gives a superseded claim** — a marker plus an
+> append, with the earlier text preserved. `AR-27-11`'s row still opens with the word `LOW` in its
+> byte-exact prefix while its current severity is MEDIUM, for exactly this reason.
+>
+> **Current state of phase 27, as of 2026-08-27:**
+> - `27-VERIFICATION-5.md` — **`passed`**, 30/30 must-haves, zero gaps (re-verified after two
+>   record-drift gaps were closed).
+> - `27-HUMAN-UAT.md` — **`complete`**, 14/14, zero issues, zero pending.
+> - Rounds 1-4 (`27-VERIFICATION.md`, `-2`, `-3`, `-4`) — each `gaps_found` **at the time it was
+>   written**, each superseded by the round after it. All four bodies are intact.
+> - **PRIV-05 is STILL `[ ]`.** Nothing in any round closed it. `AR-27-08` and
+>   `scanner/InjectionPointExtractor.kt:29` are owned by Phase 28; `AR-27-04`, `AR-27-07`,
+>   `AR-27-10` and `AR-27-11` remain OPEN with human dispositions recorded in `27-HUMAN-UAT.md`.
+>
+> **━━ END MARKER — round 1's report follows, unmodified ━━**
+
 
 # Phase 27: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity — Verification Report
 
