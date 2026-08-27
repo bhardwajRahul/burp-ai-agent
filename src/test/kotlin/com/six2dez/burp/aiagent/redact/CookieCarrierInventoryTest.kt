@@ -59,6 +59,14 @@ import java.io.File
  *     `ResponseAnalyzer` entries below and carried in [ISSUE_DETAIL_CARRIER_DISPOSITION]. This
  *     inventory can point at the FIRST hop; it cannot follow a value through arbitrary copies.
  *
+ *     READ THE EXAMPLE AS AN EXAMPLE, NOT AS AN OPEN FINDING. Phase 28 CONTROLLED the
+ *     `AuditIssue.detail()` route at its write site; [ISSUE_DETAIL_CARRIER_DISPOSITION] carries the
+ *     original measurement and its dated supersession. The example is kept precisely BECAUSE it was
+ *     closed: it is the one case where this axis's blindness was walked end to end and shown to be
+ *     real, which makes it the most useful illustration of the axis available. The AXIS ITSELF IS
+ *     STILL OPEN — closing one transitive carrier does not teach this inventory to follow the next
+ *     one, and a reader who reads the closure as closing the axis has narrowed the bound.
+ *
  *  4. A NEW MONTOYA ACCESSOR added by a future API version that returns cookie data under a name not
  *     in [COOKIE_BYTE_ACCESSORS]. The set is additive-only and a reader adding one must extend it.
  *
@@ -293,7 +301,13 @@ class CookieCarrierInventoryTest {
                         whyItCarriesCookieBytes =
                             "Burp parses the `Cookie` header into HttpParameterType.COOKIE entries, so the " +
                                 "parameter list carries the same bytes under a different type",
-                        positiveFixture = """request.parameters().filter { it.type().name == "COOKIE" }.forEach { param ->""",
+                        // Mirrors the tree as of phase 28: the extractor's hand-written
+                        // `it.type().name == "COOKIE"` was converted to the shared predicate by plan
+                        // 28-02. The pattern above keys on the ACCESSOR CALL, not on the predicate, so
+                        // this fixture matched before and after — which is precisely why it had to be
+                        // updated by hand. A fixture quoting a line that no longer exists stays GREEN
+                        // while it rots, the stale-but-green drift this class's own KDoc warns about.
+                        positiveFixture = """request.parameters().filter { Redaction.isCookieParameterType(it.type().name) }.forEach { param ->""",
                     ),
                 SINGLE_HEADER_LOOKUP to
                     AccessorSpec(
@@ -389,6 +403,26 @@ class CookieCarrierInventoryTest {
                     "McpToolHelpers.sanitizeParameters at :160 (params_extract) and :189 (request_parse). " +
                     "THE THIRD CALL, :222, IS NON-CARRYING for the same reason: consumer read at " +
                     ":222-227, find_reflected emits name, type and an occurrence count only.",
+                CarrierSite(INJECTION_EXTRACTOR, PARAMETER_LIST) to
+                    "TWO CONSUMERS, BOTH READ, AND BOTH NOW CONTROLLED — BY DIFFERENT MECHANISMS, which is " +
+                    "precisely the kind of thing this inventory exists to surface. MOVED HERE FROM " +
+                    "CLASSIFIED_NON_CARRYING BY PHASE 28: the old reason said this entry was CLASSIFIED " +
+                    "rather than ROUTED 'because a route with an uncontrolled consumer is not a route', " +
+                    "and that reason expired when plan 28-01 controlled consumer 2. The producers — :22 " +
+                    "(URL), :26 (BODY), :37 (COOKIE) and :170 — all build InjectionPoint.originalValue, " +
+                    "which stays RAW on purpose (D-28-02): the control belongs at each consumer, because " +
+                    "redacting in the producer would hit consumer 1 a second time with a foreign marker " +
+                    "vocabulary. CONSUMER 1, the AI-facing one: AdaptivePayloadEngine.kt:52 substitutes " +
+                    "`[REDACTED_VALUE]` for the value under ANY non-OFF privacy mode before it reaches a " +
+                    "prompt. CONSUMER 2: ActiveAiScanner writes `Original Value: <originalValue>` into an " +
+                    "AuditIssue detail, and that value is now stripped at the WRITE SITE by " +
+                    "ScannerIssueSupport.sanitizeInjectionPointValue under any stripCookies policy — see " +
+                    "ISSUE_DETAIL_CARRIER_DISPOSITION for the measurement and its supersession. The " +
+                    "COOKIE producer's own cookie-type test is no longer hand-written either: plan 28-02 " +
+                    "routed it through Redaction.isCookieParameterType, so the type question and the " +
+                    "value question now each have exactly one owner. Both controls are held by committed " +
+                    "probes: CookieRouteDispositionTest (no double redaction, one marker vocabulary per " +
+                    "route) and IssueDetailCookieCarrierTest (the write-site strip).",
                 CarrierSite(EXECUTOR_MODERN, RAW_MESSAGE) to
                     "Redaction.apply at the redactIfNeeded choke point. Consumer read: all five sites " +
                     "(:592, :593, :732, :761, :811) sit inside the dispatch `when` whose result is " +
@@ -491,23 +525,8 @@ class CookieCarrierInventoryTest {
                     "AI-facing path. Consumers read: :33 admits a header only when headerAllowlist " +
                     "contains its lowercased name; :185 matches a header by raw-byte offset for a " +
                     "user selection. Both produce InjectionPoint values, which share the disposition " +
-                    "recorded for this file's PARAMETER_LIST entry below.",
-                CarrierSite(INJECTION_EXTRACTOR, PARAMETER_LIST) to
-                    "TWO CONSUMERS, BOTH READ, AND THEY DIFFER — which is precisely the kind of thing this " +
-                    "inventory exists to surface. :21 (URL), :25 (BODY), :29 (COOKIE — the site with " +
-                    "its own `it.type().name == \"COOKIE\"` predicate that plan 27-07 baseline B9 " +
-                    "measured and deliberately left unconverted) and :162 all build " +
-                    "InjectionPoint.originalValue. CONSUMER 1, the AI-facing one: " +
-                    "AdaptivePayloadEngine.kt:52 substitutes `[REDACTED_VALUE]` for the value under " +
-                    "ANY non-OFF privacy mode before it reaches a prompt — a control by a DIFFERENT " +
-                    "mechanism than every other entry in this registry. CONSUMER 2: " +
-                    "ActiveAiScanner.kt:1239 writes `Original Value: <originalValue>` UNREDACTED into " +
-                    "an AuditIssue detail, which Serialization.kt:14 copies into IssueDetails.detail " +
-                    "and the scanner_issues MCP tool emits. Consumer 2 is a TRANSITIVE carrier — the " +
-                    "third blind axis in this class's KDoc — and it is NOT controlled here. See " +
-                    "ISSUE_DETAIL_CARRIER_DISPOSITION below for its measured status. This entry is " +
-                    "CLASSIFIED rather than ROUTED because a route with an uncontrolled consumer is " +
-                    "not a route.",
+                    "recorded for this file's PARAMETER_LIST entry — which phase 28 MOVED into " +
+                    "ROUTED_THROUGH, so it is no longer 'below' in this map.",
                 CarrierSite(INJECTION_EXTRACTOR, SINGLE_HEADER_LOOKUP) to
                     "NON-CARRYING BY ARGUMENT. Consumer read: :45 and :207 both pass \"Content-Type\" and " +
                     "use it to choose a JSON or XML field extractor.",
@@ -536,6 +555,12 @@ class CookieCarrierInventoryTest {
          * NOT FIXED HERE, and that is a decision rather than an oversight: a fix without its own red
          * probe is the same-day closure pattern that has failed three times in this phase. Plan 27-09
          * files it and opens a named successor.
+         *
+         * SUPERSEDED — 2026-08-27, phase 28. The named successor ran. The measurement text below is
+         * KEPT BYTE-EXACT as the leading prefix of this constant and the supersession is APPENDED to
+         * it, because the measurement is the EVIDENCE THE CONTROL WAS NEEDED: delete it and a later
+         * reader sees a control with no stated reason to exist, which is how a control gets removed
+         * as redundant. The register's discipline is supersession, never deletion.
          */
         const val ISSUE_DETAIL_CARRIER_DISPOSITION =
             "UNCONTROLLED, MEASURED 2026-08-25 (AR-27-08, severity MEDIUM). A cookie sentinel in the " +
@@ -556,6 +581,25 @@ class CookieCarrierInventoryTest {
                 "rather than caller-echoed content, and it defeats STRICT outright; mitigating — it is " +
                 "LATENT behind an opt-in feature, a confirmed finding, and a scanner_issues call. " +
                 "Medium, not high, because it is unreachable in the default posture; not low, because " +
-                "when reachable it puts a real session cookie past STRICT."
+                "when reachable it puts a real session cookie past STRICT." +
+                " SUPERSEDED 2026-08-27 (phase 28, plan 28-01) — THE ROUTE IS NOW CONTROLLED. " +
+                "Everything above this sentence is the 2026-08-25 measurement, preserved byte-exact " +
+                "and NOT rewritten: it is why the control exists. CONTROL SYMBOL: " +
+                "ScannerIssueSupport.sanitizeInjectionPointValue, applied at the WRITE SITE where the " +
+                "`Original Value:` line is built, so the value never enters the detail blob rather " +
+                "than being chased through it afterwards — which is the reason the MECHANISM analysis " +
+                "above showed no downstream rule could key on it. A COOKIE-typed point's value is " +
+                "replaced with ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER under any " +
+                "stripCookies policy. COMMITTED PROBE: IssueDetailCookieCarrierTest — this REPLACES " +
+                "the deliberately-uncommitted 27-08 probe, and it is committable for the reason the " +
+                "old one was not: it asserts the value is ABSENT, so a green run is evidence of a " +
+                "working control rather than a green assertion that a secret survives STRICT. RED " +
+                "PROBE: recorded in `28-01-SUMMARY.md` — the control was verified to fail before it " +
+                "was verified to pass, so the closure is not the same-day pattern this phase has " +
+                "failed on three times. The PRODUCER side was collected separately by plan 28-02, " +
+                "which routed InjectionPointExtractor's cookie-type test through " +
+                "Redaction.isCookieParameterType WITHOUT moving any value control into the producer " +
+                "(D-28-02) — see this file's ROUTED_THROUGH entry for INJECTION_EXTRACTOR/" +
+                "PARAMETER_LIST, which moved out of CLASSIFIED_NON_CARRYING on the same commit."
     }
 }

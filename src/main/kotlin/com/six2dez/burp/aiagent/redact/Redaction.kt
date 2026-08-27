@@ -596,6 +596,28 @@ object Redaction {
      *    plan 27-08 task 3 measures and plan 27-09 files. Swapping the predicate there would change
      *    nothing about that route's disclosure while making the route look addressed. Cookie-type
      *    PREDICATES in the tree therefore go from 1 to 2, not from N to 1.
+     *
+     * SUPERSEDED IN PART — 2026-08-27, phase 28 plan 28-02. Bound 2's paragraph above is KEPT
+     * VERBATIM as the historical record: while the issue-detail route was uncontrolled, refusing the
+     * conversion WAS the correct call, and deleting the reasoning would leave a later reader unable
+     * to tell a considered deferral from an oversight.
+     *
+     * What changed: plan 28-01 controlled that route at its WRITE site
+     * ([com.six2dez.burp.aiagent.scanner.ScannerIssueSupport] sanitises the injection-point value
+     * before it reaches `AuditIssue` detail), so the objection Bound 2 records — that swapping the
+     * predicate would make the route merely LOOK addressed — no longer holds. Plan 28-02 therefore
+     * collected the conversion: `scanner/InjectionPointExtractor.kt` now calls this predicate.
+     *
+     * Two consequences a reader must not take from prose here:
+     *
+     * - The PREDICATE COUNT stated in Bound 2's last sentence is now false. It is deliberately NOT
+     *   restated with a new number. A source-derivable count belongs in a test that re-derives it
+     *   from the tree, not in a comment that goes stale silently; see
+     *   `CookieRouteDispositionTest.exactlyOneCookieTypePredicateExistsInMainSource`.
+     * - The conversion is an IDENTITY swap and NOT a behaviour change. `InjectionPointExtractor`
+     *   still emits the RAW cookie value; its second consumer, `AdaptivePayloadEngine`, substitutes
+     *   its own value marker and must not be redacted a second time by a foreign vocabulary.
+     *   `CookieRouteDispositionTest` holds both halves.
      */
     fun isCookieParameterType(typeName: String): Boolean = typeName.trim().uppercase(Locale.ROOT) == COOKIE_PARAMETER_TYPE_NAME
 

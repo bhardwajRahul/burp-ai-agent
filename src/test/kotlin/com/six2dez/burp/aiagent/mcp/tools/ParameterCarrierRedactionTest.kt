@@ -481,12 +481,23 @@ class ParameterCarrierRedactionTest {
         // mechanism and states its own, different bound.
         //
         // THE WORKED EXAMPLE of that blindness, named rather than left abstract so a reader can go
-        // and look at it: `scanner/InjectionPointExtractor.kt:29` writes its own
-        // `it.type().name == "COOKIE"` cookie-parameter test in a THIRD file. It is measured by
-        // baseline B9, it is deliberately NOT converted (D-27-17 — its value feeds the issue-detail
-        // route that plan 27-08 task 3 measures and plan 27-09 files), and this pin cannot see it. A
-        // bound stated with a live example is a bound; a bound stated abstractly is the sentence
-        // three prior rounds of this phase also wrote.
+        // and look at it. THE PREVIOUS EXAMPLE HAS BEEN CONVERTED: it was
+        // `scanner/InjectionPointExtractor.kt:29`, which wrote its own `it.type().name == "COOKIE"`
+        // cookie-parameter test in a THIRD file — measured by baseline B9, deliberately left
+        // unconverted by D-27-17 while the issue-detail route it fed was uncontrolled, and invisible
+        // to this pin. Phase 28 controlled that route (plan 28-01) and then routed the predicate
+        // through `Redaction.isCookieParameterType` (plan 28-02). THE PIN'S BLINDNESS IS UNCHANGED BY
+        // THAT — the conversion removed an instance, not the gap; this pin still sees one call shape
+        // in two named files and nothing else.
+        //
+        // THE REPLACEMENT LIVE EXAMPLE, which does exist: `prompts/bountyprompt/
+        // BountyPromptTagResolver.kt:151` renders `name=value (TYPE)` for prompt tags and applies its
+        // OWN inline cookie control — `Redaction.isCookieParameterType(...) -> "[STRIPPED]"` — in a
+        // THIRD file, without ever calling `sanitizeParameters`. This pin cannot see it. Read it with
+        // its caveat: it is LATENT, because the class has zero instantiations in `src/main/kotlin`
+        // (re-measured 2026-08-27), so it is a real example of the SHAPE this pin misses rather than
+        // a live leak. A bound stated with a live example is a bound; a bound stated abstractly is the
+        // sentence three prior rounds of this phase also wrote.
         val perFile = PRODUCER_FILES.associateWith { path -> codeLines(path).count { it.text.contains(SANITIZER_CALL) } }
 
         perFile.forEach { (path, count) ->
