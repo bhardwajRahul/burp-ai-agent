@@ -803,7 +803,7 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 **Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
 measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 **Wave 1**
@@ -812,7 +812,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 28-02-PLAN.md — resolve `InjectionPointExtractor.kt:29` to the shared predicate and prove `AdaptivePayloadEngine`'s controlled path byte-unchanged; correction fan-out to five prose sites (SC4)
+- [x] 28-02-PLAN.md — resolve `InjectionPointExtractor.kt:29` to the shared predicate and prove `AdaptivePayloadEngine`'s controlled path byte-unchanged; correction fan-out to five prose sites (SC4)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
