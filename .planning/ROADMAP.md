@@ -806,8 +806,16 @@ measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 
 **Plans:** 3 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 28-01-PLAN.md — control the write site: a COOKIE-typed `originalValue` is policy-stripped from `AuditIssue.detail` under STRICT/BALANCED, survives under OFF, with the red probe (SC1, SC2, SC3)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 28-02-PLAN.md — resolve `InjectionPointExtractor.kt:29` to the shared predicate and prove `AdaptivePayloadEngine`'s controlled path byte-unchanged; correction fan-out to five prose sites (SC4)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 28-03-PLAN.md — measure the `ResponseAnalyzer` evidence tail and file `AR-28-01`; amend `AR-27-08` append-and-amend; recompute `threats_open`; state the PRIV-05 judgement (SC5, SC6)
 
 ---

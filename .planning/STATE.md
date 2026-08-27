@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
-current_phase: 26
-current_phase_name: Coverage, Static-Analysis Debt & Docs
-status: planning
+current_phase: 28
+current_phase_name: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`
+status: executing
 stopped_at: Phase 27 complete, ready to plan Phase 26
-last_updated: "2026-08-27T07:13:49.180Z"
+last_updated: "2026-08-27T09:00:05.754Z"
 last_activity: 2026-08-27
 last_activity_desc: Phase 27 complete, transitioned to Phase 26
-state_head: 410408360370fbc132addcf11a4071a23e1923d7
+state_head: b265644d7bb80eddc61e349be98497e4ae158dc2
 progress:
   total_phases: 9
   completed_phases: 5
-  total_plans: 77
+  total_plans: 80
   completed_plans: 77
   percent: 56
 ---
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 26 — Coverage, Static-Analysis Debt & Docs
+Phase: 28 (The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`) — READY TO EXECUTE
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Resume file: None
 Last activity: 2026-08-27 — Phase 27 complete, transitioned to Phase 26
 
