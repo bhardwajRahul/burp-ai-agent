@@ -11,6 +11,7 @@ import com.six2dez.burp.aiagent.audit.AuditLogger
 import com.six2dez.burp.aiagent.config.AgentSettings
 import com.six2dez.burp.aiagent.config.Defaults
 import com.six2dez.burp.aiagent.redact.PrivacyMode
+import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
 import com.six2dez.burp.aiagent.util.IssueUtils
 import com.six2dez.burp.aiagent.util.scheduleGuarded
@@ -1230,18 +1231,18 @@ class ActiveAiScanner(
         val metadataSection =
             buildMetadataSectionPlain(backendInfo, "Active", confirmation.confidence, "Confirmed via AI active exploitation testing.")
 
-        val detailLines = mutableListOf<String>()
-        detailLines.add("Vulnerability confirmed via active testing")
-        detailLines.add("")
-        detailLines.add("Type:")
-        detailLines.add("  ${target.vulnHint.vulnClass.name}")
-        detailLines.add("  Injection Point: ${target.injectionPoint.type} - ${target.injectionPoint.name}")
-        detailLines.add("  Original Value: ${target.injectionPoint.originalValue.take(100)}")
-        detailLines.add("  Payload Used: ${payload.value.take(500)}")
-        detailLines.add("  Detection Method: ${payload.detectionMethod}")
-        detailLines.add("  Evidence: ${confirmation.evidence}")
-        detailLines.add("")
-        detailLines.addAll(metadataSection.split("\r\n"))
+        // (PRIV-05) 28-01 / AR-27-08: these lines are built by the SINGLE producer in
+        // ScannerIssueSupport, never inline here. A second producer is how the cookie control on
+        // this carrier gets bypassed without anyone editing it.
+        val detailLines =
+            ScannerIssueSupport.buildActiveIssueDetailLines(
+                target.injectionPoint,
+                target.vulnHint.vulnClass.name,
+                payload,
+                confirmation.evidence,
+                metadataSection,
+                RedactionPolicy.fromMode(getSettings().privacyMode),
+            )
         val detail = IssueUtils.formatIssueDetailHtml(detailLines)
 
         val severity = ScannerIssueSupport.mapSeverity(target.vulnHint.vulnClass)
