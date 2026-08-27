@@ -541,23 +541,52 @@ enumeration comes out clean.
 
 ## PRIV-05 gate — RUN 2, post-completion, pre-commit
 
-**OUTSTANDING — the phase commit is BLOCKED until RUN 2 is recorded here.**
+**RUN 2 IS NOW RECORDED, AND IT RAN LATE.** It was executed during the phase-28 GAP ROUND by
+plan 28-06 on 2026-08-27 — not at 28-03's own commit, and not by the orchestrator at the moment this
+heading intended. The phase commits landed through `723ae59` without it. This block records a gate
+that ran AFTER the commits it was written to block, and says so rather than presenting its outputs as
+though they had been taken at the intended moment.
 
-`gsd-tools query phase.complete 28` had **not** run when task 3 finished — the phase orchestrator
-invokes it AFTER this plan's last task, so 28-03's executor has no reachable trigger at that moment.
-This heading is therefore left OUTSTANDING deliberately, and its outstanding-ness is stated in the
-closing narration so the orchestrator executes it.
+**Raw output — `shasum -a 256 .planning/REQUIREMENTS.md`, run by plan 28-06:**
 
-**RUN 1 being green does NOT discharge this.** RUN 1 runs strictly before `phase.complete` and is
-structurally incapable of observing the failure D-28-04 names: on 2026-08-27 `phase.complete 27`
-flipped PRIV-05 to `[x]` **as a side effect while its own warnings said it was skipping that write**.
-It was caught pre-commit and reverted (`.planning/WINDOWS.md` entry 54). Two identical-looking
-digests under one heading is a record that cannot tell you which side of `phase.complete` it was
-taken on, which is the exact ambiguity that let the phase-27 flip reach a staged tree — hence the
-distinct heading.
+```
+9b3219662ec0d007c1c82d64eed3ef2698bd306ce69f01205ac9bbc3f42fcfb4  .planning/REQUIREMENTS.md
+```
 
-**What the orchestrator must run, AFTER `gsd-tools query phase.complete 28` and IMMEDIATELY BEFORE
-the phase commit:**
+**Raw output — `grep -n 'PRIV-05' .planning/REQUIREMENTS.md`, same run:**
+
+```
+6:Scope = the 17 findings of the 2026-08-05 deep code review of v0.9.2. Two of them (SEC-04, PRIV-05) are **defects verified by running the shipped code**, not theoretical concerns — they are the reason this milestone exists. Phase numbering continues from the previous milestone (Phase 20+).
+10:**Ordering constraint:** SEC-04 and PRIV-05 are live defects in a published release and lead the milestone. SEC-06 (agent trust boundary) and REL-05 (EDT) both rewrite `ChatPanel.maybeExecuteToolCall` and must be sequential, not parallel. QUAL-06 lands last so it can cover the code the earlier phases produce.
+23:- [ ] **PRIV-05** (Finding 2, **high**): Cookie values do not reach an AI backend in STRICT or BALANCED mode by any path. Specifically, the passive scanner's `=== COOKIES ===` section — which today re-emits cookies as bare `name=value`, stripped of the `Cookie:` prefix that `cookieHeaderRegex` keys on — is redacted. Sensitive-key matching recognises real-world names (`JSESSIONID`, `PHPSESSID`, `connect.sid`, `auth_token`, `csrftoken`, `remember_me`) rather than only exact matches against the `SENSITIVE_KEYS` alternation. Covered by a test that asserts each of those names is redacted in both modes.
+39:- [x] **DOC-03**: A security advisory documents SEC-04 and PRIV-05 for users running v0.9.0–v0.9.2, stating impact and the version that fixes them; `README.md`, `SPEC.md`, `DECISIONS.md` and the GitBook site (`burp-ai-agent-docs`) reflect the new tool-call confirmation flow and the corrected privacy claims.
+47:| PRIV-05 | 2 | High | 21 |
+```
+
+**VERDICT:** the digest still begins `9b3219662ec0d007…` and PRIV-05 on line 23 is still an unchecked
+`- [ ]` box. `.planning/REQUIREMENTS.md` is absent from `git status`, so it is byte-unchanged rather
+than merely unedited. Nothing moved, so the revert-and-file-a-`WINDOWS.md`-entry path below was not
+taken — but it is preserved verbatim as the standing instruction for the next round, because a gate
+whose failure branch is deleted the first time it passes is a gate that only works once.
+
+**Why this heading was left open at 28-03's commit.** `gsd-tools query phase.complete 28` had **not**
+run when task 3 finished — the phase orchestrator invokes it AFTER that plan's last task, so 28-03's
+executor had no reachable trigger at that moment. The heading was therefore left open deliberately,
+and its open state was stated in that plan's closing narration so the orchestrator would execute it.
+The orchestrator did not execute it, and the run was made here instead. The deliberate deferral was
+correct; what failed is that nothing forced the deferred item before the phase commits landed.
+
+**RUN 1 being green does NOT discharge this, and that reasoning is preserved rather than retired.**
+RUN 1 runs strictly before `phase.complete` and is structurally incapable of observing the failure
+D-28-04 names: on 2026-08-27 `phase.complete 27` flipped PRIV-05 to `[x]` **as a side effect while
+its own warnings said it was skipping that write**. It was caught pre-commit and reverted
+(`.planning/WINDOWS.md` entry 54). Two identical-looking digests under one heading is a record that
+cannot tell you which side of `phase.complete` it was taken on, which is the exact ambiguity that let
+the phase-27 flip reach a staged tree — hence the distinct heading. The heading earns its place; only
+the claim that the item is still pending has been retired.
+
+**What the check required, kept as the standing instruction:** after
+`gsd-tools query phase.complete <N>` and immediately before the phase commit, run
 
 ```bash
 shasum -a 256 .planning/REQUIREMENTS.md
@@ -571,7 +600,12 @@ its own output claimed at the time, and the before/after of the line — as a ne
 entry in the style of entry 54. A silent revert leaves the next round with no evidence the class
 recurred, and this class has recurred once already.
 
-Paste BOTH raw outputs under this heading, replacing this block.
+**Do not merge this block with the three later mentions in this file.** The entries further down —
+in the artifact table, in the closing self-assessment and in the final narration — describe the state
+AT 28-03's OWN COMMIT, where "not yet run" was true and correctly declared. They are 28-03's record
+of its own moment and are left exactly as written. This block describes the DISCHARGE, made later by
+plan 28-06. Two different moments, two different readings, and rewriting the earlier ones would be
+editing a committed summary's history.
 
 **State at the moment task 3 ended:** `.planning/REQUIREMENTS.md` byte-unchanged (absent from
 `git status`), digest `9b3219662ec0d007c1c82d64eed3ef2698bd306ce69f01205ac9bbc3f42fcfb4`, PRIV-05
