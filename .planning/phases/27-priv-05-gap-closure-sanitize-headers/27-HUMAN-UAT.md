@@ -1,5 +1,5 @@
 ---
-status: partial
+status: complete
 phase: 27-priv-05-gap-closure-sanitize-headers
 source: [27-VERIFICATION.md, 27-VERIFICATION-2.md, 27-VERIFICATION-3.md, 27-VERIFICATION-4.md, 27-VERIFICATION-5.md]
 started: 2026-08-24
@@ -8,9 +8,7 @@ updated: 2026-08-26
 
 ## Current Test
 
-number: 12a
-name: CONFIRMATION — was the round-4 narrowing a maintainer's choice or a harness default?
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -561,7 +559,28 @@ is still owed.
 
 why_human: A privacy-control bypass on a shipped release posture, currently accepted by the harness
 rather than by a person. Carried unchanged from `27-VERIFICATION-3.md` `human_verification` item 2.
-result: [pending]
+result: pass
+decision: MAINTAINER-SIGNED ACCEPTANCE at MEDIUM. `AR-27-04` stays OPEN at MEDIUM, now
+  accepted BY A PERSON rather than by the harness. The fix is NOT taken.
+decided: 2026-08-27, by the maintainer, from an explicit three-way choice during UAT
+  (accept / fix both halves now / defer with an owner and a phase).
+what_this_changes: the PROVENANCE, and only the provenance. This is the first human
+  disposition `AR-27-04` has ever had — it was previously auto-selected by `mode: yolo`,
+  and `27-VERIFICATION-3.md` onward carried it forward unanswered through three rounds.
+  The finding, its severity and its status are UNCHANGED.
+what_this_does_NOT_change: `Host:` and `SiteMapEntry.url` STILL reach an AI backend
+  UN-ANONYMISED under STRICT on the serialized emission shape. `hostHeaderRegex` remains
+  excluded from `logicalLineHeaderRule`; `maybeAnonymizeUrl` remains unthreaded into
+  `toSiteMapEntry` / `toSerializableForm`. The behaviour SHIPS.
+compounding_item: this acceptance compounds with item 4, which accepted `T-27-06-06`
+  as-is. Host anonymisation is STRICT's HEADLINE PROMISE; `README.md:247` and
+  `SPEC.md:80,86` still state it without the serialized-path exclusion. So as of this
+  session the product both (a) does not anonymise hosts on that path under STRICT and
+  (b) still documents that it does. Both halves were accepted knowingly and separately.
+  Recorded together here because neither item states the combination on its own.
+fix_if_revisited: BOTH halves must land together — route `hostHeaderRegex` through the
+  composer AND thread `maybeAnonymizeUrl` into the two serializers. Half alone yields a
+  payload whose `request` is anonymised and whose `url` is not.
 
 
 ---
@@ -640,7 +659,24 @@ PROVENANCE: the run was configured `mode: yolo`, no human answered any checkpoin
 under `.planning/` can establish that a person chose narrowing over keeping the bare quote. A
 maintainer either confirms the choice was theirs, or records that it was a directed default that they
 now endorse — the two read identically in a diff and differently in an audit.
-result: [pending]
+result: pass
+answer: ENDORSED, NOT AUTHORED. The maintainer records that the round-4 narrowing was a
+  DIRECTED DEFAULT — not a choice a person made at the time — which they now endorse
+  retrospectively.
+answered: 2026-08-27, by the maintainer, from an explicit two-way choice during UAT
+  (`mine` = it was my choice / `endorse` = a default I now endorse).
+what_this_settles: the audit question, and it settles it in the direction the artifacts
+  already supported rather than the flattering one. `.planning/config.json` carries
+  `mode: yolo`; `gsd-tools query check auto-mode` reported `false` for the round-5 run;
+  no human answered any checkpoint during rounds 4 or 5. The narrowing was directed by the
+  round-5 planning brief and backed by two independent measurements (`27-REVIEW-2.md`
+  CR-03 and `27-VERIFICATION-4.md` gap 1). No artifact under `.planning/` claimed human
+  authorship, and none now does.
+consequence_for_the_record: every downstream artifact citing this decision's provenance
+  must read ENDORSED rather than CHOSEN. A retrospective endorsement carries the same
+  ownership as an original choice but NOT the same evidential weight — an endorsement
+  cannot corroborate that the alternative was weighed at the time, only that the outcome
+  is accepted now.
 
 ---
 
@@ -863,15 +899,28 @@ rules to its own prose, on the one artifact that was itself the missed sixth. No
 depends on the number — the severity, four families, mechanism, reachability, bound and Option B/C
 correction are all correct in that same amendment — so this is a policy call, not a correctness one.
 
-result: [pending]
+result: pass
+decision: FIX — a LESSON NARRATIVE **IS** held to standing-rule clause (vi)'s standard.
+  The one-sentence correction was appended to `CONCERNS.md` AMENDMENT 6 item (5).
+decided: 2026-08-27, by the maintainer, from an explicit two-way choice during UAT
+  (`fix` = append the correction / `nit` = record that narrative is exempt).
+precedent_set: this is the transferable part. The phase now holds its PROSE to the same
+  standard as its CONTROLS — a stated count must match what it describes wherever it is
+  stated. The cheaper policy line (narrative is exempt) was available and was NOT taken.
+what_was_corrected: item (5) said THREE artifacts cited the superseded LOW and that none
+  was found by the correction. FIVE did — `27-14-SUMMARY.md:37` and `27-16-SUMMARY.md:45`
+  were the two it missed, and `6f48091` amended both FOR THAT REASON, so the sentence was
+  falsified by its own commit's other hunks. Six is the right total as a file count. And
+  "only by the next verifier" was wrong for this entry: `6f48091` records it as FOUND BY
+  GREP. The correction APPENDS; the original sentence is preserved byte-for-byte above it.
 
 ---
 
 ## Summary
 
 total: 14
-passed: 9
+passed: 14
 issues: 0
-pending: 5
+pending: 0
 skipped: 0
 blocked: 0
