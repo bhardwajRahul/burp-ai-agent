@@ -466,6 +466,22 @@ reviewer to notice.
 - The round gate — not a plan — decides whether PRIV-05 may finally be ticked. `REQUIREMENTS.md` is
   byte-unchanged and was not touched.
 
+## Self-Check: PASSED
+
+All claimed files exist on disk:
+
+- `.planning/phases/28-.../28-05-SUMMARY.md`
+- `src/main/kotlin/com/six2dez/burp/aiagent/scanner/AiScanCheck.kt`
+- `src/main/kotlin/com/six2dez/burp/aiagent/scanner/ScannerIssueSupport.kt`
+- `src/test/kotlin/com/six2dez/burp/aiagent/scanner/AiScanCheckDetailCookieCarrierTest.kt`
+- `src/test/kotlin/com/six2dez/burp/aiagent/scanner/CookieRouteDispositionTest.kt`
+
+All claimed commits exist on `worktree-agent-a5bb3b501d1e0cb7d`, ahead of base `b8b22ab`:
+`c35f230`, `36ba487`, `7b5c3b9`, `d50727c` (this SUMMARY; the digest above is its parent state).
+
+`STATE.md` and `ROADMAP.md` were NOT modified — the orchestrator owns those writes after the wave
+merges.
+
 ---
 *Phase: 28-the-issue-detail-cookie-carrier-auditissue-detail-scanner-is*
 *Completed: 2026-08-27*
