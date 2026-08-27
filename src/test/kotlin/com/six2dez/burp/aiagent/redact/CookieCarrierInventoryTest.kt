@@ -60,15 +60,33 @@ import java.io.File
  *     inventory can point at the FIRST hop; it cannot follow a value through arbitrary copies.
  *
  *     READ THE EXAMPLE AS AN EXAMPLE, NOT AS AN OPEN FINDING. Phase 28 CONTROLLED the
- *     `AuditIssue.detail()` route at its write site; [ISSUE_DETAIL_CARRIER_DISPOSITION] carries the
- *     original measurement and its dated supersession. The example is kept precisely BECAUSE it was
- *     closed: it is the one case where this axis's blindness was walked end to end and shown to be
- *     real, which makes it the most useful illustration of the axis available. The AXIS ITSELF IS
- *     STILL OPEN — closing one transitive carrier does not teach this inventory to follow the next
- *     one, and a reader who reads the closure as closing the axis has narrowed the bound.
+ *     `AuditIssue.detail()` route at its write sites — PLURAL, corrected 2026-08-27 by plan 28-06,
+ *     because the sentence here previously said "at its write site" and was true of ONE write site
+ *     in ONE file when it was written. THERE ARE TWO PRODUCERS OF THESE DETAIL LINES:
+ *     `ScannerIssueSupport.buildActiveIssueDetailLines`, whose `Original Value:` and `Payload Used:`
+ *     lines are gated by `sanitizeInjectionPointValue` (plan 28-01) and `sanitizeRenderedPayload`
+ *     (plan 28-04); and `AiScanCheck.buildDetail`, a SECOND producer that read no privacy mode at
+ *     all until plan 28-05 gated both of its lines through `sanitizeCookiePointText`.
+ *     [ISSUE_DETAIL_CARRIER_DISPOSITION] carries the original measurement and both dated
+ *     supersessions. The example is kept precisely BECAUSE it was walked to the end: it is the one
+ *     case where this axis's blindness was traced end to end and shown to be real — twice, since the
+ *     second producer was found by a verifier and not by this inventory. THE AXIS ITSELF IS STILL
+ *     OPEN, and that is the sentence to keep: controlling one transitive carrier does not teach this
+ *     inventory to follow the next one, a reader who reads the control as closing the axis has
+ *     narrowed the bound, and NO repository-wide detail-producer gate exists to catch a third
+ *     producer (D-28-06 records building one as considered and NOT taken; `WR-01` stays open).
  *
  *  4. A NEW MONTOYA ACCESSOR added by a future API version that returns cookie data under a name not
  *     in [COOKIE_BYTE_ACCESSORS]. The set is additive-only and a reader adding one must extend it.
+ *
+ *     THIS AXIS HAS ALREADY COST SOMETHING, recorded 2026-08-27 by plan 28-06 rather than left as a
+ *     hypothetical. `AuditInsertionPoint.baseValue()` was NOT a future accessor — it was in the tree
+ *     the whole time, returning the raw cookie value for a `PARAM_COOKIE` point, and its absence from
+ *     this set is why `AR-27-08`'s route 2 in `AiScanCheck.kt` survived three phase-28 plans and had
+ *     to be found by hand in `28-VERIFICATION.md`. It is now in the set as
+ *     [INSERTION_POINT_BASE_VALUE]. THE AXIS IS CLOSED FOR THAT ONE ACCESSOR AND OPEN FOR EVERY
+ *     OTHER: adding one accessor teaches this file nothing about the next, and nothing in this
+ *     repository enumerates the accessors that are still missing.
  *
  * ── A FIFTH, WEAKER BOUND, ON THE GRANULARITY OF THE CLASSIFICATION ITSELF ──
  *
@@ -224,8 +242,27 @@ class CookieCarrierInventoryTest {
 
     private fun isCommentOnly(line: String): Boolean {
         val trimmed = line.trimStart()
-        return trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")
+        return trimmed.startsWith("//") || trimmed.startsWith("/*") || isBlockCommentContinuation(trimmed)
     }
+
+    /**
+     * A KDoc / block-comment continuation line, NARROWED 2026-08-27 by plan 28-06 — and the narrowing
+     * is a measured bug fix, not tidying.
+     *
+     * The previous rule was `trimmed.startsWith("*")`, which also swallowed any line of a Kotlin RAW
+     * STRING beginning with a markdown bold marker. `AiScanCheck.kt:388` is exactly such a line: the
+     * rendered `Original Value` heading, in markdown bold, interpolating
+     * `sanitizeCookiePointText(insertionPoint, policy, insertionPoint.baseValue(), …)` — the CARRIER
+     * for `AR-27-08`'s route 2. Under the old rule the scan saw the NON-CARRYING `baseValue()` call at
+     * `:116` and was blind to the carrying one, so adding [INSERTION_POINT_BASE_VALUE] to the accessor
+     * set would have produced a registry entry whose count silently excluded the site it exists to
+     * watch. A tripwire that cannot see the line it was added for is the failure mode this whole file
+     * is a response to, so the heuristic was narrowed rather than the count pinned around it.
+     *
+     * A genuine continuation is a bare asterisk, an asterisk followed by whitespace, or the block
+     * terminator. A line opening with a DOUBLED asterisk is markdown, not KDoc.
+     */
+    private fun isBlockCommentContinuation(trimmed: String): Boolean = trimmed == "*" || trimmed.startsWith("* ") || trimmed.startsWith("*\t") || trimmed.startsWith("*/")
 
     private fun mainSourceFiles(): List<File> =
         mainSourceRoot()
@@ -280,6 +317,12 @@ class CookieCarrierInventoryTest {
         const val RAW_MESSAGE = "rawMessage"
         const val COOKIE_JAR = "cookieJar"
 
+        // Added by plan 28-06 (phase 28). This is axis 4 of the class KDoc — the accessor set is
+        // additive-only and a reader adding a cookie-returning accessor must extend it — closed FOR
+        // THIS ACCESSOR ONLY. Its absence is what let AR-27-08's route 2 exist unseen until
+        // 28-VERIFICATION.md found it by hand. The axis itself stays open.
+        const val INSERTION_POINT_BASE_VALUE = "insertionPointBaseValue"
+
         /**
          * THE MEASURED ACCESSOR SET. Every entry states WHY that call can return cookie bytes, because
          * an inventory whose membership rule is unstated cannot be extended correctly by the next
@@ -333,6 +376,23 @@ class CookieCarrierInventoryTest {
                                 "complete detector for the jar accessor here",
                         positiveFixture = """val cookies = api.http().cookieJar().cookies()""",
                     ),
+                INSERTION_POINT_BASE_VALUE to
+                    AccessorSpec(
+                        pattern = Regex("""\.baseValue\(\)"""),
+                        whyItCarriesCookieBytes =
+                            "Burp DERIVES a PARAM_COOKIE insertion point from the request's `Cookie` header, so " +
+                                "for a point of that type the base value IS the cookie value — the operator's " +
+                                "raw proxied session token, under a name that says nothing about cookies. That " +
+                                "is why an accessor-keyed inventory missed it: no spelling, shape or format " +
+                                "rule on this call reveals what it returns; only the point's TYPE does",
+                        // Quoted from AiScanCheck.kt as it stands AFTER plan 28-05 — the controlled
+                        // carrier line itself, not the pre-28-05 bare interpolation. A fixture that
+                        // quotes a line no longer in the tree stays GREEN while it rots, which is the
+                        // drift this class's own KDoc warns about, so it is re-read on every edit.
+                        positiveFixture =
+                            "**Original Value:** \${sanitizeCookiePointText(insertionPoint, policy, " +
+                                "insertionPoint.baseValue(), ScannerIssueSupport.ORIGINAL_VALUE_MAX_CHARS)}",
+                    ),
             )
 
         /** The string-literal argument of a `.headerValue("…")` call. */
@@ -349,12 +409,20 @@ class CookieCarrierInventoryTest {
         const val PASSIVE_FILTERS = "com/six2dez/burp/aiagent/scanner/PassiveAiScannerFilters.kt"
         const val INJECTION_EXTRACTOR = "com/six2dez/burp/aiagent/scanner/InjectionPointExtractor.kt"
         const val RESPONSE_ANALYZER = "com/six2dez/burp/aiagent/scanner/ResponseAnalyzer.kt"
+        const val AI_SCAN_CHECK = "com/six2dez/burp/aiagent/scanner/AiScanCheck.kt"
 
         /**
          * RE-MEASURED at execution time on this tree, NOT copied from plan 27-08's baseline table.
          * Totals per accessor: headerList 25, parameterList 15, singleHeaderLookup 11, rawMessage 19,
-         * cookieJar 2 — 72 sites across 11 files, which is what makes this registry tractable rather
-         * than open-ended.
+         * cookieJar 2, insertionPointBaseValue 2 — 74 sites across 12 files, which is what makes this
+         * registry tractable rather than open-ended.
+         *
+         * RE-MEASURED AGAIN 2026-08-27 by plan 28-06, on the tree as it stands after plans 28-04 and
+         * 28-05: the twelfth file and the two new sites are `AiScanCheck.kt`'s `baseValue()` calls,
+         * which entered this map on the same edit that added the accessor to [COOKIE_BYTE_ACCESSORS].
+         * The two must move together — declaring a route without extending the accessor set turns
+         * [everyCookieByteCarrierSiteIsRoutedOrClassified] red, and moving either without
+         * [EXPECTED_TOTAL_CARRIER_SITES] turns [theMeasuredPerFilePerAccessorCountsArePinned] red.
          */
         val MEASURED_CARRIER_SITES: Map<String, Map<String, Int>> =
             mapOf(
@@ -369,9 +437,10 @@ class CookieCarrierInventoryTest {
                 PASSIVE_FILTERS to mapOf(HEADER_LIST to 2, PARAMETER_LIST to 1),
                 INJECTION_EXTRACTOR to mapOf(HEADER_LIST to 2, PARAMETER_LIST to 4, SINGLE_HEADER_LOOKUP to 2),
                 RESPONSE_ANALYZER to mapOf(HEADER_LIST to 2),
+                AI_SCAN_CHECK to mapOf(INSERTION_POINT_BASE_VALUE to 2),
             )
 
-        const val EXPECTED_TOTAL_CARRIER_SITES = 72
+        const val EXPECTED_TOTAL_CARRIER_SITES = 74
 
         /** Measured 2026-08-25. `Cookie` ×3 is the population that matters; the rest are the control. */
         val MEASURED_HEADER_VALUE_ARGUMENTS: Map<String, Int> =
@@ -422,7 +491,30 @@ class CookieCarrierInventoryTest {
                     "routed it through Redaction.isCookieParameterType, so the type question and the " +
                     "value question now each have exactly one owner. Both controls are held by committed " +
                     "probes: CookieRouteDispositionTest (no double redaction, one marker vocabulary per " +
-                    "route) and IssueDetailCookieCarrierTest (the write-site strip).",
+                    "route) and IssueDetailCookieCarrierTest (the write-site strip)." +
+                    " AMENDED 2026-08-27 by plan 28-06 — 'BOTH NOW CONTROLLED' WAS TRUE OF ONE LINE " +
+                    "AND FALSE OF THE BLOCK, and the reason above is kept verbatim rather than " +
+                    "rewritten because it is the record of what was believed. 28-VERIFICATION.md " +
+                    "measured the gap. THE THIRD CONSUMER THIS ENTRY NEVER NAMED: " +
+                    "payloadGenerator.generateContextAwarePayloads, called at ActiveAiScanner.kt:512 " +
+                    "and :707, whose output RE-ENTERS THE SAME DETAIL BLOB on the `Payload Used:` " +
+                    "line — and for a COOKIE point that payload is DERIVED FROM the cookie value " +
+                    "(PayloadGenerator.kt interpolates originalValue), so the line consumer 2's " +
+                    "control had just stripped was re-emitted one line below it. IT IS NOW " +
+                    "CONTROLLED by ScannerIssueSupport.sanitizeRenderedPayload (plan 28-04), a " +
+                    "type-keyed WHOLESALE strip of the rendered payload keyed on the same " +
+                    "InjectionType.COOKIE and the same stripCookies policy, writing the same " +
+                    "INJECTION_VALUE_STRIPPED_MARKER, held by the same committed probe " +
+                    "IssueDetailCookieCarrierTest. CONSUMER 1'S DISPOSITION IS UNCHANGED and is " +
+                    "restated here as unchanged so no reader infers it moved: " +
+                    "AdaptivePayloadEngine.kt:52 substitutes its own `[REDACTED_VALUE]` marker under " +
+                    "any non-OFF mode and is deliberately NOT double-redacted, because a second pass " +
+                    "with a foreign marker vocabulary produces a misleading prompt " +
+                    "(CookieRouteDispositionTest pins exactly that). WHAT THIS AMENDMENT STILL DOES " +
+                    "NOT COVER: the `Evidence:` line of the same blob (AR-28-01, MEDIUM, accepted as " +
+                    "a shipping residual by maintainer decision at 28-03's checkpoint), and there is " +
+                    "no gate anywhere in this repository that would catch a THIRD detail producer — " +
+                    "D-28-06 records building one as considered and NOT taken.",
                 CarrierSite(EXECUTOR_MODERN, RAW_MESSAGE) to
                     "Redaction.apply at the redactIfNeeded choke point. Consumer read: all five sites " +
                     "(:592, :593, :732, :761, :811) sit inside the dispatch `when` whose result is " +
@@ -463,6 +555,31 @@ class CookieCarrierInventoryTest {
                     "`name=value (TYPE)` shape, which the rule matches at Redaction.kt:724 after :380's " +
                     "redactScanMetadata call. This is the ONE rendered shape that rule reaches; plan " +
                     "27-08 task 1 narrowed the rule's comment to say so and pinned the behaviour.",
+                CarrierSite(AI_SCAN_CHECK, INSERTION_POINT_BASE_VALUE) to
+                    "AiScanCheck.sanitizeCookiePointText (plan 28-05). THE PAIR COVERS TWO CALLS WITH " +
+                    "DIFFERENT DISPOSITIONS, enumerated by line the way McpToolExecutorImpl's split " +
+                    "parameters() calls are — and, as the fifth bound in the class KDoc says, this " +
+                    "attribution is PROSE; what is machine-checked is the COUNT of 2, so a third " +
+                    "baseValue() call in this file turns theMeasuredPerFilePerAccessorCountsArePinned " +
+                    "red and forces the split to be re-read. :116 IS NON-CARRYING: consumer read at " +
+                    ":116-160, determineVulnClasses binds the value only as a regex subject " +
+                    "(a digits-only match and a UUID shape) to decide whether to add " +
+                    "VulnClass.IDOR, and it is " +
+                    "never appended to any emitted string. :388 IS THE CARRIER and is CONTROLLED: it " +
+                    "builds the `**Original Value:**` line of buildDetail, the SECOND producer of " +
+                    "active-scan issue-detail lines, and the value now passes " +
+                    "sanitizeCookiePointText, which keys on isCookieInsertionPoint — an identity " +
+                    "compare against AuditInsertionPointType.PARAM_COOKIE, a member of a DIFFERENT " +
+                    "closed Montoya enum from route 1's InjectionType, which is exactly why the " +
+                    "shared predicate did not already cover it — and substitutes " +
+                    "ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER under any stripCookies " +
+                    "policy. COMMITTED PROBES: AiScanCheckDetailCookieCarrierTest (the strip, under " +
+                    "STRICT and BALANCED, with survival under OFF and a PARAM_URL attribution " +
+                    "control) and CookieRouteDispositionTest." +
+                    "exactlyOneInsertionPointCookieTypePredicateExistsInMainSource (the predicate " +
+                    "population). WHY THIS ENTRY EXISTS AT ALL: this accessor was NOT in the set " +
+                    "until plan 28-06, and its absence is the whole reason route 2 stayed invisible " +
+                    "through three phase-28 plans — see ISSUE_DETAIL_CARRIER_DISPOSITION.",
             )
 
         /**
@@ -536,10 +653,20 @@ class CookieCarrierInventoryTest {
                     "concatenated with the body and consumed by isFalsePositive, analyzeErrorBased, " +
                     "analyzeReflection and analyzeContentBased — all `containsMatchIn` / `find` tests " +
                     "against per-vuln-class error and success signatures. THE TAIL: a MATCHED substring " +
-                    "of such a signature, capped at 80 characters, can be written into " +
-                    "VulnConfirmation.evidence, which ActiveAiScanner.kt:1246 puts in the same " +
-                    "AuditIssue detail as consumer 2 above. It is the same transitive route, reachable " +
-                    "only by a cookie value that matches a vuln-class error signature.",
+                    "of such a signature can be written into VulnConfirmation.evidence, which " +
+                    "ActiveAiScanner.kt:1242 passes into buildActiveIssueDetailLines, putting it in " +
+                    "the same AuditIssue detail as consumer 2 above. It is the same transitive route, " +
+                    "reachable only by a cookie value that matches a vuln-class error signature. " +
+                    "THE CAP IS NOT ONE NUMBER — corrected 2026-08-27 by plan 28-06. This entry " +
+                    "previously stated the cap as a SINGLE value of 80 characters; the tree has " +
+                    "THREE construction sites and their caps are the multiset {60, 80, 80}. The " +
+                    "singular wording is retired rather than quoted, because a stale bound left " +
+                    "in the text is the thing a future reader greps and believes. Do not read a " +
+                    "number from this prose either: " +
+                    "EvidenceTailReachTest.theEvidenceTailCapsAreMeasuredNotAssumed DERIVES the caps " +
+                    "from ResponseAnalyzer.kt at test time and pins the multiset, so it is the source " +
+                    "of truth and this sentence cannot drift ahead of it. That tail is AR-28-01 " +
+                    "(MEDIUM), still OPEN by maintainer decision at 28-03's checkpoint.",
             )
 
         /**
@@ -561,6 +688,14 @@ class CookieCarrierInventoryTest {
          * it, because the measurement is the EVIDENCE THE CONTROL WAS NEEDED: delete it and a later
          * reader sees a control with no stated reason to exist, which is how a control gets removed
          * as redundant. The register's discipline is supersession, never deletion.
+         *
+         * SUPERSEDED AGAIN — 2026-08-27, phase 28, plan 28-06. THIS CONSTANT NOW CARRIES TWO
+         * SUPERSESSIONS AND ONE MEASUREMENT, in that order, and the second supersession withdraws the
+         * FIRST SUPERSESSION rather than the measurement: plan 28-01's block described the route as
+         * controlled when one line of one of the TWO producers was gated. Read all three blocks top to
+         * bottom; none replaces what came before. `AR-27-08` itself STAYS OPEN in `26-SECURITY.md`,
+         * narrowed to a named residual by a human maintainer decision on 2026-08-27, so nothing in
+         * this file may be quoted as closing it.
          */
         const val ISSUE_DETAIL_CARRIER_DISPOSITION =
             "UNCONTROLLED, MEASURED 2026-08-25 (AR-27-08, severity MEDIUM). A cookie sentinel in the " +
@@ -600,6 +735,35 @@ class CookieCarrierInventoryTest {
                 "which routed InjectionPointExtractor's cookie-type test through " +
                 "Redaction.isCookieParameterType WITHOUT moving any value control into the producer " +
                 "(D-28-02) — see this file's ROUTED_THROUGH entry for INJECTION_EXTRACTOR/" +
-                "PARAMETER_LIST, which moved out of CLASSIFIED_NON_CARRYING on the same commit."
+                "PARAMETER_LIST, which moved out of CLASSIFIED_NON_CARRYING on the same commit." +
+                " SUPERSEDED AGAIN 2026-08-27 (phase 28, plan 28-06) — THE 28-01 SUPERSESSION " +
+                "IMMEDIATELY ABOVE WAS TOO NARROW, AND IT IS THAT SUPERSESSION THIS ONE WITHDRAWS, " +
+                "NOT THE 2026-08-25 MEASUREMENT, WHICH STANDS. Both prior blocks are kept " +
+                "byte-exact for the same reason the first one gave: they are the evidence the " +
+                "controls were needed. THERE ARE TWO PRODUCERS OF THESE DETAIL LINES, NOT ONE. The " +
+                "28-01 control covered ONE line of ONE of them, and this constant then described " +
+                "the route as controlled. FOUR LINES ARE CONTROLLED NOW: (1) " +
+                "ScannerIssueSupport.sanitizeInjectionPointValue on `Original Value:` (28-01); (2) " +
+                "ScannerIssueSupport.sanitizeRenderedPayload on `Payload Used:` (28-04), the line " +
+                "that re-leaked what (1) had just stripped, because for a COOKIE point the payload " +
+                "is derived from the cookie value; (3) and (4) " +
+                "AiScanCheck.sanitizeCookiePointText on BOTH detail lines of the SECOND producer, " +
+                "AiScanCheck.buildDetail (28-05), keyed on an identity compare against " +
+                "AuditInsertionPointType.PARAM_COOKIE. COMMITTED PROBES: " +
+                "IssueDetailCookieCarrierTest for (1) and (2), AiScanCheckDetailCookieCarrierTest " +
+                "for (3) and (4), with CookieRouteDispositionTest holding the predicate " +
+                "populations. THREE OF THE FOUR ARE MEASURED CARRIERS AND ONE IS NOT: route 2's " +
+                "payload line is controlled as DEFENCE IN DEPTH ONLY, because AiScanCheck sources " +
+                "payloads from the static getQuickPayloads table and interpolates no insertion " +
+                "point value, so it is not a carrier at HEAD. Recording it as a closed leak would " +
+                "be this constant's own error repeated. STILL OPEN, NAMED SO NOBODY READS THIS AS " +
+                "A CLOSURE: the `Evidence:` line of the same blob is AR-28-01 (MEDIUM), accepted as " +
+                "a shipping residual by maintainer decision at 28-03's blocking checkpoint; and " +
+                "AR-27-08 itself STAYS OPEN in 26-SECURITY.md, narrowed rather than closed, by a " +
+                "human maintainer decision recorded there on 2026-08-27. NO REPOSITORY-WIDE " +
+                "DETAIL-PRODUCER GATE EXISTS: WR-01 measured the one this file's own gate implied " +
+                "as structurally unable to see another file, and D-28-06 records building a " +
+                "repository-wide one as CONSIDERED AND NOT TAKEN. Two producers are controlled and " +
+                "a third would be caught by nothing."
     }
 }
