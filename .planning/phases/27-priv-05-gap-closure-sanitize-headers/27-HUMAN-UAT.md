@@ -8,8 +8,8 @@ updated: 2026-08-26
 
 ## Current Test
 
-number: 11
-name: DISPOSITION — AR-27-10, accept at LOW or widen to the full RFC 9110 tchar set
+number: 12a
+name: CONFIRMATION — was the round-4 narrowing a maintainer's choice or a harness default?
 awaiting: user response
 
 ## Tests
@@ -506,7 +506,28 @@ the underscore class had, on a different character set.
 why_human: A scope/risk decision on a shipped 1.0.0 release, and the `low` severity rests explicitly
 on an inferred half that is labelled as inferred. Recorded here rather than raised as a checkpoint,
 for the reason at the head of this section.
-result: [pending]
+result: pass
+decision: ACCEPT AT LOW as filed. `COOKIE_NAME_PART` is NOT widened; `AR-27-10` stays
+  OPEN at LOW.
+decided: 2026-08-26, by the maintainer, from an explicit four-way choice during UAT
+  (measure both halves first / accept at LOW / widen to the full tchar set / widen only
+  the plausible subset). The maintainer chose to accept at LOW.
+rests_on: the convention judgment that none of the thirteen `! # $ % & ' * + . ^ ` | ~`
+  appears in a header name this repository, its tests, or ordinary HTTP practice has been
+  observed to carry, WEIGHED AGAINST `CONCERNS.md` WR-01's MEASURED 32-false-positive cost
+  from a widening that looked equally harmless.
+explicitly_still_inferred: BOTH halves remain unmeasured and this decision does NOT change
+  that. (a) The leak carry-over from `_` to the thirteen is INFERRED, not measured — the
+  row labels it so, and that labelling stands. (b) The over-redaction cost of the widening
+  against a benign-header corpus is UNMEASURED. The option to measure both was offered
+  during UAT and NOT taken. This is therefore an acceptance resting on convention, not on
+  evidence, and is recorded at that width deliberately.
+contrast_with_AR-27-09: recorded because the two items look alike and were decided
+  OPPOSITELY in the same session. `AR-27-09` was FIXED because its fix widened only in the
+  OVER-redacting direction with a byte-identity gate proving no collateral. `AR-27-10`'s
+  widening is TWO-SIDED — it would over-redact `X.Cookie` and `` `cookie` `` — so the same
+  reasoning does not carry across. Narrowing the predicate instead stays PROHIBITED by
+  decision 1 above.
 
 ---
 
@@ -779,7 +800,29 @@ families, reachable with Burp-held traffic in the default posture under both red
 Accepting it sets a release posture on a shipped 1.0.0; closing it widens a redaction rule this phase
 has twice measured over-firing, at a look-back cost nobody has measured. Neither is a defensible
 harness default, and the choice must not be made from the superseded text above.
-result: [pending]
+result: pass
+decision: ACCEPT THE RESIDUAL at MEDIUM over FOUR families. The boundary is NOT widened;
+  neither Option B nor Option C is taken. `AR-27-11` stays OPEN at MEDIUM.
+decided: 2026-08-27, by the maintainer, from an explicit choice during UAT (accept /
+  option B / option C / measure Option C's cost first). The maintainer chose accept.
+decided_against_the_corrected_item: this acceptance was taken against the CORRECTED
+  statement — four measured families at MEDIUM with Option B corrected — NOT against the
+  original one-family LOW that 27-16 filed. That distinction is the whole reason this item
+  was rebuilt twice on 2026-08-26 before being put to a human.
+rests_on: the MEASURED mitigating bound — in all four families only a header that is the
+  FIRST CONTENT of its string escapes; one following an escaped newline is still stripped.
+  This was re-checked rather than repeated forward.
+explicitly_not_taken: Option C (look-back alternatives at widths 0, 2 and 3, covering all
+  four families) was offered and NOT taken. Its cost is DERIVED, not measured, against the
+  composer's fixed-width 2.4x argument — and measuring that cost first was offered as a
+  fourth route and also not taken. So the residual is accepted without the cost of its
+  alternative having been measured. Recorded at that width deliberately.
+reachability_carried: families 1, 2 and 4 are reachable on the DEFAULT posture with no
+  opt-in precondition, because the producer is the TARGET'S RESPONSE BODY, not this
+  repository — `HttpRequestResponse` emits the raw response as a JSON string, so a
+  captured JSON body arrives with its quotes escaped. That is one precondition FEWER than
+  `AR-27-08`, which was accepted at medium earlier in this same session.
+owner: the maintainer. `AR-27-11` remains OPEN in `26-SECURITY.md` at MEDIUM.
 
 ---
 
