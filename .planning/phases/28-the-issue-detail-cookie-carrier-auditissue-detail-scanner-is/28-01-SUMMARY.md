@@ -408,6 +408,34 @@ introduced by this plan. No test is skipped and every `<verify>` command in the 
 this plan (`jacocoTestCoverageVerification`, redact BRANCH 0.92784 against a 0.930 floor, where the
 deciding branch is a wall-clock guard whose colour depends on machine load).
 
-## Self-Check
+## Self-Check: PASSED
 
-Pending — appended below after verification.
+Files claimed as created or modified, checked on disk:
+
+- `src/test/kotlin/com/six2dez/burp/aiagent/scanner/IssueDetailCookieCarrierTest.kt` — FOUND
+- `src/main/kotlin/com/six2dez/burp/aiagent/scanner/ScannerIssueSupport.kt` — FOUND
+- `src/main/kotlin/com/six2dez/burp/aiagent/scanner/ActiveAiScanner.kt` — FOUND
+- `.planning/phases/28-the-issue-detail-cookie-carrier-auditissue-detail-scanner-is/28-01-SUMMARY.md` — FOUND
+
+Commits claimed, checked in `git log`:
+
+| Commit | Subject |
+|---|---|
+| `c07194d` | `test(28-01): add failing test for the issue-detail COOKIE carrier` (task 1, RED) |
+| `3faa9fb` | `feat(28-01): strip COOKIE-typed originalValue from the issue detail under STRICT/BALANCED` (task 1, GREEN) |
+| `8fca62e` | `test(28-01): SC3 red-probe record and the write-site source pin (recovered)` (task 2, code) |
+| `331ccb5` | `docs(28-01): record the SC3 red probe and the SC1 reach residual` (task 2, record) |
+| `c200e9b` | `test(28-01): non-vacuity, field-scoped content destruction and a derived bound` (task 3) |
+| `c4aba27` | `docs(28-01): re-measure the red probe against the 14-test class` |
+| `c3246ad` | `docs(28-01): complete the summary — task 3, the over-match probe and verification` |
+
+All FOUND.
+
+Final gate run, full suite: `JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew ktlintCheck detekt test`
+→ `BUILD SUCCESSFUL in 3m 25s`. 177 test classes, 1272 tests, 0 failures. The known `RedactionTest`
+CPU-load flake did not occur on this run.
+
+TDD gate sequence for this plan, verified in `git log`: `test(...)` at `c07194d` (RED), `feat(...)`
+at `3faa9fb` (GREEN). No REFACTOR commit was needed.
+
+Working tree clean; no mutation from any of the three probes is committed.
