@@ -803,7 +803,7 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 **Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
 measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
 
-**Plans:** 3/3 plans executed
+**Plans:** 3/6 plans executed (round 1 complete; gap-closure round 2 planned, not executed)
 
 Plans:
 **Wave 1**
@@ -817,6 +817,23 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 28-03-PLAN.md — measure the `ResponseAnalyzer` evidence tail and file `AR-28-01`; amend `AR-27-08` append-and-amend; recompute `threats_open`; state the PRIV-05 judgement (SC5, SC6)
+
+### Gap closure round 2 — SC1 measured FALSE by `28-VERIFICATION.md`
+
+Round 1 controlled ONE of THREE detail lines at ONE of TWO producers. SC2-SC6 are VERIFIED and must
+not regress. Waves below are numbered within the gap round (`/gsd-execute-phase 28 --gaps-only`).
+
+**Gap wave 1**
+
+- [ ] 28-04-PLAN.md — TRACER: control `ScannerIssueSupport.kt:121` (`Payload Used:`) type-keyed on `InjectionType.COOKIE` per D-28-07; rebuild the fixture through `PayloadGenerator` so the assertion can see route 1; repair the difference enumeration; red probe (CR-01, SC1/SC2/SC3)
+
+**Gap wave 2** *(blocked on gap wave 1)*
+
+- [ ] 28-05-PLAN.md — control `AiScanCheck.buildDetail`, the second producer, keyed on `AuditInsertionPointType.PARAM_COOKIE` (NOT the shared string-name predicate); the repository's first `AuditInsertionPoint` test fixture; a tripwire for the new predicate population; correct the `ONLY PRODUCER` claim; fix WR-05 (CR-02)
+
+**Gap wave 3** *(blocked on gap wave 2)*
+
+- [ ] 28-06-PLAN.md — `checkpoint:decision` on the `AR-27-08` disposition; second append-and-amend supersession with a pre-computed byte-prefix digest; recompute `threats_open`; discharge the 28-03 RUN 2 recording failure; correct the carrier registry and add the `baseValue()` accessor that hid route 2 (D-28-08)
 
 ---
 
