@@ -1,8 +1,9 @@
 ---
 phase: 21-redaction-completeness
 verified: 2026-08-13T08:41:15Z
-status: human_needed
-score: 6/6 must-haves verified
+status: gaps_found
+score: 8/9 re-verified (SC1-SC6 held 6/6; plan 21-19 2/3)
+re_verified: 2026-08-27
 overrides_applied: 0
 re_verification:
   previous_status: none
@@ -301,3 +302,150 @@ CONCERNS.md (or closes it). Phase 22 is not blocked — it shares no files with 
 
 _Verified: 2026-08-13T08:41:15Z_
 _Verifier: Claude (gsd-verifier) — goal-backward, FORCE stance_
+
+---
+
+## Re-verification — 2026-08-27
+
+**Trigger:** the report above was committed at `ed31468` (2026-08-13 10:45:31). `21-19-SUMMARY.md`
+was committed at `caeff0b` (2026-08-13 11:17:50) — **32 minutes later**. Every other summary predates
+the report. Exactly one plan therefore shipped without ever being verified: **21-19**, the plan
+created to close this report's own **W-A**. This section verifies that plan against the tree at
+`14f59cb`, and re-confirms SC1–SC6 have not been invalidated by Phase 27's rewrite of `Redaction.kt`.
+
+**Method.** No claim below is taken from `21-19-SUMMARY.md`. The load-bearing result is a
+**differential probe**: 21-19's own regex form (extracted verbatim from `git show f1d5a83`) and the
+current tree's form were run side by side, in one JVM, over the two carriers PRIV-05 actually has —
+the passive-scan prompt (real newlines) and the MCP tool result (the raw message inside a JSON string,
+CR/LF escaped). Probe at `scratchpad/probe/WA.java`. Baseline re-measured, clean tree:
+`clean check` → **1258 tests, 0 failures, 1 skipped**, but the gate **FAILS** — see G-3.
+
+### Re-verified must-haves — plan 21-19
+
+| # | Must-have (from `21-19-PLAN.md`) | Status | Evidence |
+|---|----------------------------------|--------|----------|
+| 19-T1a | The five W-A names — `Cookie2`, `X-Cookie`, `Set-Cookie2`, `X-Original-Cookie`, `X-Forwarded-Cookie` — no longer reach **the prompt** verbatim under STRICT or BALANCED | ✓ VERIFIED | Differential probe, carrier A (real newlines): **21-19's own form strips all five**. Credit is genuine and belongs to 21-19, not to Phase 27. `RedactionTest.cookieHeaderNameVariantsAreStripped` exists verbatim as 21-19 wrote it (`RedactionTest.kt:434`) and **PASSES** on today's tree; the negative control `X-Request-Id: benignidcontrolvalue` survives both modes. |
+| 19-T1b | "…so PRIV-05's lead sentence (**'by any path'**) becomes **literally true** rather than true-as-scoped" | ✗ **FAILED** | Measured, three independent ways. See G-1. 21-19 closed **one of two** carriers and **five of six** name shapes on the carrier it did close. |
+| 19-T2 | The header NAME is preserved — no silent rename of `X-Cookie` to `Cookie` (T-21-WA2) | ✓ VERIFIED | Both replacements are name-preserving lambdas (`Redaction.kt:2262`, `:2267`, `m.value.substringBefore(":")`). Probe: `X-Cookie: [STRIPPED]` present; canonical renderings byte-identical (`Cookie: [STRIPPED]`, `Set-Cookie: [STRIPPED]`), so `RedactionTest:366` and `BountyPromptTagResolverTest:93` are green **unedited**. This half survived Phase 27's rewrite intact. |
+| 19-T3 | The 14 vendor `authHeaderRegex` names stay an accepted, **recorded** residual | ✓ VERIFIED | `CONCERNS.md:65` records the vendor class as accepted-and-deferred with its reason (an open-ended vendor list is never complete). Still accurate. |
+
+**Plan 21-19 score: 2/3.**
+
+### Re-confirmed — ROADMAP SC1–SC6 on today's tree
+
+Phase 27 rewrote these rules into `logicalLineHeaderRule` with a four-way logical-line-start model
+(`REAL_LINE_START`, `JSON_ESCAPED_NEWLINE`, `JSON_STRING_OPEN`), so the 6/6 above was re-checked rather
+than assumed. **No phase-21 must-have was invalidated.** All 13 named guards this report relied on were
+re-run and pass: `hkdfMatchesRfc5869Vector` (SC6), `cookieSectionValuesRedactedPerName` and
+`emittedCookieSectionValuesAreRedacted_sc1` (SC1), `cookieTypedParametersRedacted` (SC2),
+`factoredKeyVocabularyMatchesItsReadableSpecification` (SC3), `oversizeBodySecretDoesNotSurvive` and
+`windowedScanRedactsJsonPairWhoseValueStraddlesTheCut` (SC4), `customPatternRedactsInStrictAndBalanced`
+and `offModePreservesBodies` (SC5), plus `cookieSectionBlankEntriesDoNotCollapseSpan`,
+`cookieEmitterBoundStaysWithinTheRedactorBound`, `truncationLoggerThatThrowsDoesNotAbortRedaction`,
+`zeroWidthPatternsAreRejectedWithoutRunningAnyProbe`. Every artifact/key-link in the tables above still
+holds: `replaceAllSafe` is still deleted (4 residual mentions, all obituary comments), the
+`COOKIES_MAX_COUNT = minOf(...)` clamp stands, `McpToolContext.redactIfNeeded` still calls
+`Redaction.apply` unconditionally, `privacyNoticeFor` still reads the persisted list
+(`SettingsPanelActions.kt:374`), and `App.kt:92 / :136 / :298` still wire the sink, the `isPatternSafe`
+seeding filter and the shutdown unwire. **SC1–SC6: 6/6 held.**
+
+### Human verification — CLOSED
+
+`21-HUMAN-UAT.md` is `status: complete`, 3/3 passed, 0 issues (`14f59cb`). The three live-Burp items in
+this report's `human_verification` block are answered. The fourth item — the W-A maintainer disposition —
+was resolved by choosing CLOSE over RECORD on 2026-08-13. **No human verification remains outstanding**,
+which is why this re-verification resolves to `gaps_found` on evidence rather than to `human_needed`.
+
+### Gaps
+
+#### G-1 — BLOCKER (record accuracy): W-A's *class* was closed by Phase 27, not by 21-19
+
+The distinction matters because only one of the two answers means phase 21 did its job.
+
+**Closed by 21-19:** W-A exactly as this report worded it — those five names, on the passive-scan prompt
+path. Carrier A of the probe confirms it against 21-19's own regex.
+
+**Closed by Phase 27:** the W-A *class* — a cookie-bearing header name variant reaching an AI backend
+under STRICT/BALANCED. 21-19 left three residuals of it, all measured:
+
+| # | Residual left by 21-19 | Mechanism | Closed by |
+|---|------------------------|-----------|-----------|
+| a | `sanitizeHeaders` compared `lowered == "cookie" \|\| lowered == "set-cookie"` — exact names. Confirmed at `git show caeff0b:…/McpToolHelpers.kt:321`. All five variants survived `request_parse` / `response_parse`. | Second carrier never touched | 27-01 (`Redaction.isCookieHeaderName`, now shared by all three sites) |
+| b | Even the widened regex could not fire on the tool-result carrier: `Serialization.kt` puts the raw message inside a JSON string and escapes every CR/LF, so `(?im)^` never landed. Probe carrier B: 21-19's form leaks **all five**; current tree strips all five. | Anchor never matched | 27-04 / 27-11 / 27-14 / 27-17 |
+| c | **`COOKIE_NAME_PART` was `[A-Za-z0-9-]*`, which excludes `_`.** `X_Cookie`, `my_cookie`, `session_cookie` leaked **on the prompt path** — W-A's own carrier — under STRICT and BALANCED. Probe carrier A: 21-19's form **LEAK**, current tree stripped. Independently corroborated by 27-10's commit body, which measured the same three names. | Redactor narrower than the admitter it was supposed to match | 27-10 |
+
+Residual (c) is the sharpest: **21-19 did not fully close W-A even on the single path W-A was about**,
+and its own `cookieHeaderNameVariantsAreStripped` test could not see it because all five fixtures use
+hyphens. `sanitizeHeadersForPrompt` is an *admitter* — a name it claims that the regex cannot match is
+put on the outbound prompt and then not removed — so the difference set was fail-**open**. That is the
+same admitter-vs-redactor asymmetry W-A itself was, reintroduced one character wide by the fix for it.
+
+The report above was therefore **right to score 6/6 and right to raise W-A**, but the record that W-A
+was "closed" (`CONCERNS.md:65`, `21-19-SUMMARY.md`, `21-HUMAN-UAT.md` §Gaps) overstates what 21-19
+shipped. **PRIV-05 is still `[ ]` and correctly so**: `AR-27-08` (a COOKIE-typed value reaching
+`scanner_issues` via `AuditIssue.detail()`) is open and owned by Phase 28, so "by any path" is not
+literally true even today.
+
+**Missing:** correct `CONCERNS.md:65` and `21-19-SUMMARY.md`'s "by any path becomes literally true" to
+say what 21-19 actually closed — the prompt carrier, hyphenated names — and to attribute (a)/(b)/(c)
+to Phase 27.
+
+#### G-2 — BLOCKER (process): plan 21-19 is absent from the project record
+
+`ROADMAP.md` §Phase 21 states "**Plans**: 18 plans" and its list stops at `21-18-PLAN.md`. `21-19` appears
+in **neither** `ROADMAP.md` nor `STATE.md` (grep: zero hits). The third gap-closure round — the one that
+touched a security control — was executed, committed and summarised, but never recorded as a plan and
+never re-verified. This is the same shape as the stale verification itself, and it is the reason the
+incomplete fix survived to the v0.10.0 milestone audit and became Phase 27's five rounds of rework.
+
+**Missing:** add 21-19 to `ROADMAP.md` §Phase 21 and correct the plan count to 19.
+
+#### G-3 — BLOCKER (live): `./gradlew check` is RED at HEAD
+
+Reproduced on a **clean tree with zero tracked modifications**, twice (`check`, then `clean check`):
+
+```
+Rule violated for package com.six2dez.burp.aiagent.redact:
+branches covered ratio is 0.927, but expected minimum is 0.930
+```
+
+Measured from `jacocoTestReport.xml`: redact BRANCH **missed 14 / covered 180 = 0.92784**, against the
+`0.930` floor QUAL-06 sealed in `build.gradle.kts:411`. All 14 missed branches are in the `Redaction`
+class (`missed 14 / covered 115`); every other class in the package is at zero missed. Tests themselves
+are green (1258 / 0 failures / 1 skipped) and LINE coverage holds at 0.97528 against its 0.975 floor —
+so this is a **coverage-floor regression, not a test failure**, introduced by branches Phase 27 added to
+`Redaction.kt` (14 commits since `caeff0b`) without covering them.
+
+This contradicts the standing build note that `check` is green end to end at `0.93299`. It is recorded
+here because it is a live blocker on the gate that protects a phase-21 artifact, and because a 0.003
+margin under a sealed floor is exactly the kind of drift QUAL-06 exists to catch.
+
+**Missing:** cover the 14 branches, or move the floor deliberately with the seal updated.
+
+### Deferred items — measured, not accepted from the brief
+
+`deferred-items.md` carries **3** items, not 14: `D-21-01` **CLOSED** by plan 21-16, `D-21-02` **OPEN**
+(retry-ladder capability ceiling ~3 MB, fail-closed), `D-21-03` **OPEN** (boundary-sweep per-pattern
+deadline exposure under CPU contention — the known `RedactionTest` wall-clock flake). **Phase 27 closed
+neither.** Its 14 commits to `Redaction.kt` are all header-rule work; `MAX_REDACTION_BUDGET_MS` is
+untouched at `2_000L` (`Defaults.kt:104`) and `SafeRegex.DEFAULT_TIMEOUT_MS` at `50L`, which is the
+shared mechanism both open items turn on. The real phase-21 deferred debt is **2 open items**, and
+Phase 27 shrank it by zero.
+
+### Verdict
+
+**Status: `gaps_found`. Score 8/9** — SC1–SC6 held 6/6 on re-check; plan 21-19 scores 2/3.
+
+Phase 21's redaction work is sound and has survived a substantial downstream rewrite without a single
+guard going red. What did not hold is the phase's **record of itself**. The 6/6 above is still earned.
+The claim layered on top of it afterwards — that 21-19 made PRIV-05 true "by any path" — is not, and
+because no re-verification ran, nothing tested it. A gap-closure plan that closed one of two carriers
+and five of six name shapes was recorded as a complete closure, and stayed that way for twelve days
+until a milestone audit re-opened PRIV-05.
+
+`REQUIREMENTS.md` is unchanged; PRIV-05 remains `[ ]`, which is the correct state.
+
+---
+
+_Re-verified: 2026-08-27_
+_Verifier: Claude (gsd-verifier) — goal-backward, FORCE stance, differential-probe method_
