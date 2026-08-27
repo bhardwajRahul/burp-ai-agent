@@ -72,17 +72,37 @@ import java.io.File
  * [cookieOriginalValueIsStrippedUnderStrict]. It is the designated red probe for this control.
  * [cookieOriginalValueIsStrippedUnderBalanced] and [cookieOriginalValueSurvivesUnderOff] go red
  * alongside it and are not redundant: the OFF one catches the opposite mistake, a control that
- * fires unconditionally. MEASURED 2026-08-27 by negating the branch condition — exactly those three
- * went red, 3 of 8, and the other five stayed green because none of them reads the COOKIE carrier's
- * value under a stripping mode.
+ * fires unconditionally.
  *
- * WHAT THIS FILE CANNOT CATCH, stated so a reader does not over-read a green run. Every test here
- * calls `ScannerIssueSupport.buildActiveIssueDetailLines` DIRECTLY. Nothing here executes
- * `ActiveAiScanner.createConfirmedIssue`, so no assertion proves the operator's configured privacy
- * mode actually reaches the gate. MEASURED: hard-coding that call site's policy argument to
- * `RedactionPolicy.fromMode(PrivacyMode.OFF)` left all 8 tests GREEN. [theWriteSiteReadsTheLivePolicy]
- * is the source-TEXT pin standing in for that missing coverage, and it is weaker than an execution
- * assertion in a way the residual section of `28-01-SUMMARY.md` names explicitly.
+ * MEASURED 2026-08-27 by negating the branch condition — 7 of the 14 tests went red. Every
+ * assertion that reads the COOKIE carrier's value under a policy-determined mode moved; the other
+ * seven stayed green because none of them does. The seven that are BLIND to that mutation, and
+ * therefore prove nothing about this control on their own:
+ * [sentinelsAreDistinctAndNonOverlapping] (a fixture guard over two constants),
+ * [urlParamOriginalValueSurvivesStrict_attributionControl] (a non-COOKIE type, green by design —
+ * that is what makes it an attribution control), [theCookieHeaderPositiveControlFiresInTheSameStrictOutput]
+ * and [theRequestResponsesListIsNotAlteredByTheControl] (both read `requestResponses`, which this
+ * control never touches), [theCookieNameSurvivesEveryMode] (reads the NAME),
+ * [theOriginalValueBoundIsDerivedFromTheConstant] (a non-COOKIE type again) and
+ * [theWriteSiteReadsTheLivePolicy] (asserts over a DIFFERENT file's source text).
+ *
+ * A SECOND MUTATION, MEASURED SEPARATELY, because the two catch different mistakes. Dropping the
+ * `Payload Used` line whenever the cookie gate fires — an OVER-MATCH that eats content PAST the
+ * control's span, the regression class phase 27 round 4 shipped — turned exactly
+ * [theStrippedDetailFieldRetainsEverythingAfterTheControlPoint] and
+ * [theOnlyTwoDifferencesBetweenStrictAndOffAreTheEnumeratedControls] red while EVERY leak-only
+ * assertion in this file stayed green. That is the measured reason those two guards exist: an
+ * absence assertion is structurally unable to see content destruction.
+ *
+ * WHAT THIS FILE CANNOT CATCH, stated so a reader does not over-read a green run. Every BEHAVIOURAL
+ * test here calls `ScannerIssueSupport.buildActiveIssueDetailLines` DIRECTLY. Nothing here executes
+ * `ActiveAiScanner.createConfirmedIssue`, so no behavioural assertion proves the operator's
+ * configured privacy mode actually reaches the gate. MEASURED: hard-coding that call site's policy
+ * argument to `RedactionPolicy.fromMode(PrivacyMode.OFF)` left ALL EIGHT behavioural tests then in
+ * this file GREEN. [theWriteSiteReadsTheLivePolicy] was added for exactly that gap and is the only
+ * assertion that catches it; it is the source-TEXT pin standing in for coverage this file does not
+ * have, and it is weaker than an execution assertion in a way the residual section of
+ * `28-01-SUMMARY.md` names explicitly.
  */
 class IssueDetailCookieCarrierTest {
     @BeforeEach
