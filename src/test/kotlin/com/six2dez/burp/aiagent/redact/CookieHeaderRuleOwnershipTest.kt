@@ -150,9 +150,17 @@ class CookieHeaderRuleOwnershipTest {
 
         /**
          * The ways a cookie header name is named BY HAND in this codebase, measured against the tree.
-         * Case-sensitive where the Kotlin literal is case-sensitive — a case-insensitive scan also
-         * picks up `InjectionPointExtractor.kt`'s `it.type().name == "COOKIE"`, which compares a
-         * Montoya parameter TYPE and is not a header-name matcher at all.
+         * Case-sensitive where the Kotlin literal is case-sensitive. THE RULE, stated on its own
+         * general ground rather than on one example: a case-insensitive scan would also match
+         * comparisons against the uppercase Montoya parameter TYPE name, and a parameter TYPE is not
+         * a header NAME — it is a different control, with a different owner
+         * ([Redaction.isCookieParameterType]) and a different bound.
+         *
+         * THE HISTORICAL EXAMPLE, no longer live in the tree: `InjectionPointExtractor.kt` used to
+         * write `it.type().name == "COOKIE"` inline, and a case-insensitive scan picked it up. Phase
+         * 28 converted that file to the shared parameter-type predicate, so the example is cited here
+         * as history rather than as something a reader can go and look at. The rule above does not
+         * depend on it — which is the point of restating the rule generally.
          *
          * See the class KDoc for the bound: these five classes are what the scan CAN see.
          */
@@ -203,9 +211,18 @@ class CookieHeaderRuleOwnershipTest {
          * Only files the sweep ACTUALLY hits belong here. A key the sweep never hits is a dead entry
          * and fails `everyCookieHeaderNameMatcherInMainIsClassified` in its stale direction — which is
          * why `scanner/PassiveAiScanner.kt` (a bare `"set-cookie"` set member),
-         * `scanner/InjectionPointExtractor.kt` (an uppercase parameter-TYPE compare) and
-         * `redact/Redaction.kt` (composed from `COOKIE_NAME_TOKEN`) are absent: all three return zero
-         * hits.
+         * `scanner/InjectionPointExtractor.kt` (it routes its cookie-TYPE decision through
+         * [Redaction.isCookieParameterType] as of phase 28, and contains no cookie-header-NAME matcher
+         * in any of the five spellings — its historical form, an uppercase parameter-TYPE compare
+         * written inline, was likewise never a header-name matcher, so its zero-hit status is
+         * UNCHANGED by that conversion) and `redact/Redaction.kt` (composed from `COOKIE_NAME_TOKEN`)
+         * are absent: all three return zero hits.
+         *
+         * The `InjectionPointExtractor.kt` clause was rewritten by phase 28 even though NOTHING TURNED
+         * RED. Its old wording justified the file's absence by describing a construct the conversion
+         * removed, so the citation would have rotted while the assertion it justifies stayed green —
+         * the harder drift class to notice, precisely because a stale-but-green reason produces no
+         * failing test to prompt the fix.
          */
         val CLASSIFIED_NON_REDACTING =
             mapOf(
