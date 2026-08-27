@@ -772,10 +772,11 @@ class IssueDetailCookieCarrierTest {
          * (PRIV-05) 28-04 / `CR-01` — the payload the detail lines render, DERIVED FROM PRODUCTION
          * rather than hand-typed.
          *
-         * `28-VERIFICATION.md` `missing[3]` measured the previous hand-typed value
-         * `"benign-probe-payload"` as the reason 14 green tests said NOTHING about the
-         * `Payload Used:` line: it carried no trace of the injection point's value, so no assertion
-         * over the blob could tell a controlled payload line from an uncontrolled one. Production
+         * `28-VERIFICATION.md` `missing[3]` measured the previous HAND-TYPED value — a fixed probe
+         * string that contradicted its own `VulnClass.SQLI` label — as the reason 14 green tests
+         * said NOTHING about the `Payload Used:` line: it carried no trace of the injection point's
+         * value, so no assertion over the blob could tell a controlled payload line from an
+         * uncontrolled one. That literal is deliberately not repeated here. Production
          * builds a COOKIE point's payload by INTERPOLATING the cookie value
          * (`ActiveAiScanner.kt:511-515` passes `target.injectionPoint.originalValue` into
          * `PayloadGenerator.generateContextAwarePayloads`, which interpolates it at

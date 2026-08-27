@@ -31,6 +31,23 @@ object ScannerIssueSupport {
      * `MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$500` to a `ScannerIssueSupport` one, and
      * QUAL-07 forbids growing `detekt-baseline.xml` to re-suppress it. This constant is NOT part of
      * the privacy control: the payload is agent-authored, not operator traffic.
+     *
+     * SUPERSEDED IN PART — 2026-08-27, phase 28 plan 28-04 (`CR-01`, D-28-08 first site). The
+     * paragraph above is KEPT VERBATIM as the historical record. Its last sentence is the FALSE
+     * PREMISE that caused the `Payload Used:` line to be passed over in round 1, and deleting it
+     * would leave a later reader unable to tell what was believed from what was overlooked.
+     *
+     * WHAT WAS MEASURED. The payload is NOT unconditionally agent-authored. For a context-aware
+     * payload it is built by INTERPOLATING operator traffic: `ActiveAiScanner.kt:511-515` passes
+     * `target.injectionPoint.originalValue` into `PayloadGenerator.generateContextAwarePayloads`,
+     * which interpolates it at `PayloadGenerator.kt:762`, `:771`, `:782` and `:791` with NO
+     * injection-type filter. For a COOKIE-typed point the rendered payload therefore carried the
+     * exact bytes [sanitizeInjectionPointValue] had stripped one line above — the whole control's
+     * span was one line short of its own subject.
+     *
+     * WHAT THIS CONSTANT IS NOW. The bound on the PASS-THROUGH branch of [sanitizeRenderedPayload],
+     * a function that IS part of the privacy control. Its VALUE is unchanged; only the claim made
+     * about it is.
      */
     internal const val PAYLOAD_VALUE_MAX_CHARS = 500
 
@@ -68,6 +85,57 @@ object ScannerIssueSupport {
             policy.stripCookies && point.type == InjectionType.COOKIE -> INJECTION_VALUE_STRIPPED_MARKER
             // D-28-01: every other type passes through, truncated exactly as before. Deliberate.
             else -> point.originalValue.take(ORIGINAL_VALUE_MAX_CHARS)
+        }
+
+    /**
+     * (PRIV-05) 28-04 / `CR-01` / D-28-07 — the SIBLING gate for the `Payload Used:` line, one line
+     * below the one [sanitizeInjectionPointValue] guards.
+     *
+     * WHY A SECOND GATE WAS NEEDED. `28-VERIFICATION.md` measured SC1 FALSE after round 1: the
+     * control's MECHANISM was sound and its SPAN was one line short. For a COOKIE-typed point the
+     * payload is OPERATOR TRAFFIC, not agent text — `ActiveAiScanner.kt:511-515` passes
+     * `target.injectionPoint.originalValue` into `PayloadGenerator.generateContextAwarePayloads`,
+     * which interpolates it at `PayloadGenerator.kt:762`, `:771`, `:782` and `:791` with NO
+     * injection-type filter — so the rendered payload re-leaked the exact bytes the line above had
+     * just stripped.
+     *
+     * THE DISCIPLINE IS THE SIBLING'S, QUOTED RATHER THAN RESTATED (`sanitizeInjectionPointValue`,
+     * verbatim):
+     *
+     * > TYPE-KEYED, never shape-keyed. The decision is taken on [InjectionType.COOKIE], a member of
+     * > a closed enum, so no reformatting of the detail line can defeat it.
+     *
+     * D-28-07 binds this function to that sentence and REJECTED the alternative: excising the
+     * embedded `originalValue` substring from inside `payload.value` to preserve a partially useful
+     * diagnostic. That is shape-keying — it reads the value's TEXT — and any payload that encodes or
+     * otherwise transforms the value defeats it. This gate reads [InjectionPoint.type] and
+     * `policy.stripCookies` and NOTHING ELSE. There is deliberately no emptiness guard either: a
+     * COOKIE point whose value is the empty string must still render the marker, or the point's TYPE
+     * becomes observable as a difference in the rendered line.
+     *
+     * ACCEPTED TRADE, RECORDED RATHER THAN HIDDEN. Under STRICT and BALANCED a cookie point's
+     * payload diagnostics are GIVEN UP — the operator can no longer read which probe string was
+     * sent from this issue's detail blob. That cost is deliberate and D-28-07 locked it. It is
+     * accepted for the same reason its sibling's is: the operator retains the raw attack request
+     * byte-for-byte in the SAME issue's `requestResponses` pane, which Burp renders directly and
+     * never passes through `Redaction.apply`. This control does not touch that list — a checked
+     * invariant, not a claim; see `theRequestResponsesListIsNotAlteredByTheControl`.
+     *
+     * The marker is [INJECTION_VALUE_STRIPPED_MARKER], REFERENCED and never retyped: D-28-05's
+     * one-vocabulary rule forbids a second payload-specific marker constant.
+     */
+    internal fun sanitizeRenderedPayload(
+        point: InjectionPoint,
+        payload: Payload,
+        policy: RedactionPolicy,
+    ): String =
+        when {
+            // The cookie carrier's SECOND line. Same gate shape and same marker as the sibling one
+            // line up, so a reader meets ONE control applied twice rather than two mechanisms.
+            policy.stripCookies && point.type == InjectionType.COOKIE -> INJECTION_VALUE_STRIPPED_MARKER
+            // D-28-07: every other type passes through, truncated exactly as before. Deliberate —
+            // sanitising all types would reopen D-28-01's pass-through, which was itself deliberate.
+            else -> payload.value.take(PAYLOAD_VALUE_MAX_CHARS)
         }
 
     /**
@@ -118,7 +186,7 @@ object ScannerIssueSupport {
         detailLines.add("  $vulnClassName")
         detailLines.add("  Injection Point: ${point.type} - ${point.name}")
         detailLines.add("  Original Value: ${sanitizeInjectionPointValue(point, policy)}")
-        detailLines.add("  Payload Used: ${payload.value.take(PAYLOAD_VALUE_MAX_CHARS)}")
+        detailLines.add("  Payload Used: ${sanitizeRenderedPayload(point, payload, policy)}")
         detailLines.add("  Detection Method: ${payload.detectionMethod}")
         detailLines.add("  Evidence: $evidence")
         detailLines.add("")
