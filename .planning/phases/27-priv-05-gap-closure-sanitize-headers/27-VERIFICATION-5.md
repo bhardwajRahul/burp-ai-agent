@@ -2,9 +2,10 @@
 phase: 27
 round: 5
 verified: 2026-08-26T20:05:00Z
-status: human_needed
+status: passed
 score: 30/30 must-haves verified (re-verified 2026-08-26; the two gaps below are CLOSED)
 re_verified: 2026-08-26T21:05:00Z
+uat_closed: 2026-08-27
 behavior_unverified: 0
 overrides_applied: 0
 git_range: c2d980f..fb7cbd3
@@ -605,3 +606,45 @@ the point of these three commits, and it landed.
 
 _Re-verified: 2026-08-26T21:05:00Z_
 _Verifier: Claude (gsd-verifier), round 5 re-check at `4d7ebfe`_
+
+---
+
+## UAT resolution — 2026-08-27
+
+`status` moves `human_needed` -> `passed`. Nothing in the verification changed; the human-verification
+section that held it open is now answered. `27-HUMAN-UAT.md` is `status: complete`, **14/14, zero
+issues, zero pending** (commit `a7c9a73`).
+
+**The four items this report named, and how they were answered:**
+
+1. **`AR-27-11` re-decision (item 12)** — ACCEPTED at MEDIUM over four families, against the CORRECTED
+   statement rather than the original one-family LOW. Option C and the option to measure its derived
+   cost were both offered and not taken.
+2. **`AR-27-04` (the restated item)** — **MAINTAINER-SIGNED ACCEPTANCE at MEDIUM**, its first human
+   disposition ever. Previously auto-selected by `mode: yolo` and carried unanswered through three
+   rounds. The finding, severity and status are unchanged; only the provenance is.
+3. **Round-4 narrowing provenance (item 12a)** — **ENDORSED, NOT AUTHORED.** Recorded in the direction
+   the artifacts supported: a directed default, endorsed retrospectively, not a choice made at the time.
+4. **WARNING 1 / `CONCERNS.md` AMENDMENT 6 item (5) (item 13)** — decided as a **GAP, not a nit**. The
+   one-sentence correction was appended: FIVE artifacts cited the superseded LOW, not three, and this
+   entry was found by grep rather than by the verifier. **Precedent set: a lesson narrative IS held to
+   standing-rule clause (vi)'s standard.** The cheaper exemption was available and not taken.
+
+**Two decisions taken during UAT changed the tree and are not covered by this report's 30/30 score:**
+
+- **`AR-27-09` CLOSED BY FIX** (commit `c883947`, plan 27-17). The maintainer chose the fix over
+  accepting a LOW that rested on an unmeasured reachability claim. Shipped `REAL_LINE_START = "^[ \t]*+"`
+  (possessive), not the anticipated bare `^[ \t]*`. Side effect: `./gradlew check` is now GREEN —
+  redact BRANCH 0.9278 -> 0.93299 against the unchanged 0.930 floor, closing the coverage shortfall
+  accepted as red earlier in the session. Margin is 0.003 and one branch is worth 0.005; not durable headroom.
+- **`AR-27-07` and `AR-27-10` accepted at LOW**, and `T-27-06-06` accepted as-is with the README/SPEC
+  overclaim still shipping.
+
+**These commits post-date the verified range** (`c2d980f..fb7cbd3`). `c883947` in particular touches
+`Redaction.kt` and adds `IndentedLogicalLineStartTest`. It is mutation-proved in both directions and
+`./gradlew clean check` is green (1258 tests, 0 failures), but it has NOT been through a verifier pass.
+Recorded here rather than absorbed.
+
+**PRIV-05 is still `[ ]`.** Nothing in this UAT closed it. `AR-27-08` and
+`scanner/InjectionPointExtractor.kt:29` remain owned by Phase 28; `AR-27-04`, `AR-27-07`, `AR-27-10`
+and `AR-27-11` remain OPEN, now with human dispositions.
