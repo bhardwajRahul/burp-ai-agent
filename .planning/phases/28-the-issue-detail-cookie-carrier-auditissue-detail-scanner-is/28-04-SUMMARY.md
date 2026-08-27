@@ -598,3 +598,12 @@ Windows) and the `CookieCarrierInventoryTest.kt:539` evidence-tail bound defect 
 *Phase: 28-the-issue-detail-cookie-carrier-auditissue-detail-scanner-is*
 *Plan: 04*
 *Completed: 2026-08-27*
+
+## Self-Check: PASSED
+
+- `28-04-SUMMARY.md`, `ScannerIssueSupport.kt`, `IssueDetailCookieCarrierTest.kt` — all present on disk.
+- Commits `da3d195`, `064096c`, `1ac4d47`, `8f75e67` — all present in `git log`.
+- `grep -c "the suite went red"` over this SUMMARY -> **0**.
+- The designated assertion `cookiePayloadIsStrippedUnderStrict` appears verbatim; 12 verbatim
+  `org.opentest4j.AssertionFailedError` lines are quoted.
+- `git status --porcelain` -> empty. No mutation, probe or scratch artifact was left behind.
