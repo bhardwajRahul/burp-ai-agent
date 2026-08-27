@@ -43,6 +43,15 @@ import java.util.concurrent.atomic.AtomicReference
  *    28-02 left it, and a bare `"COOKIE" ->` arm is therefore not counted here.
  * 2. `Redaction.COOKIE_PARAMETER_TYPE_NAME`'s own `= "COOKIE"` declaration is a DECLARATION, not a
  *    comparison. Counting the owner's constant would make the owner look like a duplicate of itself.
+ * 3. `scanner/AiScanCheck.kt`'s `insertionPoint.type() == AuditInsertionPointType.PARAM_COOKIE`
+ *    (plan 28-05, route 2 of `AR-27-08`) is a DIFFERENT POPULATION, and the reason is measured
+ *    rather than asserted. Every spelling in [COOKIE_TYPE_COMPARISONS] compares a Montoya
+ *    **parameter**-type NAME against the literal `COOKIE`. `AuditInsertionPointType` is a different
+ *    closed enum, its cookie member is named `PARAM_COOKIE`, and no comparison against the literal
+ *    `COOKIE` can ever be true of it — which is exactly why route 2 could not reuse the shared
+ *    predicate. THIS IS NOT AN EXEMPTION: that population gets its OWN tripwire below,
+ *    [exactlyOneInsertionPointCookieTypePredicateExistsInMainSource], with its own known-positive
+ *    fixtures. Two populations, two counts, two owners — not one widened expectation.
  *
  * Comment lines are stripped before matching. A `grep -c`-style count over unstripped source would
  * count the very supersession comments plan 28-02 writes — which is exactly how a header becomes
@@ -104,6 +113,81 @@ class CookieRouteDispositionTest {
             SPELLING_FIXTURES.size,
             "every spelling class needs exactly one known positive, or an unfixtured class can rot " +
                 "into a no-op unnoticed.",
+        )
+    }
+
+    /**
+     * The tripwire for the SECOND cookie-type population — the insertion-point one plan 28-05
+     * created (route 2 of `AR-27-08`, `CR-02`).
+     *
+     * Item 3 of the class KDoc's exclusion list states why this cannot be folded into
+     * [exactlyOneCookieTypePredicateExistsInMainSource]: the two count comparisons against DIFFERENT
+     * closed Montoya enums, and merging them would make one predicate's contract ambiguous and move
+     * a count that is evidence for a different claim. So this file now holds two counts with two
+     * owners, built from the same parts so a reader meets one idiom rather than two.
+     *
+     * Same bound as its sibling, restated because it applies just as hard here: this is a TRIPWIRE
+     * OVER MEASURED SPELLINGS, not a proof of exhaustive coverage. Anyone adding a new spelling of
+     * the insertion-point cookie question must add it to [INSERTION_POINT_COOKIE_TYPE_COMPARISONS],
+     * or this tripwire silently stops covering their code.
+     */
+    @Test
+    fun exactlyOneInsertionPointCookieTypePredicateExistsInMainSource() {
+        val files = mainSourceFiles()
+        assertTrue(
+            files.size >= MIN_EXPECTED_MAIN_FILES,
+            "the source walk reached ${files.size} .kt files under $MAIN_SOURCE_ROOT, below the " +
+                "floor of $MIN_EXPECTED_MAIN_FILES. A walk that reaches nothing would report a " +
+                "clean tree for the same reason a correct tree does; fix the walk before reading " +
+                "the count below as evidence.",
+        )
+
+        val hits = files.flatMap { file -> insertionPointCookieComparisonsIn(file).map { relativePath(file) to it } }
+
+        assertEquals(
+            1,
+            hits.size,
+            "expected exactly ONE insertion-point cookie-type predicate in $MAIN_SOURCE_ROOT — the " +
+                "one inside $INSERTION_POINT_OWNER's isCookieInsertionPoint. Found ${hits.size}: " +
+                hits.joinToString("; ") { "${it.first} -> ${it.second.trim()}" } +
+                ". A SECOND insertion-point cookie predicate is how the route-2 control gets " +
+                "bypassed without anyone editing isCookieInsertionPoint: the new predicate " +
+                "silently acquires its own notion of what a cookie insertion point is, and the two " +
+                "drift apart. Route the new call site through AiScanCheck.isCookieInsertionPoint " +
+                "instead of widening this expectation.",
+        )
+
+        assertEquals(
+            INSERTION_POINT_OWNER,
+            hits.single().first,
+            "the single insertion-point cookie-type predicate must live in $INSERTION_POINT_OWNER, " +
+                "the OWNER of the rule. Finding it elsewhere means ownership moved without the " +
+                "KDoc moving with it.",
+        )
+    }
+
+    /**
+     * The non-vacuity half of the tripwire above, mirroring
+     * [everyCookieTypeComparisonSpellingHasAKnownPositive].
+     *
+     * Without it a regex that matched nothing would report a clean tree for free, and the count of
+     * one would be satisfied by luck rather than by measurement.
+     */
+    @Test
+    fun everyInsertionPointSpellingHasAKnownPositive() {
+        INSERTION_POINT_COOKIE_TYPE_COMPARISONS.zip(INSERTION_POINT_SPELLING_FIXTURES).forEach { (pattern, fixture) ->
+            assertTrue(
+                pattern.containsMatchIn(fixture),
+                "insertion-point spelling class /${pattern.pattern}/ matched none of its own " +
+                    "fixture <$fixture>. A regex that matches nothing reports a clean tree for " +
+                    "free, so the count above would be vacuous.",
+            )
+        }
+        assertEquals(
+            INSERTION_POINT_COOKIE_TYPE_COMPARISONS.size,
+            INSERTION_POINT_SPELLING_FIXTURES.size,
+            "every insertion-point spelling class needs exactly one known positive, or an " +
+                "unfixtured class can rot into a no-op unnoticed.",
         )
     }
 
@@ -273,17 +357,36 @@ class CookieRouteDispositionTest {
         return request
     }
 
-    private fun cookieTypeComparisonsIn(file: File): List<String> =
+    private fun cookieTypeComparisonsIn(file: File): List<String> = matchingCodeLinesIn(file, COOKIE_TYPE_COMPARISONS)
+
+    private fun insertionPointCookieComparisonsIn(file: File): List<String> = matchingCodeLinesIn(file, INSERTION_POINT_COOKIE_TYPE_COMPARISONS)
+
+    /**
+     * Comment stripping is by LINE PREFIX — a line-comment marker, a KDoc continuation star, or a
+     * block-comment opener — so a comparison hidden behind a TRAILING comment on a code line is
+     * still seen, while the very supersession comments these plans write are not counted. Shared by
+     * both populations so the two counts cannot drift apart in how they read a file.
+     */
+    private fun matchingCodeLinesIn(
+        file: File,
+        patterns: List<Regex>,
+    ): List<String> =
         file
             .readLines()
             .filterNot { line ->
                 val trimmed = line.trimStart()
                 trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")
-            }.filter { line -> COOKIE_TYPE_COMPARISONS.any { it.containsMatchIn(line) } }
+            }.filter { line -> patterns.any { it.containsMatchIn(line) } }
 
     private fun mainSourceFiles(): List<File> = mainSourceRoot().walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
 
-    private fun relativePath(file: File): String = file.absolutePath.substringAfter("$MAIN_SOURCE_ROOT${File.separator}").replace(File.separatorChar, '/')
+    // WR-05: this previously searched for the forward-slash literal "src/main/kotlin" joined with
+    // the PLATFORM separator, so on Windows the needle never occurred, substringAfter returned the
+    // whole absolute path, and the owner assertion failed with a confusing message. Cross-platform
+    // support is a stated project constraint, so that was a real defect rather than a style nit.
+    // Relativise against the resolved root and render with invariant separators instead — the same
+    // shape CookieCarrierInventoryTest.kt:238 and SerializedEmissionSiteInventoryTest.kt:362 use.
+    private fun relativePath(file: File): String = file.relativeTo(mainSourceRoot()).invariantSeparatorsPath
 
     private fun mainSourceRoot(): File {
         var candidate: File? = File(System.getProperty("user.dir")).absoluteFile
@@ -351,6 +454,47 @@ class CookieRouteDispositionTest {
                 """if ("COOKIE" == param.type().name) return true""",
                 """if (typeName.equals("COOKIE", ignoreCase = true)) return true""",
                 """typeName.trim().uppercase(Locale.ROOT) == COOKIE_PARAMETER_TYPE_NAME""",
+            )
+
+        /** The OWNER of the INSERTION-POINT cookie-type rule (plan 28-05, route 2 of `AR-27-08`). */
+        const val INSERTION_POINT_OWNER = "com/six2dez/burp/aiagent/scanner/AiScanCheck.kt"
+
+        /**
+         * The ways a Montoya AUDIT INSERTION POINT type is compared against its cookie constant in
+         * this codebase — a population disjoint from [COOKIE_TYPE_COMPARISONS] by construction, see
+         * item 3 of the class KDoc.
+         *
+         * Identity comparisons against a member of the closed `AuditInsertionPointType` enum, in
+         * either operand order. Deliberately keyed on the QUALIFIED constant rather than on a bare
+         * `PARAM_COOKIE`: an unqualified spelling would also match an import alias or an unrelated
+         * enum that happened to share the member name, and this count is only meaningful if every
+         * hit is the same question being asked twice.
+         *
+         * D-28-07's discipline is what makes this population small: the decision is taken on a
+         * closed-enum MEMBER, never on a rendered string, so there is no `.name`-comparison spelling
+         * to enumerate here at all. If one ever appears, it belongs in this list AND it is a signal
+         * that route 2 has drifted back toward the shape phase 27 measured as structurally blind.
+         */
+        val INSERTION_POINT_COOKIE_TYPE_COMPARISONS =
+            listOf(
+                // identity comparison, constant on the right
+                Regex("""[=!]= AuditInsertionPointType\.PARAM_COOKIE"""),
+                // identity comparison, constant on the left
+                Regex("""AuditInsertionPointType\.PARAM_COOKIE [=!]="""),
+            )
+
+        /**
+         * One known positive per insertion-point spelling class.
+         *
+         * These fixtures necessarily CONTAIN the literal `AuditInsertionPointType`, which makes this
+         * file the second under `src/test/kotlin/` to do so. That is expected and not a regression:
+         * the scan walks `src/main/kotlin` only, so a fixture here can never be counted by the
+         * tripwire it protects.
+         */
+        val INSERTION_POINT_SPELLING_FIXTURES =
+            listOf(
+                """insertionPoint.type() == AuditInsertionPointType.PARAM_COOKIE""",
+                """if (AuditInsertionPointType.PARAM_COOKIE == point.type()) return true""",
             )
     }
 }
