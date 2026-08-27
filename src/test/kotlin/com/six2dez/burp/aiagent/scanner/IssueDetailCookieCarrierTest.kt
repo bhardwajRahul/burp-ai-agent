@@ -12,11 +12,13 @@ import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import com.six2dez.burp.aiagent.util.IssueUtils
 import kotlinx.serialization.encodeToString
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.io.File
 
 /**
  * (PRIV-05) Phase 28 plan 28-01 — `AR-27-08`, the issue-detail cookie carrier.
@@ -57,6 +59,25 @@ import org.junit.jupiter.api.Test
  * INVISIBLE IN A DIFF: `ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER` and the header rule's
  * marker are BOTH the literal `[STRIPPED]`, so a shared sentinel would let one substitution rewrite
  * both occurrences and leave the whole-blob difference enumeration with nothing to attribute.
+ *
+ * ## THE DESIGNATED RED PROBE — read this before mutating the control
+ *
+ * If you weaken `ScannerIssueSupport.sanitizeInjectionPointValue`'s cookie branch, the assertion
+ * that is SUPPOSED to catch you is the first `assertFalse` in
+ * [cookieOriginalValueIsStrippedUnderStrict]. It is the designated red probe for this control.
+ * [cookieOriginalValueIsStrippedUnderBalanced] and [cookieOriginalValueSurvivesUnderOff] go red
+ * alongside it and are not redundant: the OFF one catches the opposite mistake, a control that
+ * fires unconditionally. MEASURED 2026-08-27 by negating the branch condition — exactly those three
+ * went red, 3 of 8, and the other five stayed green because none of them reads the COOKIE carrier's
+ * value under a stripping mode.
+ *
+ * WHAT THIS FILE CANNOT CATCH, stated so a reader does not over-read a green run. Every test here
+ * calls `ScannerIssueSupport.buildActiveIssueDetailLines` DIRECTLY. Nothing here executes
+ * `ActiveAiScanner.createConfirmedIssue`, so no assertion proves the operator's configured privacy
+ * mode actually reaches the gate. MEASURED: hard-coding that call site's policy argument to
+ * `RedactionPolicy.fromMode(PrivacyMode.OFF)` left all 8 tests GREEN. [theWriteSiteReadsTheLivePolicy]
+ * is the source-TEXT pin standing in for that missing coverage, and it is weaker than an execution
+ * assertion in a way the residual section of `28-01-SUMMARY.md` names explicitly.
  */
 class IssueDetailCookieCarrierTest {
     @BeforeEach
@@ -198,6 +219,58 @@ class IssueDetailCookieCarrierTest {
         )
     }
 
+    /**
+     * The source-TEXT pin standing in for the execution coverage this file does NOT have.
+     *
+     * WHY IT EXISTS. Mutation B of 28-01's red probe — hard-coding the write site's policy argument
+     * to a constant instead of reading the operator's setting — was MEASURED as undetected: all 8
+     * behavioural tests stayed green. That is a real gap in this file's reach, not a hypothetical.
+     *
+     * WHAT IT CANNOT SEE, stated rather than left for a reader to discover. This asserts over source
+     * TEXT. A refactor that keeps the literal `RedactionPolicy.fromMode(getSettings().privacyMode)`
+     * on the page while routing a different policy object into the call passes this pin unchanged.
+     * It is kept anyway because it is non-vacuous TODAY: that file's comment-stripped
+     * `RedactionPolicy.fromMode(` count was DERIVED as 0 before this phase, so requiring exactly 1
+     * measures a change this phase makes rather than restating a constant.
+     */
+    @Test
+    fun theWriteSiteReadsTheLivePolicy() {
+        val executableLines =
+            activeScannerSource()
+                .lines()
+                .filterNot { it.trimStart().startsWith("//") }
+                .filterNot { it.trimStart().startsWith("*") }
+                .filterNot { it.trimStart().startsWith("/*") }
+
+        val fromModeLines = executableLines.filter { it.contains("RedactionPolicy.fromMode(") }
+
+        assertEquals(
+            1,
+            fromModeLines.size,
+            "PIN: `$ACTIVE_SCANNER_SOURCE_PATH` must contain EXACTLY ONE executable " +
+                "`RedactionPolicy.fromMode(` occurrence — the write site's policy lookup. Found " +
+                "${fromModeLines.size}: $fromModeLines",
+        )
+        assertTrue(
+            fromModeLines[0].contains("RedactionPolicy.fromMode(getSettings().privacyMode)"),
+            "PIN: the write site must derive its policy from the OPERATOR'S LIVE SETTING, not from a " +
+                "constant. Expected the argument text `getSettings().privacyMode`, found: " +
+                "`${fromModeLines[0].trim()}`",
+        )
+    }
+
+    private fun activeScannerSource(): String {
+        val file = File(ACTIVE_SCANNER_SOURCE_PATH)
+        assertTrue(
+            file.isFile,
+            "Expected `$ACTIVE_SCANNER_SOURCE_PATH` relative to the test working directory " +
+                "`${System.getProperty("user.dir")}`, resolved as `${file.absolutePath}`. If the " +
+                "build layout changed, fix the path here. Asserted rather than left to surface as a " +
+                "bare FileNotFoundException.",
+        )
+        return file.readText()
+    }
+
     private fun assertSentinelsAreDistinctAndNonOverlapping() {
         assertNotEquals(
             DETAIL_SENTINEL,
@@ -234,6 +307,8 @@ class IssueDetailCookieCarrierTest {
         const val COOKIE_POINT_NAME = "pumpkin-lantern-name"
 
         const val HOST_SALT = "phase-28-fixed-salt"
+
+        const val ACTIVE_SCANNER_SOURCE_PATH = "src/main/kotlin/com/six2dez/burp/aiagent/scanner/ActiveAiScanner.kt"
 
         val PAYLOAD =
             Payload(
