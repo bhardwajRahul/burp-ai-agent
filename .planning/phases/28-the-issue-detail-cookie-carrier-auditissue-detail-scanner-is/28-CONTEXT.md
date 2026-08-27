@@ -124,3 +124,62 @@ the ROADMAP defines it, so both are inside the existing boundary — they are no
   maintainer decision at 28-03's blocking checkpoint. Not reopened here.
 
 </already_known>
+
+---
+
+## Round 3 addendum — the SC1 disposition (2026-08-28)
+
+Captured at the `verify_phase_goal` gate after gap round 2. Round 2 closed all seven round-1 gaps;
+`28-VERIFICATION.md` returned `gaps_found` 5/6 with SC1 adjudicated **(b) not satisfied** on a
+narrower and different mechanism than round 1.
+
+- **D-28-09:** The **write-time/read-time bound is ACCEPTED as a NAMED RESIDUAL**, by maintainer
+  answer on 2026-08-28. Not an auto-advance default; the question was put and answered.
+
+  What is accepted: both controls decide once at issue construction and bake the result into
+  `AuditIssue.detail()`, an immutable string Burp stores and `scanner_issues` replays. An issue built
+  while `privacyMode = OFF` emits the raw cookie value on a later STRICT read.
+  `AiScanCheck.consolidateIssues` returns `KEEP_EXISTING`, so a re-scan does not repair the site map,
+  and `Redaction.apply` provably cannot rescue it (28-05's own red probe recorded the sentinel
+  surviving STRICT redaction verbatim when the write gate does not fire).
+
+  Why accepted rather than fixed here: every issue *produced* under STRICT or BALANCED — the entire
+  default posture, `AgentSettings.kt:493` defaults to `BALANCED` — is measurably clean across all four
+  detail lines of both producers. The residual requires a deliberate OFF scan followed by a mode
+  switch: the same latent, opt-in reachability profile that put `AR-27-08` at MEDIUM rather than high.
+  A read-time fix is new architecture on the emission path, not a patch — `Redaction.apply` cannot
+  match the rendered `Original Value: <value>` shape today (no newline for the logical-line rules to
+  bind to, and `cookieTypedParamRegex` cannot key on it). That belongs in its own phase.
+
+- **D-28-10:** The acceptance is **CONDITIONAL**, on the verifier's own terms. The override may only
+  be applied to `28-VERIFICATION.md` frontmatter once ALL of the following are true. Until then
+  `phase.complete 28` stays blocked:
+  1. The temporal bound is named in `ISSUE_DETAIL_CARRIER_DISPOSITION`'s "STILL OPEN" clause and in
+     `26-SECURITY.md` row 315 clause (d) — **append-and-amend under a dated marker, prior 8693-byte
+     prefix byte-intact** (`8dc326ac23204becce687deeba867740eb2d4dde21346c58d7da9595d137ae2e`).
+  2. It is noted at `AiScanCheck.consolidateIssues`, whose `KEEP_EXISTING` makes the stale issue
+     sticky against re-scan.
+  3. It is surfaced next to the privacy-mode selector. `SettingsPanelInit.kt:58`'s current tooltip
+     ("Controls how traffic is redacted before sending to a model") invites the retroactive reading
+     that is false. **Shipping a control an operator will read as retroactive is the option that is
+     not available.**
+
+- **D-28-11:** Gap 2 is **NOT** covered by the override and is not a judgement call — it is prose
+  asserting something the tree does not support, which D-28-08 already governs:
+  - `ISSUE_DETAIL_CARRIER_DISPOSITION` and row 315 both name `AiScanCheckDetailCookieCarrierTest` as
+    the committed probe for detail line (4), the `**Payload Used:**` line. `grep -c "Payload Used"`
+    on that file returns **0** — KDoc included. Prefer making the claim TRUE (add the assertions)
+    over retracting it; retract only if the assertions cannot be written honestly.
+  - `WR-01`'s fail-open type set is unrecorded. Measured at source by `javap` on the resolved
+    `montoya-api-2026.2.jar`: `AuditInsertionPoint.type()` is a DEFAULT method whose entire body is
+    `getstatic AuditInsertionPointType.EXTENSION_PROVIDED; areturn`, and the enum also carries
+    `USER_PROVIDED` and `HEADER`. Unlike route 1's `InjectionType` — whose only cookie-capable member
+    IS `COOKIE`, which is what made D-28-01's pass-through safe by construction — this enum has
+    cookie-capable non-`PARAM_COOKIE` members. Either widen the predicate to a set or name the
+    residual, but `anAbsentInsertionPointTypeDoesNotThrowAndPassesThrough`'s KDoc currently asserts
+    the opposite premise ("a real Burp implementation may not override it" -> null), which is FALSE
+    against the shipped jar and must be corrected either way.
+
+- **PRIV-05 stays `- [ ]`.** D-28-04 stands and the verifier judged it *more* consistent with the code
+  after gap 1, not less. `.planning/REQUIREMENTS.md` stays byte-unchanged at
+  `9b3219662ec0d007c1c82d64eed3ef2698bd306ce69f01205ac9bbc3f42fcfb4`.
