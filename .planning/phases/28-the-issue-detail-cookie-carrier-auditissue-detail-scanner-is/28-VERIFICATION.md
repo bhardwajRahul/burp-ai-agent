@@ -1,309 +1,338 @@
 ---
 phase: 28-the-issue-detail-cookie-carrier-auditissue-detail-scanner-is
-verified: 2026-08-27T00:00:00Z
+verified: 2026-08-27T22:40:00Z
 status: gaps_found
 score: 5/6 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
-re_verification: null
+re_verification:
+  previous_status: gaps_found
+  previous_score: 5/6
+  gaps_closed:
+    - "SC1 route 1 (CR-01) — the `Payload Used:` line of `ScannerIssueSupport.buildActiveIssueDetailLines` re-leaked the value the line above had just stripped. Closed by `sanitizeRenderedPayload` (`ScannerIssueSupport.kt:127-138`), wired at `:221`, type-keyed on `InjectionType.COOKIE` + `policy.stripCookies`."
+    - "SC1 route 2 (CR-02) — `AiScanCheck.buildDetail` read no privacy mode at all and leaked identically in STRICT, BALANCED and OFF. Closed by `sanitizeCookiePointText` / `isCookieInsertionPoint` (`AiScanCheck.kt:459-486`), wired at `:388` and `:392`."
+    - "The wrong-predicate hazard I flagged as unmeasured — `Redaction.isCookieParameterType` compares against the string `COOKIE` and is FALSE for `PARAM_COOKIE`. Measured on the record by 28-05 red probe 1 and pinned by `theSharedStringNamePredicateDoesNotRecogniseTheInsertionPointCookieConstant`."
+    - "The fixture-only SC1 proof (round-1 `coincidental_reliance_items[0]`). `IssueDetailCookieCarrierTest.PAYLOAD` is now DERIVED at construction from `PayloadGenerator().generateContextAwarePayloads(VulnClass.SQLI, DETAIL_SENTINEL, N)` with a non-vacuity assertion at `:728-739`. The hand-typed `benign-probe-payload` is gone."
+    - "The `AR-27-08` closure sentence I measured false. Row 315 was re-amended append-and-amend by 28-06; the row now reads STAYS OPEN, NARROWED, and clause (a) states in its own words why the first closure was premature."
+    - "`CookieCarrierInventoryTest.kt:476`'s `BOTH NOW CONTROLLED` claim — amended in place at `:495` under a dated marker rather than rewritten."
+    - "28-03's RUN 2 recording failure (round-1 gap 2, `partial`). `28-03-SUMMARY.md:542-560` now carries both raw outputs and states plainly that the gate RAN LATE, after the commits it was written to block."
+  gaps_remaining:
+    - "SC1 — still FAILED, but on a NARROWER and DIFFERENT mechanism than round 1. Round 1: the value leaked under a pure STRICT scan. Round 2: every write under STRICT/BALANCED is now controlled and measurably clean; what remains is the TEMPORAL bound — a detail string rendered while `privacyMode = OFF` is stored verbatim and emitted verbatim on a later STRICT read."
+  regressions: []
 gaps:
-  - truth: "SC1 — a COOKIE-typed injection point's `originalValue` does not appear in the `scanner_issues` tool result in STRICT or BALANCED"
-    status: failed
-    reason: >-
-      MEASURED FALSE by this verifier, not inferred. The control at
-      `ScannerIssueSupport.sanitizeInjectionPointValue` guards exactly ONE of the nine detail lines
-      the same function emits. Two independent routes carry the same cookie bytes to the same MCP
-      tool result under STRICT and BALANCED. Route 1 was reproduced with a temporary red probe on the
-      phase's own fixture and its verbatim failure messages are recorded below; route 2 has no
-      privacy code in its file at all.
-    artifacts:
-      - path: "src/main/kotlin/com/six2dez/burp/aiagent/scanner/ScannerIssueSupport.kt"
-        issue: >-
-          Line 121 writes `"  Payload Used: ${payload.value.take(PAYLOAD_VALUE_MAX_CHARS)}"` with NO
-          policy argument, one line below the sanitized line 120. For a COOKIE point the payload is
-          DERIVED FROM the cookie value: `ActiveAiScanner.kt:512` passes
-          `target.injectionPoint.originalValue` into `PayloadGenerator.generateContextAwarePayloads`,
-          which builds `"$originalValue' AND '1'='1"` at `PayloadGenerator.kt:782` (also :762, :771,
-          :791) with no injection-type filter. The KDoc premise at `ScannerIssueSupport.kt:32-33`
-          ("the payload is agent-authored, not operator traffic") is false for context-aware
-          payloads. The KDoc claim at `ScannerIssueSupport.kt:74-75` ("THE ONLY PRODUCER OF THE
-          ACTIVE-SCAN ISSUE DETAIL LINES IN THE REPOSITORY") is false — see AiScanCheck.kt below.
-      - path: "src/main/kotlin/com/six2dez/burp/aiagent/scanner/AiScanCheck.kt"
-        issue: >-
-          A SECOND, entirely uncontrolled active-scan `AuditIssue` detail producer. `:353` writes
-          `**Original Value:** ${insertionPoint.baseValue().take(100)}` and `:357` writes
-          `${payload.value.take(500)}`; `buildDetail` is handed to `AuditIssue.auditIssue(...)` at
-          `:250`. `grep -n "Redaction|PrivacyMode|RedactionPolicy|sanitize|privacyMode"` over the file
-          returns NOTHING — the file reads no privacy mode, so it behaves identically in STRICT,
-          BALANCED and OFF. `doCheck` (`:34-93`) applies no insertion-point TYPE filter, so
-          `PARAM_COOKIE` insertion points reach `:353`. LIVE-REGISTERED at `App.kt:215`
-          (`registerActiveScanCheck(aiScanCheck, ScanCheckType.PER_INSERTION_POINT)`) behind the same
-          `settings.activeAiEnabled` opt-in that gates AR-27-08 itself. Reaches the tool via
-          `McpToolExecutorImpl.kt:604` -> `api.siteMap().issues()`. NOT MENTIONED ANYWHERE in
-          `.planning/phases/28-*/28-0*-PLAN.md` or `28-0*-SUMMARY.md`.
-      - path: "src/test/kotlin/com/six2dez/burp/aiagent/scanner/IssueDetailCookieCarrierTest.kt"
-        issue: >-
-          The green SC1 result is FIXTURE-DEPENDENT. `PAYLOAD.value` is hardcoded
-          `"benign-probe-payload"` at `:544` while the fixture is labelled `VulnClass.SQLI` — a
-          payload no SQLI generator would produce for that value. The advertised repository-wide
-          "single-producer gate" does not exist: `originalValueRenderedFor` (`:625-632`) filters
-          `detailLinesFor(point, mode)`, the list `buildActiveIssueDetailLines` ITSELF returned, and
-          is structurally incapable of seeing another file.
-      - path: ".planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md"
-        issue: >-
-          The amended `AR-27-08` row (line 315) asserts "A COOKIE-typed injection point's
-          `originalValue` no longer reaches `AuditIssue.detail()` under STRICT or BALANCED" — a
-          closure sentence measured false above. Its `SCOPE: ONE LINE, NOT THE BLOB` clause names
-          only the `Evidence` line as the other uncontrolled line; it is silent on the `Payload
-          Used:` line and on `AiScanCheck` entirely. This is the register-wider-than-the-control
-          overclaim the file's own T-26-02-01 history exists to correct.
-      - path: "src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieCarrierInventoryTest.kt"
-        issue: >-
-          `:407` records the `INJECTION_EXTRACTOR/PARAMETER_LIST` entry as "TWO CONSUMERS, BOTH READ,
-          AND BOTH NOW CONTROLLED". Consumer 2's own detail block emits the uncontrolled `Payload
-          Used:` line carrying the same bytes, so "controlled" is true of one line and false of the
-          block.
-    missing:
-      - "A control on the `Payload Used:` line for COOKIE-typed points (or a payload-side control at `PayloadGenerator`), keyed on `InjectionType.COOKIE` + `policy.stripCookies` as line 120 already is."
-      - "A control on `AiScanCheck.buildDetail` — it currently reads no privacy mode at all — or an explicit, recorded disposition for it."
-      - "Replace the fixture-only SC1 proof: drive `IssueDetailCookieCarrierTest` with a payload built the way production builds it (`PayloadGenerator.generateContextAwarePayloads(VulnClass.SQLI, DETAIL_SENTINEL, ...)`) so the assertion can see route 1."
-      - "A single-producer gate that actually scans `src/main/kotlin` for detail-line producers, instead of filtering the list one producer returned."
-      - "Retract or scope-correct the closure sentence in the `AR-27-08` amended cell and the `BOTH NOW CONTROLLED` reason in `CookieCarrierInventoryTest.kt:407`."
-      - "A measurement of the `AiScanCheck` route through `Redaction.apply` — not performed by this verifier; the shape (`**Original Value:** <value>` under JSON key `detail`) is the same rule-blindness class phase 27 measured, but that is an inference, not a measurement."
-  - truth: "28-03 must_have — the PRIV-05 gate RUN 2 (post-completion, pre-commit) is executed and its RAW OUTPUTS are recorded in 28-03-SUMMARY.md under a heading distinct from the in-task run"
+  - truth: "SC1 — A COOKIE-typed injection point's `originalValue` does not appear in the `scanner_issues` tool result in STRICT or BALANCED"
     status: partial
     reason: >-
-      The distinct heading exists (`28-03-SUMMARY.md:542`) but is still a set of INSTRUCTIONS marked
-      "OUTSTANDING — the phase commit is BLOCKED until RUN 2 is recorded here", with the literal text
-      "Paste BOTH raw outputs under this heading, replacing this block." The phase commits landed
-      anyway (through `723ae59`) without the block being replaced. The INVARIANT the gate protects
-      does hold at HEAD — re-derived by this verifier — so this is a recording failure, not a
-      requirements-file corruption.
+      ADJUDICATION (b). Both controls are WRITE-TIME SNAPSHOTS. `AuditIssue.detail()` is an
+      immutable string stored in Burp's site map (`ActiveAiScanner.kt:1285` `api.siteMap().add(issue)`;
+      route 2 via the `AuditResult` Burp files itself) and read back by `scanner_issues`
+      (`McpToolExecutorImpl.kt:605` -> `api.siteMap().issues()`; `Serialization.kt:14`
+      `detail = detail()`). An issue built while `privacyMode = OFF` bakes the raw cookie value into
+      that string; a later read under STRICT emits it verbatim, and `Redaction.apply` cannot rescue
+      it. SC1's wording binds to the TOOL RESULT, not to the write site, so a STRICT read that
+      returns the value falsifies it as written. `AR-27-08`'s own register sentence — "the value
+      reaches the `scanner_issues` tool result through `AuditIssue.detail()` and SURVIVES
+      `Redaction.apply` in STRICT and in BALANCED alike, emitted verbatim" — is therefore still
+      literally true at HEAD along this path, which is why this is a surviving instance of the
+      chartered finding rather than a new, separately-owned one. MEASURED, not inferred: 28-05's own
+      red probe 1 (`28-05-SUMMARY.md:224`) recorded that when the write gate does not fire, the
+      sentinel is PRESENT in the REDACTED detail field under STRICT. The OFF path reaches the
+      redactor in exactly that state. `AiScanCheck.consolidateIssues` (`:101-112`) returns
+      `KEEP_EXISTING` on matching canonical name + normalized URL, so re-scanning under STRICT does
+      NOT replace the stale OFF-built issue.
+      SCOPE OF THE FAILURE, STATED SO IT IS NOT OVER-READ. For every issue PRODUCED under STRICT or
+      BALANCED — which includes the entire default posture, since `AgentSettings.kt:493` defaults
+      `privacyMode = BALANCED` — SC1 now holds, measurably, across all four detail lines of both
+      producers. The residual requires a deliberate `OFF` scan followed by a mode switch.
     artifacts:
-      - path: ".planning/phases/28-the-issue-detail-cookie-carrier-auditissue-detail-scanner-is/28-03-SUMMARY.md"
-        issue: "Lines 542-580 still carry the pre-run instruction block instead of RUN 2's raw output."
+      - path: "src/main/kotlin/com/six2dez/burp/aiagent/scanner/AiScanCheck.kt"
+        issue: >-
+          `buildDetail` (`:356-404`) reads `getSettings().privacyMode` once, at construction, and
+          bakes the result into an immutable String. `consolidateIssues` (`:101-112`) then returns
+          `KEEP_EXISTING`, making the stale value sticky against re-scan. Neither the function KDoc
+          (`:330-355`) nor the companion KDoc (`:416-486`) records that the placement makes the
+          control non-retroactive.
+      - path: "src/main/kotlin/com/six2dez/burp/aiagent/scanner/ScannerIssueSupport.kt"
+        issue: >-
+          Same class of defect on route 1. `:150-157` justifies the write-site placement purely on
+          `InjectionType` availability — correctly — and never states the consequence: the decision
+          is taken once, at write time, and no later policy change revisits it.
+      - path: "src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieCarrierInventoryTest.kt"
+        issue: >-
+          `ISSUE_DETAIL_CARRIER_DISPOSITION` (`:700-768`) has a clause headed "STILL OPEN, NAMED SO
+          NOBODY READS THIS AS A CLOSURE" that enumerates the `Evidence:` line (AR-28-01), AR-27-08's
+          own open status, and the absent repo-wide gate. The temporal bound is not in it. An
+          enumeration that declares itself the place residuals are named, and omits one, reads as a
+          closure of what it omits.
+      - path: ".planning/phases/26-coverage-static-analysis-debt-docs/26-SECURITY.md"
+        issue: >-
+          Row 315 clause (d) — "WHAT THIS AMENDMENT DOES NOT COVER, BY IDENTIFIER" — is likewise
+          exhaustive by construction and omits the temporal bound.
     missing:
-      - "Replace the RUN 2 block with the raw `shasum -a 256 .planning/REQUIREMENTS.md` and `grep -n 'PRIV-05' .planning/REQUIREMENTS.md` output taken after `phase.complete 28`."
+      - "A DISPOSITION for the write-time/read-time gap, chosen and recorded. Either (i) a second, shape-keyed line-prefix scrub against the LIVE policy at the emission boundary (`Serialization.kt` / `McpToolExecutorImpl` `scanner_issues`), documented explicitly as a SECOND layer so a future reader does not delete the type-keyed write-site gate as redundant — note `IssueUtils.formatIssueDetailHtml` joins route 1's lines with `<br>`, so that route splits on `<br>`, not `\\n`; or (ii) an explicit maintainer acceptance recorded as a named residual."
+      - "If (ii): the temporal bound named in `ISSUE_DETAIL_CARRIER_DISPOSITION`'s STILL OPEN clause and in row 315's clause (d), a note at `AiScanCheck.consolidateIssues`, and operator-facing text next to the privacy-mode selector — changing the mode does not re-render issues already recorded. `SettingsPanelInit.kt:58`'s tooltip currently reads 'Controls how traffic is redacted before sending to a model.', which an operator reads as retroactive."
+  - truth: "The phase's own record enumerates its residuals exhaustively and names a committed probe only where one exists"
+    status: failed
+    reason: >-
+      D-28-08's rule for this phase is that prose asserting a closure that does not hold must be
+      corrected, not left standing. Three statements at HEAD fail that rule. This is a
+      record-integrity gap, filed separately from SC1 because it stands regardless of how SC1 is
+      dispositioned — even an accepted-residual ruling on SC1 requires these repaired.
+    artifacts:
+      - path: "src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieCarrierInventoryTest.kt"
+        issue: >-
+          (1) `:751-754` — "COMMITTED PROBES: ... AiScanCheckDetailCookieCarrierTest for (3) AND (4)".
+          There is no probe for (4). `grep -n "Payload Used"
+          src/test/kotlin/.../AiScanCheckDetailCookieCarrierTest.kt` returns ZERO lines, KDoc
+          included; re-run by this verifier. Not one of that file's 10 tests reads the
+          `**Payload Used:**` line under any mode, so deleting `sanitizeCookiePointText` from
+          `AiScanCheck.kt:392` keeps the whole 1298-test suite green. The register is right that (4)
+          is defence in depth rather than a measured carrier; it is wrong that a probe holds it.
+          (2) `:735-767` — the STILL OPEN clause omits BOTH the temporal bound (gap 1) and the
+          fail-open insertion-point-type set (below).
+    missing:
+      - "Either three assertions on route 2's `**Payload Used:**` line (STRICT stripped / OFF survives / PARAM_URL attribution control — the fixture already exists), or a correction of the register to say (4) is UNPROBED defence in depth."
+      - "Record the route-2 fail-open type set. MEASURED at source by this verifier via `javap` on the resolved `montoya-api-2026.2.jar`: `AuditInsertionPoint.type()` is a DEFAULT method whose entire body is `getstatic AuditInsertionPointType.EXTENSION_PROVIDED; areturn`, and the enum also carries `USER_PROVIDED` and `HEADER`. Unlike route 1's `InjectionType`, whose only cookie-capable member IS `COOKIE` (so D-28-01's pass-through was safe by construction), this enum has cookie-capable non-`PARAM_COOKIE` members. Any point from `registerAuditInsertionPointProvider` or the public `auditInsertionPoint(name, request, start, end)` factory reaches `AiScanCheck` (`App.kt:215`, `PER_INSERTION_POINT`) reporting `EXTENSION_PROVIDED`, and `buildDetail` renders its `baseValue()` verbatim under STRICT. Either widen the predicate to a set, or name the residual — but `anAbsentInsertionPointTypeDoesNotThrowAndPassesThrough`'s KDoc currently asserts the opposite premise ('a real Burp implementation may not override it' -> null), which is false against the shipped jar."
 deferred: []
 behavior_unverified_items: []
-coincidental_reliance_items:
-  - truth: "SC1 (as tested green by the phase) — the COOKIE originalValue is absent from the STRICT/BALANCED serialized detail"
-    reason: fixture-only
-    harden: >-
-      The green rests entirely on `IssueDetailCookieCarrierTest.PAYLOAD.value =
-      \"benign-probe-payload\"` (:544). The production path derives the payload from the very value
-      under test. Build the fixture payload through `PayloadGenerator` rather than hand-typing one.
-      (Recorded for completeness — SC1 is FAILED, so this is diagnosis, not an advisory on a pass.)
+coincidental_reliance_items: []
 ---
 
-# Phase 28: The Issue-Detail Cookie Carrier Verification Report
+# Phase 28: The Issue-Detail Cookie Carrier — Verification Report (Round 2)
 
 **Phase Goal:** Close `AR-27-08`. A COOKIE-typed injection point's value reaches the `scanner_issues`
 MCP tool result through `AuditIssue.detail()` and survives `Redaction.apply` in STRICT and BALANCED,
-emitted verbatim. This phase closes `AR-27-08` AND `InjectionPointExtractor.kt:29` together.
+emitted verbatim. Closes `AR-27-08` AND `InjectionPointExtractor.kt:29` together.
 
 **Verified:** 2026-08-27
 **Status:** gaps_found
-**Re-verification:** No — initial verification
+**Re-verification:** Yes — round 2, after gap closure by plans 28-04, 28-05 and 28-06
 **Mode:** standard (no `mode:` on the ROADMAP phase; MVP rules dormant)
 
 ## Goal Achievement
 
-The phase goal is **NOT achieved**. `AR-27-08` is not closed. The mechanism plan 28-01 built is, in
-isolation, correct and well-proven — type-keyed on a closed enum, reading the live policy at the write
-site, with a genuinely non-vacuous probe and a measured red probe. What failed is the *span* of the
-control: it guards one of the nine detail lines the same function emits, and the register was amended
-to say the route is closed while two routes carrying the same bytes remain open.
+**The gap round did the work it was scoped to do, and it did it well.** Both round-1 leak routes are
+genuinely closed — measured, not taken on trust. Route 1's payload line is gated type-keyed on a
+closed enum and proven with a fixture the production `PayloadGenerator` builds, which is precisely
+the vacuity my round-1 report measured. Route 2's gate avoids the wrong-predicate trap on the record
+rather than by luck. Every round-1 gap and the one round-1 `partial` are closed, with no regression
+anywhere in a 1298-test suite. That is real, and none of what follows should be read as diminishing it.
 
-Success criteria 2, 3, 4, 5 and 6 are each independently verified and are good work. SC1 — the one
-the goal sentence is about — is measured false.
+**SC1 is nonetheless still not satisfied**, on a narrower and different mechanism. Round 1: the value
+leaked under a pure STRICT scan. Round 2: every write under STRICT or BALANCED is controlled and
+measurably clean — including the whole of the default posture, since `privacyMode` defaults to
+`BALANCED` — and what remains is the temporal bound. That distinction is the finding, not a hedge.
+
+### The adjudication: (b), and why
+
+The prompt asked for (a) or (b). **I conclude (b).** Three facts decide it.
+
+**1. SC1's wording binds to the tool result, not to the write site.** "A COOKIE-typed injection
+point's `originalValue` does not appear in the `scanner_issues` tool result in STRICT or BALANCED."
+The tool result is produced at read time. There is a read, with `privacyMode = STRICT`, that returns
+the value. Reading "in STRICT" as scoping the *scan* rather than the *emission* is available, but it
+is the strained reading, and it is the reading that lets the record be wider than the control — the
+exact pattern this phase exists to correct, now applied to the phase's own verification.
+
+**2. `AR-27-08`'s own sentence is still literally true at HEAD.** Row 315's original 2026-08-25
+measurement reads: *"A COOKIE-typed injection point's value reaches the `scanner_issues` tool result
+through `AuditIssue.detail()` and SURVIVES `Redaction.apply` in STRICT and in BALANCED alike, emitted
+verbatim."* Along the OFF-then-switch path, every clause of that sentence holds. This is therefore a
+surviving instance of the chartered finding, not a new residual outside the boundary. It is inside
+scope by exactly the argument D-28-05 used to pull route 2 in: *"both are instances of `AR-27-08` as
+the ROADMAP defines it, so both are inside the existing boundary."* And unlike D-28-06's repo-wide
+gate, it was never considered-and-rejected — it is simply absent from every record.
+
+**3. It is measured, not inferred.** I did not need to mutate the tree; the phase's own committed
+evidence closes the path end to end:
+
+| Step | Evidence | Where |
+|---|---|---|
+| An OFF-built detail carries the value | `cookieBaseValueSurvivesUnderOff` — green | `AiScanCheckDetailCookieCarrierTest:179` |
+| That string is stored, not re-rendered | `api.siteMap().add(issue)`; `detail = detail()` | `ActiveAiScanner.kt:1285`; `Serialization.kt:14` |
+| `scanner_issues` reads it back | `val issues = api.siteMap().issues()` | `McpToolExecutorImpl.kt:605` |
+| STRICT redaction does NOT remove it | 28-05 **red probe 1**, verbatim: `AssertionFailedError: STRICT: … the sentinel 'cedar-anchor-marble-feather' was present` — in the **redacted** detail field, with the gate not firing | `28-05-SUMMARY.md:224` |
+| A corroborating green shows the same blindness | `urlParamInsertionPointSurvivesStrict_attributionControl` asserts the sentinel SURVIVES `Redaction.apply` under STRICT | `AiScanCheckDetailCookieCarrierTest:200` |
+| Re-scanning under STRICT does not repair it | `consolidateIssues` -> `KEEP_EXISTING` on canonical name + normalized URL | `AiScanCheck.kt:101-112` |
+
+The 28-05 red probe is the decisive one: it is a direct measurement of "gate does not fire at write
+time, STRICT redactor sees the value, value survives." The OFF path arrives at the redactor in
+exactly that state. This is not the same-day inference pattern the phase set out to avoid.
+
+**What (a) has going for it, stated fairly.** The mechanism the phase chartered — a type-keyed write
+site control at the last point that still holds the type — is complete and correct at all four lines.
+SC2 explicitly requires the value to be present under OFF, and the leaking string *was* produced
+under OFF. `privacyMode` defaults to `BALANCED`, so the sequence needs a deliberate `OFF`. Reachability
+is the same latent, opt-in profile the register itself used to justify `AR-27-08` at MEDIUM rather
+than high. **This is why the honest disposition may well be "accept the residual" — but that is a
+maintainer decision recorded as a named residual, not a verifier's finding of satisfaction.** The
+override block at the end of this report is the vehicle for it.
+
+**The silence stands as a finding either way, as the prompt anticipated.** The temporal bound appears
+in NO phase-28 KDoc, decision (D-28-01 / D-28-05 / D-28-06 / D-28-07 / D-28-08), SUMMARY, register
+row, or `ISSUE_DETAIL_CARRIER_DISPOSITION`. I grepped `src/main/kotlin`, `src/test/kotlin` and
+`.planning/phases/28-*/` for `retroactiv|non-retroactive|write-time snapshot|KEEP_EXISTING|stale`: the
+only hits are inside `28-REVIEW-2.md` itself. Two enumerations that declare themselves the place
+residuals get named — `ISSUE_DETAIL_CARRIER_DISPOSITION`'s "STILL OPEN, NAMED SO NOBODY READS THIS AS
+A CLOSURE" and row 315's "(d) WHAT THIS AMENDMENT DOES NOT COVER, BY IDENTIFIER" — both omit it. And
+`SettingsPanelInit.kt:58`'s tooltip ("Controls how traffic is redacted before sending to a model")
+invites precisely the retroactive reading that is false.
 
 ### Observable Truths
 
 | # | Truth (verbatim ROADMAP Success Criterion) | Status | Evidence |
 |---|---|---|---|
-| SC1 | A COOKIE-typed injection point's `originalValue` does not appear in the `scanner_issues` tool result in STRICT or BALANCED. Cookie NAMES may remain; VALUES must not. | ✗ **FAILED** | Falsified by measurement (below) and by a second, uncontrolled producer. See "SC1 — the measurement". |
-| SC2 | Under `OFF` the value still appears — the fix is policy-driven, not an unconditional rewrite. | ✓ VERIFIED | `cookieOriginalValueSurvivesUnderOff` passes (run by this verifier). Gate is `policy.stripCookies && point.type == InjectionType.COOKIE` (`ScannerIssueSupport.kt:68`); `RedactionPolicy.fromMode` supplies `stripCookies=false` for OFF. |
-| SC3 | A red probe reverting the control turns a NAMED assertion red, and the specific assertion and its failure message are recorded — not "the suite went red". | ✓ VERIFIED | `28-01-SUMMARY.md:123-305`. Designated assertion NAMED (`cookieOriginalValueIsStrippedUnderStrict`, `:146`), three mutations measured, every verbatim `org.opentest4j.AssertionFailedError` message recorded incl. the one mutation detected ONLY by a source-text pin, which the SUMMARY explicitly calls weaker rather than reporting reach it lacks. |
-| SC4 | `InjectionPointExtractor.kt:29` is resolved in the same phase as the route, with its two consumers' differing dispositions preserved. | ✓ VERIFIED | Predicate now `Redaction.isCookieParameterType(it.type().name)` (`InjectionPointExtractor.kt:37`); shared predicate at `Redaction.kt:622` trims+uppercases, so the swap is value-preserving in the safe direction. `git diff --stat ad2ca90 HEAD -- .../AdaptivePayloadEngine.kt` is **empty** — byte-unchanged, machine-checked not asserted. Extractor still returns the RAW value (`:38`), so consumer 1 is not double-redacted. `CookieRouteDispositionTest` 5/5 pass. |
-| SC5 | `26-SECURITY.md`'s `AR-27-08` row is amended — append-and-amend, prior text byte-prefix intact — and `threats_open` is recomputed rather than asserted. | ✓ VERIFIED | Independently re-derived: `sha256(first 3399 bytes)` of the row at `ad2ca90` and at HEAD both `c60cacb666505311afe4d919fdbfad038fb2b524700dc99ab71b6a7a90266129`. Dated supersession marker present, nothing deleted. Documented awk re-run by this verifier: raw output `0`, 46 `T-26-` rows scanned; `threats_open: 0` at line 198 matches. Counter population stated explicitly at lines 187-197 (AR- rows sit outside it at any severity). |
-| SC6 | `ResponseAnalyzer`'s narrow transitive tail is examined in the same pass. | ✓ VERIFIED | `EvidenceTailReachTest` 2/2 pass; derives the cap set from source with a pin as drift tripwire. Roadmap's "capped at 80" corrected to the measured multiset **{80, 80, 60}** — confirmed at source by this verifier: `ResponseAnalyzer.kt:682 take(80)`, `:720 take(60)`, `:791 take(80)`. `AR-28-01` filed with id, DERIVED severity MEDIUM, named owner (maintainer) and named venue (phase 28 human UAT). Two-directional reach measurement where the negative case still asserts the analyzer fired. |
+| SC1 | A COOKIE-typed injection point's `originalValue` does not appear in the `scanner_issues` tool result in STRICT or BALANCED. Cookie NAMES may remain; VALUES must not. | ✗ **FAILED** (narrowed) | Holds for every issue PRODUCED under STRICT/BALANCED — all four detail lines across both producers, 31 tests. Falsified for issues produced under OFF and read under STRICT. See the adjudication above. |
+| SC2 | Under `OFF` the value still appears — the fix is policy-driven, not an unconditional rewrite. | ✓ VERIFIED | Four gates, all keyed on `policy.stripCookies`; `Redaction.kt:41-45` gives OFF `stripCookies = false`. `cookieOriginalValueSurvivesUnderOff` (route 1) and `cookieBaseValueSurvivesUnderOff` (route 2) both green in this verifier's own full run. Attribution controls on both routes prove the gates are type-keyed, not unconditional. |
+| SC3 | A red probe reverting the control turns a NAMED assertion red, with the specific assertion and its failure message recorded — not "the suite went red". | ✓ VERIFIED | Discharged for BOTH gap routes. 28-04: five measured runs, every `org.opentest4j.AssertionFailedError` quoted verbatim (`28-04-SUMMARY.md:162-375`), including a fixture non-vacuity failure. 28-05: three probes (`:200-265`), the first being the **wrong-predicate** probe — it compiles, every presence assertion stays green, and only the designated `cookieBaseValueIsStrippedUnderStrict` goes red. That probe is the single strongest artifact this phase produced. |
+| SC4 | `InjectionPointExtractor.kt:29` resolved in the same phase as the route, with its two consumers' differing dispositions preserved (`AdaptivePayloadEngine.kt:52` must not be double-redacted). | ✓ VERIFIED | `git diff --stat ad2ca90 HEAD -- .../AdaptivePayloadEngine.kt` **empty** — byte-unchanged across the whole phase including the gap round; `:52` still `if (privacyMode != PrivacyMode.OFF) "[REDACTED_VALUE]"`. Extractor predicate is `Redaction.isCookieParameterType(it.type().name)` (`:38`) and still returns the RAW value, so consumer 1 is not double-redacted. `InjectionPointExtractorTest` 12/12, `CookieRouteDispositionTest` 7/7. |
+| SC5 | `26-SECURITY.md`'s `AR-27-08` row amended — append-and-amend, prior text byte-prefix intact — and `threats_open` recomputed rather than asserted. | ✓ VERIFIED | Re-derived independently: row 315 is 16191 bytes; `awk 'NR==315' \| head -c 8693 \| shasum -a 256` = `8dc326ac23204becce687deeba867740eb2d4dde21346c58d7da9595d137ae2e`, the value the amendment itself pins. Two dated markers with distinct plan ids (28-03, 28-06), and the second names WHICH it supersedes so they cannot be merged. Row head still `**NEW, OPEN, severity MEDIUM…**`. `threats_open: 0` with the awk's own raw output recorded (46 rows, 46 closed) and the AR-/T-26- population distinction stated. |
+| SC6 | `ResponseAnalyzer`'s narrow transitive tail examined in the same pass. | ✓ VERIFIED | `EvidenceTailReachTest` 2/2. Cap multiset re-confirmed at source by this verifier: `ResponseAnalyzer.kt:682 take(80)`, `:720 take(60)`, `:791 take(80)` — the ROADMAP's singular "capped at 80" corrected to `{80, 80, 60}`, with `ActiveAiScanner.kt:1206`'s larger `take(100)` recorded as defeating every construction cap. `AR-28-01` filed at row 319, DERIVED MEDIUM, named owner and venue, two-directional reach where the negative case still asserts the analyzer fired. |
 
 **Score: 5/6 truths verified (0 present, behavior-unverified).**
 
-### SC1 — the measurement
-
-Presence checks alone would have passed this. They were not sufficient, so the control's span was
-measured directly. A temporary working-tree mutation replaced the test fixture's hand-typed payload
-with the payload **production actually builds** for a string-context SQLI probe of a COOKIE point
-(`PayloadGenerator.kt:782`, `"$originalValue' AND '1'='1"`), the class was run, and the file was
-restored (`git status --porcelain src/` clean afterwards; class re-run green at 14/14).
-
-Mutation: `IssueDetailCookieCarrierTest.kt:544`
-`value = "benign-probe-payload"` → `value = "$DETAIL_SENTINEL' AND '1'='1"`
-
-Result: **14 tests completed, 4 failed.** Verbatim:
-
-```
-cookieOriginalValueIsStrippedUnderStrict()
-org.opentest4j.AssertionFailedError: STRICT: the COOKIE-typed injection point's originalValue
-must be ABSENT from the serialized issue detail, but the sentinel
-'apple-orange-basket-lantern' was present. ==> expected: <false> but was: <true>
-
-cookieOriginalValueIsStrippedUnderBalanced()
-org.opentest4j.AssertionFailedError: BALANCED: the COOKIE-typed injection point's originalValue
-must be ABSENT from the serialized issue detail, but the sentinel
-'apple-orange-basket-lantern' was present. ==> expected: <false> but was: <true>
-
-theStrippedDetailFieldRetainsEverythingAfterTheControlPoint()
-  actual: ...&nbsp;Original Value: [STRIPPED]<br>&nbsp;&nbsp;Payload Used:
-          apple-orange-basket-lantern' AND ...
-```
-
-That `actual:` line is SC1's falsification in one string: the value stripped from `Original Value:`
-survives verbatim on the next line, after `Redaction.apply`, in STRICT. The phase's own designated
-red-probe assertion is the one that goes red — the assertion is sound; the fixture was chosen so it
-could not fire.
-
-Route 2 needs no probe: `AiScanCheck.kt` contains no privacy identifier at all.
-
-### Plan-Frontmatter Must-Haves (additive to the roadmap SCs)
-
-| Plan | Must-have | Status | Evidence |
-|---|---|---|---|
-| 28-01 | Key link: `ActiveAiScanner.createConfirmedIssue` calls `buildActiveIssueDetailLines`, no inline rebuild | ✓ VERIFIED | `ActiveAiScanner.kt:1237-1245`; zero inline detail accumulators remain in that file. |
-| 28-01 | Key link: policy reaches the write site as `RedactionPolicy.fromMode(getSettings().privacyMode)` | ✓ VERIFIED | `ActiveAiScanner.kt:1244`; pinned by `theWriteSiteReadsTheLivePolicy`. |
-| 28-01 | Key link: gate keys on `InjectionType.COOKIE`, never a rendered string shape | ✓ VERIFIED | `ScannerIssueSupport.kt:68`. |
-| 28-01 | ATTRIBUTION / POSITIVE CONTROL / NON-VACUITY / CONTENT PRESERVATION | ✓ VERIFIED | All four named tests present and passing (14/14 run by this verifier). |
-| 28-01 | LOCAL EVIDENCE INTACT — `requestResponses` byte-unchanged by the control | ✓ VERIFIED | `theRequestResponsesListIsNotAlteredByTheControl` passes; `ActiveAiScanner.kt:1281` list untouched. |
-| 28-01 | "THE ONLY PRODUCER … IN THE REPOSITORY" (source claim + advertised single-producer gate) | ✗ **FAILED** | `grep -rn "Original Value" src/main/kotlin/` returns **two** producers. The gate at `:625-632` filters the producer's own return list. |
-| 28-02 | SC4 both halves, NO DOUBLE REDACTION, ONE MARKER VOCABULARY | ✓ VERIFIED | `CookieRouteDispositionTest` 5/5. |
-| 28-02 | COUNT RE-DERIVED, NOT RESTATED | ✓ VERIFIED | `Redaction.kt:613-616` deliberately declines to restate a number and points at `exactlyOneCookieTypePredicateExistsInMainSource`. |
-| 28-02 | CORRECTION FAN-OUT COMPLETE (six prose sites) | ✓ VERIFIED | `git diff --stat ad2ca90 HEAD` shows all six files amended: `Redaction.kt`, `InjectionPointExtractor.kt`, `CookieCarrierInventoryTest.kt`, `CookieHeaderRuleOwnershipTest.kt`, `ParameterCarrierRedactionTest.kt`, plus the inventory key move. |
-| 28-03 | SC6 + bound correction; AR-28-01 with id, severity, owner, venue | ✓ VERIFIED | See SC6 row. |
-| 28-03 | PRIV-05 JUDGEMENT — explicit enumerated decision, REQUIREMENTS.md byte-unchanged, sha re-derived as a gate | ✓ VERIFIED | Re-derived by this verifier: `9b3219662ec0d007c1c82d64eed3ef2698bd306ce69f01205ac9bbc3f42fcfb4`, PRIV-05 line 23 `- [ ]`. Enumeration at `28-03-SUMMARY.md:515-539`. |
-| 28-03 | PRIV-05 GATE RUNS TWICE, RUN 2 recorded post-completion | ⚠️ **PARTIAL** | Heading exists and is distinct, but still holds the pre-run instruction block. See gaps. |
-| 28-03 | SCOPE HONESTY — "ONE LINE, NOT THE BLOB" stated where a reader meets it | ⚠️ PARTIAL | Stated in both `AR-27-08` and `AR-28-01` and load-bearing (grep count 0→1). But it enumerates only the `Evidence` line; the `Payload Used:` line in the same block and `AiScanCheck` are absent, so the clause under-states the residual it exists to disclose. |
+The headline is unchanged from round 1, and that is misleading unless read with the mechanism: round
+1's SC1 failed because a pure STRICT scan leaked; round 2's fails only on a stored string written in
+a different mode. Six of six round-1 gap items are closed.
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |---|---|---|---|
-| `src/main/kotlin/.../scanner/ScannerIssueSupport.kt` | Gains `buildActiveIssueDetailLines`, `sanitizeInjectionPointValue`, `ORIGINAL_VALUE_MAX_CHARS`, `INJECTION_VALUE_STRIPPED_MARKER` | ⚠️ **HOLLOW** | All four symbols exist, are substantive and wired. But the control's span is one line of nine; line 121 in the same function re-emits the bytes line 120 strips. Exists ✓ / substantive ✓ / wired ✓ / achieves the truth ✗. |
-| `src/test/kotlin/.../scanner/IssueDetailCookieCarrierTest.kt` | New, 14 tests | ⚠️ FIXTURE-DEPENDENT | 759 lines, 14/14 pass. High quality and genuinely non-vacuous for the line it covers; blind to the adjacent line by fixture choice. |
-| `src/main/kotlin/.../scanner/InjectionPointExtractor.kt` | Predicate converted | ✓ VERIFIED | `:37` calls the shared predicate; raw value preserved at `:38`; comment records D-28-02. |
-| `src/main/kotlin/.../redact/Redaction.kt` | KDoc amended, zero executable change | ✓ VERIFIED | +22 lines, all KDoc (`:600-620`); `isCookieParameterType` body unchanged at `:622`. |
-| `src/test/kotlin/.../scanner/CookieRouteDispositionTest.kt` | New | ✓ VERIFIED | 356 lines, 5/5 pass. |
-| `src/test/kotlin/.../scanner/EvidenceTailReachTest.kt` | New | ✓ VERIFIED | 264 lines, 2/2 pass; derives caps from source. |
-| `.planning/phases/26-.../26-SECURITY.md` | AR-27-08 amended, AR-28-01 appended, threats_open recomputed | ⚠️ **CONTENT DEFECT** | Mechanics all correct (byte-prefix, supersession marker, recomputed counter). The amended cell asserts a closure that is measured false. |
-| `src/main/kotlin/.../scanner/AiScanCheck.kt` | *(not in any plan's `files_modified`)* | ✗ **UNENUMERATED PRODUCER** | Second uncontrolled detail producer; absent from every phase-28 artifact. |
+| `ScannerIssueSupport.sanitizeRenderedPayload` | Type-keyed strip of the `Payload Used:` line | ✓ VERIFIED | `:127-138`; gate `policy.stripCookies && point.type == InjectionType.COOKIE`; marker referenced, not retyped; no emptiness guard (deliberate, stated). Wired at `:221`. |
+| `AiScanCheck.isCookieInsertionPoint` | Identity compare on `AuditInsertionPointType.PARAM_COOKIE` | ✓ VERIFIED | `:459`. Constant confirmed present in `montoya-api-2026.2.jar` by `javap`. Pinned against the wrong-predicate substitution by a dedicated test. |
+| `AiScanCheck.sanitizeCookiePointText` | Single gate both route-2 lines call | ✓ VERIFIED | `:474-486`, companion-scoped (deviation recorded with its detekt `TooManyFunctions` reason, and QUAL-07 honoured — `detekt-baseline.xml` byte-unchanged, machine-checked). Wired at `:388` and `:392`. |
+| `AiScanCheckDetailCookieCarrierTest` | Non-vacuous route-2 probe | ⚠️ PARTIAL | 10/10 green with fixture pin, OFF survival, attribution control and a non-vacuity tail check. **But zero assertions on `**Payload Used:**`** — line (4) is unprobed while the register names a probe for it. See gap 2. |
+| `IssueDetailCookieCarrierTest` | Route-1 probe, production-derived fixture | ✓ VERIFIED | 21/21. `PAYLOAD` derived from `PayloadGenerator.generateContextAwarePayloads` with a non-vacuity assertion (`:728-739`) that names my round-1 finding as the reason it exists. |
+| `CookieCarrierInventoryTest` | Inventory + disposition register, corrected | ⚠️ PARTIAL | 4/4; `isCommentOnly` narrowed (`:243-246`); `BOTH NOW CONTROLLED` amended in place at `:495`. Residual enumeration incomplete — gap 2. |
+| `CookieRouteDispositionTest` | Predicate-population tripwires | ✓ VERIFIED | 7/7, WR-05's `File.separator` defect fixed with the reason recorded (`:383-386`). |
+| `26-SECURITY.md` row 315 | Append-and-amend, prefix intact, OPEN | ✓ VERIFIED | See SC5. |
+| `.planning/REQUIREMENTS.md` | Byte-unchanged, PRIV-05 `- [ ]` | ✓ VERIFIED | `shasum -a 256` = `9b3219662ec0d007c1c82d64eed3ef2698bd306ce69f01205ac9bbc3f42fcfb4`; line 23 `- [ ]`; absent from `git status --porcelain`. |
 
 ### Key Link Verification
 
-| From | To | Via | Status | Details |
-|---|---|---|---|---|
-| `ActiveAiScanner.createConfirmedIssue` | `ScannerIssueSupport.buildActiveIssueDetailLines` | direct call + `RedactionPolicy.fromMode(getSettings().privacyMode)` | ✓ WIRED | `:1237-1245` |
-| `ScannerIssueSupport` | `AuditIssue.detail` | `IssueUtils.formatIssueDetailHtml` → `AuditIssue.auditIssue` → `api.siteMap().add` | ✓ WIRED | `:1246`, `:1272-1284` |
-| `api.siteMap().issues()` | `scanner_issues` MCP tool result | `McpToolExecutorImpl.kt:602-618` | ✓ WIRED | Confirms both producers reach the tool. |
-| `InjectionPointExtractor` | `Redaction.isCookieParameterType` | `filter { Redaction.isCookieParameterType(it.type().name) }` | ✓ WIRED | `:37` |
-| `InjectionPointExtractor` → `AdaptivePayloadEngine` | raw value, own marker | `originalValue` unredacted at producer | ✓ WIRED | `:38`; engine byte-unchanged. |
-| `AiScanCheck.buildDetail` | any privacy control | — | ✗ **NOT WIRED** | No `Redaction` / `PrivacyMode` / `RedactionPolicy` / `sanitize` identifier in the file. |
-| `ScannerIssueSupport` line 121 (`Payload Used:`) | any privacy control | — | ✗ **NOT WIRED** | No policy argument on the payload branch. |
+| From | To | Via | Status |
+|---|---|---|---|
+| `ScannerIssueSupport.kt:221` | `sanitizeRenderedPayload` | Direct call in the detail-line accumulator | ✓ WIRED |
+| `AiScanCheck.kt:388`, `:392` | `sanitizeCookiePointText` | Raw-string interpolation in `buildDetail` | ✓ WIRED |
+| `AiScanCheck.buildDetail` | `getSettings().privacyMode` | `RedactionPolicy.fromMode` at `:361-362` | ✓ WIRED (live policy read — **at write time only**; see gap 1) |
+| `App.kt:215` | `AiScanCheck` | `registerActiveScanCheck(..., PER_INSERTION_POINT)` | ✓ WIRED |
+| `ActiveAiScanner.kt:1285` | Burp site map | `api.siteMap().add(issue)` | ✓ WIRED |
+| `McpToolExecutorImpl.kt:605` | `Serialization.kt:14` | `api.siteMap().issues()` -> `detail = detail()` | ✗ **NOT POLICY-GATED** — the read path applies no live-policy filter to the stored string. This is gap 1's mechanism. |
 
 ### Data-Flow Trace (Level 4)
 
-| Artifact | Data variable | Source | Reaches `scanner_issues` under STRICT/BALANCED | Status |
+| Artifact | Data variable | Source | Produces real data | Status |
 |---|---|---|---|---|
-| `ScannerIssueSupport.kt:120` | `sanitizeInjectionPointValue(point, policy)` | `InjectionPoint.originalValue`, gated | No — `[STRIPPED]` | ✓ CONTROLLED |
-| `ScannerIssueSupport.kt:121` | `payload.value` | `PayloadGenerator.kt:762/771/782/791`, interpolated from `originalValue` | **Yes, verbatim** | ✗ FLOWING (measured) |
-| `ScannerIssueSupport.kt:123` | `evidence` | `ResponseAnalyzer` matched substring | **Yes, all three modes** | ⚠️ FLOWING — filed as `AR-28-01` |
-| `AiScanCheck.kt:353` | `insertionPoint.baseValue()` | Montoya cookie insertion point | **Yes** (route unmeasured through `Redaction.apply`) | ✗ FLOWING (uncontrolled) |
-| `ActiveAiScanner.kt:1281` `requestResponses` | raw request | Burp-held traffic, by design | Local Burp UI only | ✓ INTENDED |
+| `buildActiveIssueDetailLines` | `point.type`, `payload.value` | Real `InjectionPoint` from `InjectionPointExtractor`; payload from `PayloadGenerator` (fixture derived the same way) | Yes | ✓ FLOWING |
+| `AiScanCheck.buildDetail` | `insertionPoint.baseValue()`, `insertionPoint.type()` | Real Montoya `AuditInsertionPoint` supplied by Burp | Yes | ✓ FLOWING |
+| Both gates | `policy` | `RedactionPolicy.fromMode(getSettings().privacyMode)` — the live setting | Yes, at write time | ⚠️ **STALE ON READ** — the value emitted by `scanner_issues` was filtered against the policy in force when the issue was built, not the one in force when it is emitted. |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |---|---|---|---|
-| Phase-28 test classes pass at HEAD | `./gradlew test --tests IssueDetailCookieCarrierTest --tests CookieRouteDispositionTest --tests EvidenceTailReachTest` | 14/5/2, 0 failures, 0 errors | ✓ PASS |
-| SC1 holds against a production-shaped payload | fixture mutation at `:544` → run → restore | **14 completed, 4 FAILED**; sentinel present in STRICT and BALANCED | ✗ **FAIL** |
-| Restore is clean | `git status --porcelain src/` + re-run | empty; 14/14 green | ✓ PASS |
-| `threats_open` re-derivation | documented awk from `26-SECURITY.md:8-10` | raw output `0`, 46 rows | ✓ PASS |
-| `AR-27-08` byte-prefix preservation | `sha256` of first 3399 bytes, `ad2ca90` vs HEAD | identical digest | ✓ PASS |
-| `AdaptivePayloadEngine` untouched | `git diff --stat ad2ca90 HEAD -- AdaptivePayloadEngine.kt` | empty | ✓ PASS |
-| `REQUIREMENTS.md` gate | `shasum -a 256` + `grep -n PRIV-05` | `9b3219662ec0d007…`, line 23 `- [ ]` | ✓ PASS |
-| Repo-wide detail-producer count | `grep -rn "Original Value" src/main/kotlin/` | **2** producers | ✗ FAIL (KDoc claims 1) |
-| `AiScanCheck` privacy handling | `grep -n "Redaction\|PrivacyMode\|RedactionPolicy\|sanitize" AiScanCheck.kt` | no matches | ✗ FAIL |
+| Full suite, forced re-run | `JAVA_HOME=$(…21) ./gradlew test --rerun-tasks` | exit 0 | ✓ PASS |
+| Suite totals from XML, not console | aggregate over `build/test-results/test/TEST-*.xml` | 180 classes, **1298 tests, 0 failures, 0 errors, 1 skipped** | ✓ PASS (the 1 skip is the pre-existing `@Disabled` in `ExternalMcpClientManagerTest`) |
+| Gap-round class counts | same aggregation | `IssueDetailCookieCarrierTest` 21, `AiScanCheckDetailCookieCarrierTest` 10, `CookieRouteDispositionTest` 7, `CookieCarrierInventoryTest` 4, `EvidenceTailReachTest` 2, `InjectionPointExtractorTest` 12 — all 0/0/0 | ✓ PASS |
+| `AdaptivePayloadEngine` untouched | `git diff --stat ad2ca90 HEAD -- …/AdaptivePayloadEngine.kt` | empty | ✓ PASS |
+| `detekt-baseline.xml` untouched | `git diff --stat ad2ca90 HEAD -- detekt-baseline.xml` | empty | ✓ PASS |
+| Row-315 byte-prefix | `awk 'NR==315' … \| head -c 8693 \| shasum -a 256` | `8dc326ac…7ae2e` | ✓ PASS |
+| Montoya `type()` default body | `javap -c` on `montoya-api-2026.2.jar` | `getstatic AuditInsertionPointType.EXTENSION_PROVIDED; areturn` | ✓ PASS (confirms WR-01's premise; falsifies the KDoc at `AiScanCheckDetailCookieCarrierTest:241-260`) |
+| Route-2 payload-line coverage | `grep -n "Payload Used" …/AiScanCheckDetailCookieCarrierTest.kt` | **zero lines** | ✗ FAIL — gap 2 |
+| Temporal-bound recorded anywhere | `grep -rniE "retroactiv\|write-time snapshot\|KEEP_EXISTING\|stale" src/ .planning/phases/28-*/` | only hits are inside `28-REVIEW-2.md` | ✗ FAIL — gap 1 |
 
-Full-suite status taken from the orchestrator (1279 tests, 1 skipped, 1 known `RedactionTest`
-wall-clock flake that passes in isolation and whose failing assertion is the fail-closed anti-vacuity
-check, not the leak check). Not re-run — the workspace-suite budget was spent on the targeted classes
-and the SC1 probe.
+`./gradlew check` was not run as a gate — RED for the maintainer-accepted coverage-floor reason.
 
 ### Probe Execution
 
-| Probe | Command | Result | Status |
-|---|---|---|---|
-| — | `find scripts -path '*/tests/probe-*.sh'` | none | N/A — no shell probes in this project; no phase-28 artifact declares one |
+No `scripts/*/tests/probe-*.sh` exists in this repository and no phase-28 plan declares one; the
+phase's probe discipline is the JUnit red-probe protocol, verified under SC3 above.
 
 ### Requirements Coverage
 
-| Requirement | Source plan | Description | Status | Evidence |
-|---|---|---|---|---|
-| PRIV-05 | 28-01, 28-02, 28-03 (all three) | Cookie values do not reach an AI backend in STRICT or BALANCED **by any path** | ✗ **BLOCKED** — correctly left open | `REQUIREMENTS.md:23` remains `- [ ]`, file byte-unchanged (`9b3219662ec0d007…`). D-28-04 enumerates five open carriers. **The decision to leave it open is CONSISTENT with the code** — more so than the enumeration itself knows, since its premise "Closing `AR-27-08` closes ONE carrier" is false: AR-27-08 is not closed either. |
+| Requirement | Source plans | Status | Evidence |
+|---|---|---|---|
+| PRIV-05 — "Cookie values do not reach an AI backend in STRICT or BALANCED mode **by any path**" | 28-01…28-06 (all six declare it) | ✗ BLOCKED — and correctly recorded as such | Stays `- [ ]` by D-28-04. **That decision is CONSISTENT with what the code now does, and this round makes it more so, not less.** Five carriers remain open (`AR-27-04`, `AR-27-07`, `AR-27-10`, `AR-27-11`, `AR-28-01`), `AR-27-08` itself stays open, and gap 1 adds a sixth path. `REQUIREMENTS.md` byte-unchanged; not edited by this verifier. |
 
-No orphaned requirements: `grep -E "Phase 28" .planning/REQUIREMENTS.md` maps only PRIV-05, which all
-three plans claim.
+No orphaned requirements: `grep -nE "\| 28 \|" .planning/REQUIREMENTS.md` returns nothing beyond
+PRIV-05's own mapping row, and all six plans claim it.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |---|---|---|---|---|
-| `ScannerIssueSupport.kt` | 32-33 | KDoc premise false for context-aware payloads ("the payload is agent-authored, not operator traffic") | 🛑 Blocker | Documents away the exact leak on the adjacent line. |
-| `ScannerIssueSupport.kt` | 74-75 | KDoc asserts a repository-wide property no committed test can check, and which is false | 🛑 Blocker | A future reader trusts a single-producer invariant that does not hold. |
-| `CookieCarrierInventoryTest.kt` | 407 | "BOTH NOW CONTROLLED" — true of one line, false of the block | 🛑 Blocker | Registry now over-states coverage. |
-| `26-SECURITY.md` | 315 | Register cell asserts route closure | 🛑 Blocker | The register-wider-than-the-control class T-26-02-01 already records three times. |
-| `IssueDetailCookieCarrierTest.kt` | 544 | Fixture payload contradicts its own `VulnClass.SQLI` label | ⚠️ Warning | Makes the SC1 green unfalsifiable by the code path it names. |
-| `28-03-SUMMARY.md` | 542-580 | Instruction block left in place of RUN 2 output | ⚠️ Warning | Declared outstanding rather than claimed done — honest, but undischarged past the commit. |
+| — | — | `TBD` / `FIXME` / `XXX` / `TODO` / `HACK` / `PLACEHOLDER` across all six phase-modified files | — | **None found.** Debt-marker gate clean. |
+| — | — | 28-05 probe-3 scratch symbol residue (`scratchProbeSecondInsertionPointPredicate`) | — | **None found** in `src/main` or `src/test` — the probe was reverted as claimed. |
+| `CookieRouteDispositionTest.kt` | 378 | `trimmed.startsWith("*")` retained in `matchingCodeLinesIn` — the exact predicate 28-06 narrowed next door | ⚠️ Warning | The helper backing this round's own route-2 tripwire misclassifies the entire route-2 detail template as comment. Not a live hole today (the shipped predicate is not in a raw string), but the tripwire is defeatable inside the one file it declares as owner. Also present in ~13 sibling test scanners — a shared `isCommentOnly` utility is the real fix. |
+| `AiScanCheckDetailCookieCarrierTest.kt` | 86-93 | KDoc guarantees the fixture pin "runs before any behavioural assertion" — no `@TestMethodOrder`, no `junit-platform.properties` | ℹ️ Info | Claim defect, not a live hole: `cookieBaseValueSurvivesUnderOff` and the attribution control cover the same ground. Moving the two `assertEquals` into the fixture factory would make the claim true by construction. |
 
-Debt-marker gate: `TBD` / `FIXME` / `XXX` / `TODO` / `HACK` / `PLACEHOLDER` scan across all ten files
-changed by this phase returns **zero** matches. Clean.
+### Deferred Items
+
+None. Phase 28 is the last phase of the milestone (`ROADMAP.md` phase details end at 28), so no later
+phase addresses either gap. Neither is deferrable within this milestone.
 
 ### Human Verification Required
 
-None routed here — the gaps are code-observable and take precedence. Two judgement calls belong to
-the maintainer when planning gap closure:
+Not applicable at this status — gaps_found takes precedence. **But the SC1 disposition is a
+maintainer judgement, not an engineering gap**, and the cheapest correct outcome may be to accept the
+residual rather than build the second layer. To take that path, add to this file's frontmatter:
 
-1. Whether `AiScanCheck` should be controlled or explicitly dispositioned as a new `AR-` row (it is a
-   different code path with the same opt-in precondition as AR-27-08).
-2. Whether the `Payload Used:` line should be controlled at the render site (mirroring line 120) or at
-   `PayloadGenerator` (which would also close the payload's presence in `ScanKnowledgeBase` and the
-   `active_scan_confirmed` audit event) — the two have different blast radii.
+```yaml
+overrides:
+  - must_have: "SC1 — A COOKIE-typed injection point's `originalValue` does not appear in the `scanner_issues` tool result in STRICT or BALANCED"
+    reason: >-
+      The write-time/read-time bound is accepted as a NAMED RESIDUAL. Every issue produced under
+      STRICT or BALANCED — the whole default posture — is measurably clean across all four detail
+      lines of both producers. The residual requires a deliberate OFF scan followed by a mode switch,
+      the same latent, opt-in reachability profile that put AR-27-08 at MEDIUM rather than high.
+      Accepted on condition the silence is repaired: named in ISSUE_DETAIL_CARRIER_DISPOSITION's
+      STILL OPEN clause and in 26-SECURITY.md row 315 clause (d), noted at
+      AiScanCheck.consolidateIssues, and surfaced next to the privacy-mode selector.
+    accepted_by: "<maintainer>"
+    accepted_at: "<ISO timestamp>"
+```
+
+**The override covers gap 1 only.** Gap 2 (the unprobed line (4) claimed as probed, and the two
+missing residual entries) is not a judgement call — it is prose asserting something the tree does not
+support, which D-28-08 governs directly.
 
 ### Gaps Summary
 
-The phase did excellent work on five of its six criteria and on the discipline criteria in
-particular: the append-and-amend prefix is byte-verified, `threats_open` is genuinely recomputed, the
-`AdaptivePayloadEngine` no-op is proven by `git diff` rather than asserted, the roadmap's own "capped
-at 80" claim is corrected to a derived {80, 80, 60}, the red probe is measured on three mutations
-with verbatim messages, and PRIV-05 was correctly refused closure. The 28-01 mechanism itself is
-sound.
+Two gaps, both narrow, neither of them a defect in the mechanism this round built.
 
-The failure is span, and it is the same failure this phase-27/28 series exists to correct: a control
-was applied to one line, and the records were then written as though the route were closed. The
-project's own vocabulary is the right frame — plan 27-08 was praised for calling a measurement a
-measurement rather than a mitigation; here a one-line mitigation is being called a route closure. The
-`Payload Used:` occurrence is not a newly discovered surface: phase 27's own probe output at
-`27-08-SUMMARY.md:297` printed `Original Value: <sentinel>` and `Payload Used: <sentinel>' AND '1'='1`
-side by side, and the phase stripped one of the two occurrences out of that string.
+**Gap 1 — SC1, the temporal bound.** Both controls decide once, at issue-construction time, and bake
+the result into an immutable string that Burp stores and `scanner_issues` replays. Nothing in the
+emission path consults the live policy. An issue built under `OFF` therefore emits the raw cookie
+value on a later STRICT read; `consolidateIssues` returns `KEEP_EXISTING`, so re-scanning under STRICT
+does not repair the site map; and `Redaction.apply` provably cannot rescue it — 28-05's own red probe
+recorded the sentinel surviving STRICT redaction verbatim when the write gate does not fire. Fix is a
+disposition, not necessarily code: either a second, explicitly-weaker line-prefix scrub at the MCP
+boundary against the live policy, or a recorded acceptance. **Silently shipping a control an operator
+will read as retroactive is the option that is not available** — and `SettingsPanelInit.kt:58`'s
+tooltip currently invites exactly that reading.
 
-Recommended shape for gap closure: control line 121 for COOKIE points, control or explicitly
-disposition `AiScanCheck.buildDetail`, rebuild the SC1 fixture through `PayloadGenerator` so the
-assertion can see route 1, replace the fake single-producer gate with a real `src/main/kotlin` scan,
-and then correct the three prose sites that now assert closure. `AR-27-08` should stay OPEN with a
-second append-and-amend recording why the first closure was premature — that record is worth more
-than the closure would have been.
+**Gap 2 — the record is narrower than it claims in two places and wider in one.** Route 2's
+`**Payload Used:**` line has zero assertions while `ISSUE_DETAIL_CARRIER_DISPOSITION` and row 315
+both name `AiScanCheckDetailCookieCarrierTest` as its probe. And the two clauses that exist precisely
+to enumerate residuals — "STILL OPEN, NAMED SO NOBODY READS THIS AS A CLOSURE" and "(d) WHAT THIS
+AMENDMENT DOES NOT COVER" — omit both the temporal bound and the fail-open insertion-point-type set,
+the latter measured at source here by `javap`: `AuditInsertionPoint.type()`'s default body returns
+`EXTENSION_PROVIDED`, and the enum also carries `USER_PROVIDED` and `HEADER`, none of which route 2's
+identity compare catches. Route 1's pass-through was safe because its enum's only cookie-capable
+member IS `COOKIE`; that reasoning does not transfer, and the record does not say so.
+
+Both gaps share a root cause worth naming: **this round measured its controls rigorously and did not
+re-measure its record against them.** The mechanism work is the strongest in the phase; the
+enumerations that describe it drifted one step behind it.
+
+Not re-reported, per the round's standing decisions: D-28-06's absent repo-wide single-producer gate
+(named residual, and I confirmed it is NOT misrepresented as closed — `ScannerIssueSupport.kt:197-207`,
+`ISSUE_DETAIL_CARRIER_DISPOSITION` and row 315 clause (e) each state plainly that a third producer is
+caught by nothing); `AR-28-01`'s uncontrolled `Evidence:` tail; `AiScanCheck.kt:392` as defence in
+depth rather than a measured carrier; PRIV-05 staying `- [ ]`; and `./gradlew check`'s accepted red.
 
 ---
 
 _Verified: 2026-08-27_
-_Verifier: Claude (gsd-verifier)_
+_Verifier: Claude (gsd-verifier), round 2_
