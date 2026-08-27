@@ -1,14 +1,14 @@
 ---
-status: partial
+status: complete
 phase: 21-redaction-completeness
 source: [21-VERIFICATION.md]
 started: 2026-08-13
-updated: 2026-08-13
+updated: 2026-08-27
 ---
 
 ## Current Test
 
-[awaiting human testing]
+[testing complete]
 
 ## Tests
 
@@ -23,7 +23,7 @@ why_human: `PassiveAiScannerAnalysis.doAnalysis` needs a live `MontoyaApi`, a ba
 `ScanKnowledgeBase` state. The Wave-0 extractions moved the PRIV-05-relevant logic out of that reach
 and it is verified end-to-end against the real emitter, but the surrounding `doAnalysis`
 orchestration is not unit-reachable.
-result: [pending]
+result: pass
 
 ### 2. The four D-07 OFF strings, with and without custom patterns
 expected: In a live Burp set Privacy to OFF with at least one custom redaction pattern configured,
@@ -33,7 +33,7 @@ patterns configured the wording says built-in redaction is disabled but custom p
 with none configured it says built-in redaction is disabled and no custom patterns are configured.
 why_human: D-07 covers Swing label strings and this project has no UI integration-test harness
 (recorded in `CONCERNS.md` — "UI layer has no integration tests").
-result: [pending]
+result: pass
 
 ### 3. Unload during scan, then reload with a pathological persisted pattern
 expected: Unload the extension in a live Burp while a passive scan is in flight, then reload it with
@@ -44,14 +44,14 @@ why_human: `App.shutdown()`'s `Redaction.truncationLogger = null` step and `App.
 `isPatternSafe` seeding filter both need a live `MontoyaApi`. Plan 21-18 states this plainly and
 identifies `maybeLogTruncation`'s `runCatching` as the automated defence that holds regardless; that
 wrap exists and is guarded by `truncationLoggerThatThrowsDoesNotAbortRedaction`.
-result: [pending]
+result: pass
 
 ## Summary
 
 total: 3
-passed: 0
+passed: 3
 issues: 0
-pending: 3
+pending: 0
 skipped: 0
 blocked: 0
 
