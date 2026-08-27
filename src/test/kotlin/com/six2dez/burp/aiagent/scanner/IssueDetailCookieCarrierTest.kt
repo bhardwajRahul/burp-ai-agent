@@ -12,6 +12,11 @@ import com.six2dez.burp.aiagent.redact.Redaction
 import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import com.six2dez.burp.aiagent.util.IssueUtils
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -67,17 +72,37 @@ import java.io.File
  * [cookieOriginalValueIsStrippedUnderStrict]. It is the designated red probe for this control.
  * [cookieOriginalValueIsStrippedUnderBalanced] and [cookieOriginalValueSurvivesUnderOff] go red
  * alongside it and are not redundant: the OFF one catches the opposite mistake, a control that
- * fires unconditionally. MEASURED 2026-08-27 by negating the branch condition — exactly those three
- * went red, 3 of 8, and the other five stayed green because none of them reads the COOKIE carrier's
- * value under a stripping mode.
+ * fires unconditionally.
  *
- * WHAT THIS FILE CANNOT CATCH, stated so a reader does not over-read a green run. Every test here
- * calls `ScannerIssueSupport.buildActiveIssueDetailLines` DIRECTLY. Nothing here executes
- * `ActiveAiScanner.createConfirmedIssue`, so no assertion proves the operator's configured privacy
- * mode actually reaches the gate. MEASURED: hard-coding that call site's policy argument to
- * `RedactionPolicy.fromMode(PrivacyMode.OFF)` left all 8 tests GREEN. [theWriteSiteReadsTheLivePolicy]
- * is the source-TEXT pin standing in for that missing coverage, and it is weaker than an execution
- * assertion in a way the residual section of `28-01-SUMMARY.md` names explicitly.
+ * MEASURED 2026-08-27 by negating the branch condition — 7 of the 14 tests went red. Every
+ * assertion that reads the COOKIE carrier's value under a policy-determined mode moved; the other
+ * seven stayed green because none of them does. The seven that are BLIND to that mutation, and
+ * therefore prove nothing about this control on their own:
+ * [sentinelsAreDistinctAndNonOverlapping] (a fixture guard over two constants),
+ * [urlParamOriginalValueSurvivesStrict_attributionControl] (a non-COOKIE type, green by design —
+ * that is what makes it an attribution control), [theCookieHeaderPositiveControlFiresInTheSameStrictOutput]
+ * and [theRequestResponsesListIsNotAlteredByTheControl] (both read `requestResponses`, which this
+ * control never touches), [theCookieNameSurvivesEveryMode] (reads the NAME),
+ * [theOriginalValueBoundIsDerivedFromTheConstant] (a non-COOKIE type again) and
+ * [theWriteSiteReadsTheLivePolicy] (asserts over a DIFFERENT file's source text).
+ *
+ * A SECOND MUTATION, MEASURED SEPARATELY, because the two catch different mistakes. Dropping the
+ * `Payload Used` line whenever the cookie gate fires — an OVER-MATCH that eats content PAST the
+ * control's span, the regression class phase 27 round 4 shipped — turned exactly
+ * [theStrippedDetailFieldRetainsEverythingAfterTheControlPoint] and
+ * [theOnlyTwoDifferencesBetweenStrictAndOffAreTheEnumeratedControls] red while EVERY leak-only
+ * assertion in this file stayed green. That is the measured reason those two guards exist: an
+ * absence assertion is structurally unable to see content destruction.
+ *
+ * WHAT THIS FILE CANNOT CATCH, stated so a reader does not over-read a green run. Every BEHAVIOURAL
+ * test here calls `ScannerIssueSupport.buildActiveIssueDetailLines` DIRECTLY. Nothing here executes
+ * `ActiveAiScanner.createConfirmedIssue`, so no behavioural assertion proves the operator's
+ * configured privacy mode actually reaches the gate. MEASURED: hard-coding that call site's policy
+ * argument to `RedactionPolicy.fromMode(PrivacyMode.OFF)` left ALL EIGHT behavioural tests then in
+ * this file GREEN. [theWriteSiteReadsTheLivePolicy] was added for exactly that gap and is the only
+ * assertion that catches it; it is the source-TEXT pin standing in for coverage this file does not
+ * have, and it is weaker than an execution assertion in a way the residual section of
+ * `28-01-SUMMARY.md` names explicitly.
  */
 class IssueDetailCookieCarrierTest {
     @BeforeEach
@@ -259,6 +284,168 @@ class IssueDetailCookieCarrierTest {
         )
     }
 
+    /**
+     * The fixture-shape guard. A sentinel sitting at the very END of the serialized blob would let
+     * every stripping assertion above pass whether or not the value's TAIL is handled, because
+     * nothing follows it to be damaged. Phase 27 round 4 shipped a regression through exactly that
+     * shape, so the shape itself is asserted rather than assumed.
+     */
+    @Test
+    @Suppress("ktlint:standard:function-naming")
+    fun theSentinelIsNotTheTailOfTheSerializedBlob_nonVacuity() {
+        // OFF is the mode in which the sentinel is present BY DESIGN, so it is the only mode in
+        // which the fixture's shape can be measured at all.
+        val output = redactedBlobFor(cookiePoint(), PrivacyMode.OFF)
+        val sentinelIndex = output.indexOf(DETAIL_SENTINEL)
+
+        assertTrue(
+            sentinelIndex >= 0,
+            "NON-VACUITY: the sentinel '$DETAIL_SENTINEL' must be PRESENT in the OFF blob before " +
+                "its position can be measured at all. It was absent, so this guard would otherwise " +
+                "pass vacuously over an empty tail.",
+        )
+
+        val tail = output.substring(sentinelIndex + DETAIL_SENTINEL.length)
+
+        assertTrue(
+            tail.isNotEmpty() &&
+                tail.contains(METADATA_SECTION_MARKER) &&
+                tail.contains(POSITIVE_CONTROL_HEADER_BEFORE),
+            "NON-VACUITY: the fixture has degenerated into the round-4 vacuity shape. The sentinel " +
+                "is at or near the TAIL of the serialized blob, so nothing follows it to be damaged " +
+                "and every stripping assertion in this class is therefore UNINFORMATIVE about the " +
+                "value's tail — the region a too-greedy control eats. The tail after the sentinel " +
+                "was ${tail.length} chars; it must reach BOTH the metadata marker " +
+                "'$METADATA_SECTION_MARKER' (found: ${tail.contains(METADATA_SECTION_MARKER)}) and " +
+                "the positive-control header '$POSITIVE_CONTROL_HEADER_BEFORE' (found: " +
+                "${tail.contains(POSITIVE_CONTROL_HEADER_BEFORE)}). Restore content after the " +
+                "sentinel; do not relax this assertion.",
+        )
+    }
+
+    /**
+     * THE CONTENT-DESTRUCTION GUARD. A leak-only assertion cannot see an over-match that ate
+     * content PAST its intended span — the previous round's shipped regression was exactly that —
+     * so this asserts an EQUALITY under one known substitution rather than an absence.
+     *
+     * SCOPED TO THE `detail` FIELD, NOT TO THE WHOLE BLOB, and the scoping is load-bearing. Task 1
+     * deliberately places the positive-control `Cookie:` header inside `requestResponses[0].request`
+     * of the SAME serialized object, and [theCookieHeaderPositiveControlFiresInTheSameStrictOutput]
+     * REQUIRES that header to be stripped under STRICT. That stripped header sits AFTER the detail
+     * sentinel in the same serialized string, so the OFF blob's tail is provably NOT present in the
+     * STRICT blob and a whole-blob form of this guard would be red on arrival for a SPECIFICATION
+     * reason rather than a code reason. The cheapest repair for a guard that is red on arrival is to
+     * relax it until it no longer detects an over-match, which is how round 4 shipped its
+     * regression. Scope it; do not weaken it; do not delete it.
+     */
+    @Test
+    fun theStrippedDetailFieldRetainsEverythingAfterTheControlPoint() {
+        val offDetail = detailFieldOf(redactedBlobFor(cookiePoint(), PrivacyMode.OFF))
+        val strictDetail = detailFieldOf(redactedBlobFor(cookiePoint(), PrivacyMode.STRICT))
+
+        // EXTRACTOR PIN, BEFORE ANY COMPARISON. An extractor that silently returned "" would make
+        // the equality below compare two empty strings and pass while measuring nothing at all.
+        assertTrue(
+            offDetail.isNotBlank(),
+            "EXTRACTOR: the OFF-mode `detail` field extracted from the redacted blob was blank. The " +
+                "guard below would compare two empty strings and pass while measuring nothing.",
+        )
+        assertTrue(
+            offDetail.contains(DETAIL_SENTINEL),
+            "EXTRACTOR: the OFF-mode `detail` field must contain the sentinel '$DETAIL_SENTINEL'. " +
+                "It did not, so the extractor is reading the wrong field and the guard below is " +
+                "vacuous. Extracted: '$offDetail'",
+        )
+
+        val expected = offDetail.replace(DETAIL_SENTINEL, ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER)
+
+        assertEquals(expected, strictDetail, contentDestructionMessage(expected, strictDetail))
+    }
+
+    /**
+     * At the WHOLE-blob level the STRICT and OFF outputs differ in exactly TWO places, and both are
+     * named here rather than tolerated as a diff of unknown shape. A third difference is a finding.
+     */
+    @Test
+    fun theOnlyTwoDifferencesBetweenStrictAndOffAreTheEnumeratedControls() {
+        val offBlob = redactedBlobFor(cookiePoint(), PrivacyMode.OFF)
+        val strictBlob = redactedBlobFor(cookiePoint(), PrivacyMode.STRICT)
+        val strictDetail = detailFieldOf(strictBlob)
+        val strictRequest = requestFieldOf(strictBlob)
+
+        // DIFFERENCE 1, inside `detail` — THIS plan's control.
+        assertTrue(
+            detailFieldOf(offBlob).contains(DETAIL_SENTINEL) &&
+                strictDetail.contains(ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER) &&
+                !strictDetail.contains(DETAIL_SENTINEL),
+            "DIFFERENCE 1 — THIS PLAN'S CONTROL, inside `detail` — did not occur as specified. The " +
+                "sentinel '$DETAIL_SENTINEL' must be present in the OFF `detail` and replaced by " +
+                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' in the STRICT `detail`. " +
+                "The new control is the side that moved.",
+        )
+
+        // DIFFERENCE 2, inside requestResponses[0].request — the PRE-EXISTING header rule. Not this
+        // plan's control; its firing is what makes the null result inside `detail` attributable.
+        assertTrue(
+            requestFieldOf(offBlob).contains(POSITIVE_CONTROL_HEADER_BEFORE) &&
+                strictRequest.contains(POSITIVE_CONTROL_HEADER_AFTER) &&
+                !strictRequest.contains(POSITIVE_CONTROL_COOKIE_VALUE),
+            "DIFFERENCE 2 — THE PRE-EXISTING HEADER RULE, inside requestResponses[0].request — did " +
+                "not occur as specified. '$POSITIVE_CONTROL_HEADER_BEFORE' must be present in the " +
+                "OFF request and rewritten to '$POSITIVE_CONTROL_HEADER_AFTER' in the STRICT " +
+                "request. The PRE-EXISTING rule is the side that moved, not this plan's control.",
+        )
+
+        val predicted =
+            offBlob
+                .replace(DETAIL_SENTINEL, ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER)
+                .replace(POSITIVE_CONTROL_HEADER_BEFORE, POSITIVE_CONTROL_HEADER_AFTER)
+
+        assertEquals(predicted, strictBlob, thirdDifferenceMessage(predicted, strictBlob))
+    }
+
+    /**
+     * Standing rule (vi): where a number is source-derivable a test must DERIVE it. The two prose
+     * counts that drifted last round drifted inside a single commit.
+     */
+    @Test
+    fun theOriginalValueBoundIsDerivedFromTheConstant() {
+        // A NON-cookie type on purpose: the bound is the PASS-THROUGH branch's behaviour, and
+        // reading it on a cookie point under a stripping mode would measure the marker instead.
+        val overshoot = ScannerIssueSupport.ORIGINAL_VALUE_MAX_CHARS + BOUND_OVERSHOOT_CHARS
+        val filler = FILLER_UNIT.repeat(overshoot / FILLER_UNIT.length + 1).take(overshoot)
+        val point = InjectionPoint(InjectionType.URL_PARAM, COOKIE_POINT_NAME, filler)
+
+        val rendered = originalValueRenderedFor(point, PrivacyMode.OFF)
+
+        assertEquals(
+            ScannerIssueSupport.ORIGINAL_VALUE_MAX_CHARS,
+            rendered.length,
+            "BOUND: the Original Value line's value part must be truncated to exactly " +
+                "ScannerIssueSupport.ORIGINAL_VALUE_MAX_CHARS " +
+                "(${ScannerIssueSupport.ORIGINAL_VALUE_MAX_CHARS}) characters. The input was " +
+                "$overshoot characters and rendered as ${rendered.length}. This expectation is READ " +
+                "FROM the constant and must never be restated as a literal.",
+        )
+    }
+
+    /**
+     * The marker must not be run through the truncation bound and emerge as a fragment. A truncated
+     * marker still reads as "stripped" to a human while defeating every assertion that matches the
+     * whole marker.
+     */
+    @Test
+    fun theStrippedMarkerIsNotTruncated() {
+        val rendered = originalValueRenderedFor(cookiePoint(), PrivacyMode.STRICT)
+
+        assertEquals(
+            ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER,
+            rendered,
+            "MARKER INTEGRITY: the COOKIE carrier's Original Value line must render the stripped " +
+                "marker EXACTLY, not a prefix of it. Rendered: '$rendered'.",
+        )
+    }
+
     private fun activeScannerSource(): String {
         val file = File(ACTIVE_SCANNER_SOURCE_PATH)
         assertTrue(
@@ -306,6 +493,48 @@ class IssueDetailCookieCarrierTest {
         /** The injection point's NAME. Names survive every mode; values do not. */
         const val COOKIE_POINT_NAME = "pumpkin-lantern-name"
 
+        /** The cookie NAME carrying [POSITIVE_CONTROL_COOKIE_VALUE] inside [RAW_REQUEST]. */
+        const val POSITIVE_CONTROL_COOKIE_NAME = "wibble"
+
+        /**
+         * The marker the PRE-EXISTING header rule writes over a stripped `Cookie:` header.
+         *
+         * Deliberately NOT read from `ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER`. The two
+         * are independently owned — one belongs to this plan's control inside `detail`, the other to
+         * a rule that predates this phase — and they only HAPPEN to share the literal today. Reading
+         * one from the other would make a future divergence in either of them invisible here, and
+         * this file's whole-blob difference enumeration depends on telling the two apart.
+         */
+        const val HEADER_RULE_STRIPPED_MARKER = "[STRIPPED]"
+
+        /** The positive control's header line as WRITTEN, before any rule fires. */
+        const val POSITIVE_CONTROL_HEADER_BEFORE =
+            "Cookie: $POSITIVE_CONTROL_COOKIE_NAME=$POSITIVE_CONTROL_COOKIE_VALUE"
+
+        /** The positive control's header line as the PRE-EXISTING header rule rewrites it. */
+        const val POSITIVE_CONTROL_HEADER_AFTER = "Cookie: $HEADER_RULE_STRIPPED_MARKER"
+
+        /**
+         * First line of the metadata section, used as the non-vacuity tail marker. Low-entropy, no
+         * dots, no digits: nothing another redaction rule can plausibly claim, so its presence in
+         * the tail measures the FIXTURE's shape rather than some rule's behaviour.
+         */
+        const val METADATA_SECTION_MARKER = "Backend: test-backend"
+
+        /** The rendered prefix of the detail line this control owns. */
+        const val ORIGINAL_VALUE_PREFIX = "Original Value: "
+
+        /** How far past [ScannerIssueSupport.ORIGINAL_VALUE_MAX_CHARS] the bound fixture overshoots. */
+        const val BOUND_OVERSHOOT_CHARS = 25
+
+        /** Repeating filler for the bound fixture. No digits, no dots, no metacharacters. */
+        const val FILLER_UNIT = "filler-"
+
+        /** Half-width of the context window printed either side of a divergence in a failure message. */
+        const val DIFF_WINDOW_CHARS = 60
+
+        val METADATA_SECTION = "$METADATA_SECTION_MARKER\r\nScan: Active\r\nConfidence: 90"
+
         const val HOST_SALT = "phase-28-fixed-salt"
 
         const val ACTIVE_SCANNER_SOURCE_PATH = "src/main/kotlin/com/six2dez/burp/aiagent/scanner/ActiveAiScanner.kt"
@@ -322,26 +551,31 @@ class IssueDetailCookieCarrierTest {
         val RAW_REQUEST =
             "GET /basket HTTP/1.1\r\n" +
                 "Host: shop.example\r\n" +
-                "Cookie: wibble=$POSITIVE_CONTROL_COOKIE_VALUE\r\n" +
+                "$POSITIVE_CONTROL_HEADER_BEFORE\r\n" +
                 "Accept: text/html\r\n\r\n"
 
         fun cookiePoint() = InjectionPoint(InjectionType.COOKIE, COOKIE_POINT_NAME, DETAIL_SENTINEL)
 
         fun urlParamPoint() = InjectionPoint(InjectionType.URL_PARAM, COOKIE_POINT_NAME, DETAIL_SENTINEL)
 
+        fun detailLinesFor(
+            point: InjectionPoint,
+            mode: PrivacyMode,
+        ): List<String> =
+            ScannerIssueSupport.buildActiveIssueDetailLines(
+                point,
+                VulnClass.SQLI.name,
+                PAYLOAD,
+                "evidence-marker-present",
+                METADATA_SECTION,
+                RedactionPolicy.fromMode(mode),
+            )
+
         fun issueDetailsFor(
             point: InjectionPoint,
             mode: PrivacyMode,
         ): IssueDetails {
-            val lines =
-                ScannerIssueSupport.buildActiveIssueDetailLines(
-                    point,
-                    VulnClass.SQLI.name,
-                    PAYLOAD,
-                    "evidence-marker-present",
-                    "Backend: test-backend\r\nScan: Active\r\nConfidence: 90",
-                    RedactionPolicy.fromMode(mode),
-                )
+            val lines = detailLinesFor(point, mode)
             return IssueDetails(
                 name = "[AI Active] ${VulnClass.SQLI.name}",
                 detail = IssueUtils.formatIssueDetailHtml(lines),
@@ -378,5 +612,148 @@ class IssueDetailCookieCarrierTest {
                 RedactionPolicy.fromMode(mode),
                 HOST_SALT,
             )
+
+        /**
+         * The rendered value part of the one `Original Value: ` line, read from the detail LINES
+         * rather than from the serialized blob so the bound and the marker can be measured without
+         * a redaction pass standing between the assertion and the thing it measures.
+         */
+        fun originalValueRenderedFor(
+            point: InjectionPoint,
+            mode: PrivacyMode,
+        ): String {
+            val matching = detailLinesFor(point, mode).filter { it.contains(ORIGINAL_VALUE_PREFIX) }
+            assertEquals(
+                1,
+                matching.size,
+                "SINGLE PRODUCER: exactly one detail line may carry the '$ORIGINAL_VALUE_PREFIX' " +
+                    "prefix. Found ${matching.size}: $matching. A second producer is how this " +
+                    "control gets bypassed without anyone editing it.",
+            )
+            return matching[0].substringAfter(ORIGINAL_VALUE_PREFIX)
+        }
+
+        /**
+         * Extracts the `detail` FIELD from a redacted blob.
+         *
+         * FIELD-SCOPED ON PURPOSE, and the whole reason the content-destruction guard can exist at
+         * all: a WHOLE-BLOB form of that guard is false by construction on this fixture, because the
+         * positive-control `Cookie:` header inside `requestResponses` is legitimately stripped by a
+         * pre-existing rule in the same STRICT output and sits AFTER the sentinel in the same
+         * serialized string.
+         */
+        fun detailFieldOf(blob: String): String {
+            val viaParse = runCatching { parsedOrNull(blob)?.get("detail")?.jsonPrimitive?.content }.getOrNull()
+            return viaParse ?: fallbackStringField(blob, "detail")
+        }
+
+        /** Extracts `requestResponses[0].request` from a redacted blob. */
+        fun requestFieldOf(blob: String): String {
+            val viaParse =
+                runCatching {
+                    parsedOrNull(blob)
+                        ?.get("requestResponses")
+                        ?.jsonArray
+                        ?.get(0)
+                        ?.jsonObject
+                        ?.get("request")
+                        ?.jsonPrimitive
+                        ?.content
+                }.getOrNull()
+            return viaParse ?: fallbackStringField(blob, "request")
+        }
+
+        fun parsedOrNull(blob: String): JsonObject? = runCatching { Json.parseToJsonElement(blob).jsonObject }.getOrNull()
+
+        /**
+         * Substring fallback for the case where a redaction rule produced output that no longer
+         * parses as JSON. A guard that silently vanished in that case would be worse than one that
+         * degrades: this returns the field's ESCAPED text rather than its decoded value, which is
+         * consistent for every caller because the fallback either fires for all of them or none.
+         */
+        fun fallbackStringField(
+            blob: String,
+            key: String,
+        ): String {
+            val marker = "\"$key\":\""
+            val start = blob.indexOf(marker)
+            assertTrue(
+                start >= 0,
+                "EXTRACTOR: neither a JSON parse nor a substring scan located the `$key` field in " +
+                    "the redacted blob. Every guard downstream of this call measures nothing.",
+            )
+            val valueStart = start + marker.length
+            var index = valueStart
+            while (index < blob.length) {
+                if (blob[index] == '"' && trailingBackslashCount(blob, index) % 2 == 0) {
+                    return blob.substring(valueStart, index)
+                }
+                index++
+            }
+            assertTrue(
+                false,
+                "EXTRACTOR: the `$key` field's opening quote was found but its closing quote was " +
+                    "not. The redacted blob is truncated or malformed.",
+            )
+            return ""
+        }
+
+        fun trailingBackslashCount(
+            text: String,
+            index: Int,
+        ): Int {
+            var count = 0
+            var cursor = index - 1
+            while (cursor >= 0 && text[cursor] == '\\') {
+                count++
+                cursor--
+            }
+            return count
+        }
+
+        fun windowAround(
+            text: String,
+            index: Int,
+        ): String {
+            val start = maxOf(0, index - DIFF_WINDOW_CHARS)
+            val end = minOf(text.length, index + DIFF_WINDOW_CHARS)
+            return if (start >= end) "<empty>" else text.substring(start, end)
+        }
+
+        fun contentDestructionMessage(
+            expected: String,
+            actual: String,
+        ): String {
+            val divergence = expected.commonPrefixWith(actual).length
+            return "CONTENT DESTRUCTION, FIELD-SCOPED to `detail`: the STRICT `detail` must equal " +
+                "the OFF `detail` under EXACTLY ONE substitution — the sentinel became " +
+                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' — and under no other. " +
+                "They first diverge at index $divergence.\n" +
+                "  expected: ...${windowAround(expected, divergence)}...\n" +
+                "  actual:   ...${windowAround(actual, divergence)}...\n" +
+                "The divergence is EITHER a real over-match that ate content past the control's " +
+                "span, OR a second redaction rule firing on a fixture token. Diagnose WHICH and " +
+                "record it in 28-01-SUMMARY.md. Relaxing this assertion is not one of the two " +
+                "options: relaxing a guard that was red on arrival is exactly how phase 27 round 4 " +
+                "shipped a content-destruction regression."
+        }
+
+        fun thirdDifferenceMessage(
+            predicted: String,
+            observed: String,
+        ): String {
+            val divergence = predicted.commonPrefixWith(observed).length
+            return "A THIRD, UNENUMERATED DIFFERENCE between the OFF and STRICT blobs was found. " +
+                "Applying the two KNOWN substitutions to the OFF blob — the sentinel becomes " +
+                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' inside `detail`, and " +
+                "'$POSITIVE_CONTROL_HEADER_BEFORE' becomes '$POSITIVE_CONTROL_HEADER_AFTER' inside " +
+                "requestResponses — must reproduce the STRICT blob EXACTLY. A residue remains, " +
+                "first differing at index $divergence.\n" +
+                "  predicted: ...${windowAround(predicted, divergence)}...\n" +
+                "  observed:  ...${windowAround(observed, divergence)}...\n" +
+                "An unenumerated difference in this blob is either an over-match or a rule nobody " +
+                "accounted for. Both are FINDINGS, not fixture noise. Diagnose which, and do not " +
+                "widen the substitution list to absorb it."
+        }
     }
 }
