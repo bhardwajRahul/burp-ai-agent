@@ -26,7 +26,7 @@ import org.junit.jupiter.api.Test
 import java.io.File
 
 /**
- * (PRIV-05) Phase 28 plan 28-01 — `AR-27-08`, the issue-detail cookie carrier.
+ * (PRIV-05) Phase 28 plans 28-01 and 28-04 — `AR-27-08`, the issue-detail cookie carrier.
  *
  * WHAT THIS FILE MEASURES. A COOKIE-typed [InjectionPoint]'s `originalValue` is written into
  * `AuditIssue.detail()` by `ActiveAiScanner.createConfirmedIssue`, and leaves the product over MCP
@@ -35,6 +35,18 @@ import java.io.File
  * These tests are the control's proof, and they carry their own attribution control, their own
  * positive control and their own non-vacuity guard so that a green result here cannot be produced
  * by some other rule.
+ *
+ * TWO DETAIL LINES ARE COVERED, NOT ONE. Plan 28-01 controlled `Original Value:`. Plan 28-04
+ * controls `Payload Used:` one line below it, because for a COOKIE point production DERIVES the
+ * payload from the injection point's value — `ActiveAiScanner.kt:511-515` hands
+ * `target.injectionPoint.originalValue` to `PayloadGenerator.generateContextAwarePayloads`, which
+ * interpolates it with no injection-type filter — so that line re-leaked the exact bytes the line
+ * above had just stripped. `28-VERIFICATION.md` measured SC1 FALSE on precisely that gap.
+ *
+ * WHAT THIS FILE STILL DOES NOT COVER, so a green run is not over-read. `AiScanCheck.buildDetail`
+ * is a SECOND active-scan detail producer in the repository and nothing here can see it; plan 28-05
+ * owns it. No assertion in this file is a repository-wide single-producer gate — `WR-01` measured
+ * that framing as false and D-28-06 keeps the real gate as a named residual.
  *
  * WHY THE MEASURED ROUTE IS BLIND TO THE REDACTOR (from 27-08-SUMMARY.md, not re-derived here).
  * `IssueUtils.formatIssueDetailHtml` joins the detail lines with `<br>`, so the blob carries NO
@@ -67,9 +79,14 @@ import java.io.File
  *
  * ## THE DESIGNATED RED PROBE — read this before mutating the control
  *
+ * ONE DESIGNATED PROBE PER CONTROL, so a mutation is attributable to the gate it broke. If you
+ * weaken `ScannerIssueSupport.sanitizeRenderedPayload`'s cookie branch, the assertion that is
+ * SUPPOSED to catch you is the first `assertFalse` in [cookiePayloadIsStrippedUnderStrict] —
+ * 28-04's designated red probe, whose three mutations are recorded verbatim in `28-04-SUMMARY.md`.
+ *
  * If you weaken `ScannerIssueSupport.sanitizeInjectionPointValue`'s cookie branch, the assertion
  * that is SUPPOSED to catch you is the first `assertFalse` in
- * [cookieOriginalValueIsStrippedUnderStrict]. It is the designated red probe for this control.
+ * [cookieOriginalValueIsStrippedUnderStrict]. It is the designated red probe for that control.
  * [cookieOriginalValueIsStrippedUnderBalanced] and [cookieOriginalValueSurvivesUnderOff] go red
  * alongside it and are not redundant: the OFF one catches the opposite mistake, a control that
  * fires unconditionally.
@@ -90,7 +107,7 @@ import java.io.File
  * `Payload Used` line whenever the cookie gate fires — an OVER-MATCH that eats content PAST the
  * control's span, the regression class phase 27 round 4 shipped — turned exactly
  * [theStrippedDetailFieldRetainsEverythingAfterTheControlPoint] and
- * [theOnlyTwoDifferencesBetweenStrictAndOffAreTheEnumeratedControls] red while EVERY leak-only
+ * [theOnlyThreeDifferencesBetweenStrictAndOffAreTheEnumeratedControls] red while EVERY leak-only
  * assertion in this file stayed green. That is the measured reason those two guards exist: an
  * absence assertion is structurally unable to see content destruction.
  *
@@ -356,18 +373,35 @@ class IssueDetailCookieCarrierTest {
                 "It did not, so the extractor is reading the wrong field and the guard below is " +
                 "vacuous. Extracted: '$offDetail'",
         )
+        // THIRD PIN, added by 28-04 alongside the payload substitution it protects. An extractor
+        // that silently returned a SHORTER field would make that substitution match nothing, turn
+        // it into a no-op, and leave the equality below passing while measuring one control instead
+        // of two.
+        assertTrue(
+            offDetail.contains("$PAYLOAD_USED_PREFIX${PAYLOAD.value}"),
+            "EXTRACTOR: the OFF-mode `detail` field must contain the rendered payload line " +
+                "'$PAYLOAD_USED_PREFIX${PAYLOAD.value}'. It did not, so the payload substitution in " +
+                "the prediction below matches nothing and the equality measures only the " +
+                "original-value control. Extracted: '$offDetail'",
+        )
 
-        val expected = offDetail.replace(DETAIL_SENTINEL, ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER)
+        val expected = withDetailLineControlsApplied(offDetail)
 
         assertEquals(expected, strictDetail, contentDestructionMessage(expected, strictDetail))
     }
 
     /**
-     * At the WHOLE-blob level the STRICT and OFF outputs differ in exactly TWO places, and both are
-     * named here rather than tolerated as a diff of unknown shape. A third difference is a finding.
+     * At the WHOLE-blob level the STRICT and OFF outputs differ in exactly THREE places, and all
+     * three are named here rather than tolerated as a diff of unknown shape. A FOURTH difference is
+     * a finding.
+     *
+     * The count went from two to three in 28-04, when the `Payload Used:` line acquired its own
+     * control. The enumeration is deliberately a LIST OF NAMED CLAUSES rather than a tolerance: each
+     * difference states which side moved and which mechanism moved it, so a green run attributes
+     * every byte of divergence to a control someone chose.
      */
     @Test
-    fun theOnlyTwoDifferencesBetweenStrictAndOffAreTheEnumeratedControls() {
+    fun theOnlyThreeDifferencesBetweenStrictAndOffAreTheEnumeratedControls() {
         val offBlob = redactedBlobFor(cookiePoint(), PrivacyMode.OFF)
         val strictBlob = redactedBlobFor(cookiePoint(), PrivacyMode.STRICT)
         val strictDetail = detailFieldOf(strictBlob)
@@ -396,12 +430,27 @@ class IssueDetailCookieCarrierTest {
                 "request. The PRE-EXISTING rule is the side that moved, not this plan's control.",
         )
 
+        // DIFFERENCE 3, inside `detail` — 28-04's control on the `Payload Used:` line, route 1 of
+        // `AR-27-08`. It is a difference in its OWN right and not a consequence of DIFFERENCE 1: for
+        // a COOKIE point production DERIVES the payload from the injection point's value, so before
+        // this control the line carried the same bytes DIFFERENCE 1 had already stripped one line up.
+        assertTrue(
+            detailFieldOf(offBlob).contains("$PAYLOAD_USED_PREFIX${PAYLOAD.value}") &&
+                strictDetail.contains("$PAYLOAD_USED_PREFIX${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}") &&
+                !strictDetail.contains(PAYLOAD.value),
+            "DIFFERENCE 3 — 28-04'S CONTROL ON THE PAYLOAD LINE, inside `detail` — did not occur as " +
+                "specified. The rendered payload '${PAYLOAD.value}' must be present on the OFF " +
+                "'$PAYLOAD_USED_PREFIX' line and replaced WHOLESALE by " +
+                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' in the STRICT `detail`, " +
+                "with no residue of the payload anywhere in that field. `sanitizeRenderedPayload` " +
+                "is the side that moved.",
+        )
+
         val predicted =
-            offBlob
-                .replace(DETAIL_SENTINEL, ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER)
+            withDetailLineControlsApplied(offBlob)
                 .replace(POSITIVE_CONTROL_HEADER_BEFORE, POSITIVE_CONTROL_HEADER_AFTER)
 
-        assertEquals(predicted, strictBlob, thirdDifferenceMessage(predicted, strictBlob))
+        assertEquals(predicted, strictBlob, unenumeratedDifferenceMessage(predicted, strictBlob))
     }
 
     /**
@@ -1027,6 +1076,45 @@ class IssueDetailCookieCarrierTest {
             return count
         }
 
+        /**
+         * (PRIV-05) 28-04 — predicts the STRICT rendering of [text] by applying THIS FILE'S TWO
+         * detail-line controls to it, and nothing else. [text] may be an extracted `detail` field or
+         * a whole serialized blob: both substitutions are keyed on rendered LINE PREFIXES, which
+         * survive JSON encoding unescaped.
+         *
+         * BOTH SUBSTITUTIONS ARE PREFIX-QUALIFIED, and that property is what makes the prediction
+         * falsifiable. Before 28-04 this prediction was a single UNQUALIFIED
+         * `replace(DETAIL_SENTINEL, marker)`, written when exactly one sentinel occurrence lived
+         * inside `detail`. The rendered payload now CONTAINS the sentinel by construction —
+         * production derives a COOKIE point's payload by interpolating its value — so an unqualified
+         * replace rewrites the sentinel INSIDE the payload text too, and predicts a payload line
+         * reading marker-plus-suffix where the shipped control writes the marker ALONE.
+         *
+         * [edge:ordering] THE PAYLOAD SUBSTITUTION IS WRITTEN FIRST, and this states WHY rather than
+         * merely THAT. It is the substitution whose key an unqualified sentinel rewrite would
+         * destroy — its key contains the sentinel, the other's does not — so it runs before anything
+         * else can touch the text. The MEASURED result of both orderings is recorded in
+         * `28-04-SUMMARY.md`, including the finding that with both substitutions prefix-qualified a
+         * bare order swap is a NO-OP: prefix-qualification, not order alone, is what carries the
+         * safety here, and the order is kept fixed so that a future edit which drops a
+         * qualification cannot silently reintroduce the hazard.
+         *
+         * WHY NOT KEEP THE GLOBAL SENTINEL REPLACE, which would be shorter. A global replace ABSORBS
+         * a sentinel occurrence appearing ANYWHERE ELSE in the blob — it would silently swallow a
+         * THIRD uncontrolled route carrying the same bytes, which is exactly the class of miss this
+         * gap round exists to correct. Prefix-qualified substitutions leave such an occurrence
+         * standing as an unexplained residue and the equality turns red on it.
+         */
+        fun withDetailLineControlsApplied(text: String): String =
+            text
+                .replace(
+                    "$PAYLOAD_USED_PREFIX${payloadRenderedFor(cookiePoint(), PrivacyMode.OFF)}",
+                    "$PAYLOAD_USED_PREFIX${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}",
+                ).replace(
+                    "$ORIGINAL_VALUE_PREFIX$DETAIL_SENTINEL",
+                    "$ORIGINAL_VALUE_PREFIX${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}",
+                )
+
         fun windowAround(
             text: String,
             index: Int,
@@ -1042,29 +1130,34 @@ class IssueDetailCookieCarrierTest {
         ): String {
             val divergence = expected.commonPrefixWith(actual).length
             return "CONTENT DESTRUCTION, FIELD-SCOPED to `detail`: the STRICT `detail` must equal " +
-                "the OFF `detail` under EXACTLY ONE substitution — the sentinel became " +
-                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' — and under no other. " +
-                "They first diverge at index $divergence.\n" +
+                "the OFF `detail` under EXACTLY TWO PREFIX-QUALIFIED substitutions — the " +
+                "'$PAYLOAD_USED_PREFIX' line's rendered payload became " +
+                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}', and so did the " +
+                "'$ORIGINAL_VALUE_PREFIX' line's sentinel — and under no other. They first diverge " +
+                "at index $divergence.\n" +
                 "  expected: ...${windowAround(expected, divergence)}...\n" +
                 "  actual:   ...${windowAround(actual, divergence)}...\n" +
-                "The divergence is EITHER a real over-match that ate content past the control's " +
-                "span, OR a second redaction rule firing on a fixture token. Diagnose WHICH and " +
-                "record it in 28-01-SUMMARY.md. Relaxing this assertion is not one of the two " +
-                "options: relaxing a guard that was red on arrival is exactly how phase 27 round 4 " +
-                "shipped a content-destruction regression."
+                "The divergence is EITHER a real over-match that ate content past a control's span, " +
+                "OR a second redaction rule firing on a fixture token, OR a THIRD detail line that " +
+                "acquired a control without being enumerated here. Diagnose WHICH and record it in " +
+                "the round's SUMMARY. Relaxing this assertion is not one of those options: relaxing " +
+                "a guard that was red on arrival is exactly how phase 27 round 4 shipped a " +
+                "content-destruction regression."
         }
 
-        fun thirdDifferenceMessage(
+        fun unenumeratedDifferenceMessage(
             predicted: String,
             observed: String,
         ): String {
             val divergence = predicted.commonPrefixWith(observed).length
-            return "A THIRD, UNENUMERATED DIFFERENCE between the OFF and STRICT blobs was found. " +
-                "Applying the two KNOWN substitutions to the OFF blob — the sentinel becomes " +
-                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' inside `detail`, and " +
-                "'$POSITIVE_CONTROL_HEADER_BEFORE' becomes '$POSITIVE_CONTROL_HEADER_AFTER' inside " +
-                "requestResponses — must reproduce the STRICT blob EXACTLY. A residue remains, " +
-                "first differing at index $divergence.\n" +
+            return "AN UNENUMERATED DIFFERENCE between the OFF and STRICT blobs was found. " +
+                "Applying the three KNOWN substitutions to the OFF blob — the " +
+                "'$ORIGINAL_VALUE_PREFIX' line's sentinel becomes " +
+                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' inside `detail`, the " +
+                "'$PAYLOAD_USED_PREFIX' line's rendered payload becomes the same marker inside " +
+                "`detail`, and '$POSITIVE_CONTROL_HEADER_BEFORE' becomes " +
+                "'$POSITIVE_CONTROL_HEADER_AFTER' inside requestResponses — must reproduce the " +
+                "STRICT blob EXACTLY. A residue remains, first differing at index $divergence.\n" +
                 "  predicted: ...${windowAround(predicted, divergence)}...\n" +
                 "  observed:  ...${windowAround(observed, divergence)}...\n" +
                 "An unenumerated difference in this blob is either an over-match or a rule nobody " +
