@@ -803,7 +803,7 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 **Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
 measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
 
-**Plans:** 3/6 plans executed (round 1 complete; gap-closure round 2 planned, not executed)
+**Plans:** 4/6 plans executed (round 1 complete; gap-closure round 2 planned, not executed)
 
 Plans:
 **Wave 1**
@@ -825,7 +825,7 @@ not regress. Waves below are numbered within the gap round (`/gsd-execute-phase 
 
 **Gap wave 1**
 
-- [ ] 28-04-PLAN.md — TRACER: control `ScannerIssueSupport.kt:121` (`Payload Used:`) type-keyed on `InjectionType.COOKIE` per D-28-07; rebuild the fixture through `PayloadGenerator` so the assertion can see route 1; repair the difference enumeration; red probe (CR-01, SC1/SC2/SC3)
+- [x] 28-04-PLAN.md — TRACER: control `ScannerIssueSupport.kt:121` (`Payload Used:`) type-keyed on `InjectionType.COOKIE` per D-28-07; rebuild the fixture through `PayloadGenerator` so the assertion can see route 1; repair the difference enumeration; red probe (CR-01, SC1/SC2/SC3)
 
 **Gap wave 2** *(blocked on gap wave 1)*
 
