@@ -2,6 +2,7 @@ package com.six2dez.burp.aiagent.scanner
 
 import burp.api.montoya.http.message.requests.HttpRequest
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.six2dez.burp.aiagent.redact.Redaction
 import java.net.URI
 
 object InjectionPointExtractor {
@@ -26,7 +27,14 @@ object InjectionPointExtractor {
             points.add(InjectionPoint(InjectionType.BODY_PARAM, param.name(), param.value()))
         }
 
-        request.parameters().filter { it.type().name == "COOKIE" }.forEach { param ->
+        // The cookie-type question is OWNED by Redaction.isCookieParameterType (phase 28, plan 28-02).
+        // This is an IDENTITY swap: the shared predicate trims and upper-cases before comparing, so it
+        // accepts every type name the old inline `== "COOKIE"` accepted and no others that Burp's
+        // closed HttpParameterType enum can produce. The value below stays RAW on purpose — the
+        // issue-detail route is controlled at its write site (ScannerIssueSupport.sanitizeInjectionPointValue,
+        // plan 28-01) and AdaptivePayloadEngine substitutes its own marker; redacting here would
+        // double-redact the second consumer with a foreign vocabulary. See CookieRouteDispositionTest.
+        request.parameters().filter { Redaction.isCookieParameterType(it.type().name) }.forEach { param ->
             points.add(InjectionPoint(InjectionType.COOKIE, param.name(), param.value()))
         }
 
