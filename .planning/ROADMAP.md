@@ -803,12 +803,12 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 **Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
 measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
 
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 28-01-PLAN.md — control the write site: a COOKIE-typed `originalValue` is policy-stripped from `AuditIssue.detail` under STRICT/BALANCED, survives under OFF, with the red probe (SC1, SC2, SC3)
+- [x] 28-01-PLAN.md — control the write site: a COOKIE-typed `originalValue` is policy-stripped from `AuditIssue.detail` under STRICT/BALANCED, survives under OFF, with the red probe (SC1, SC2, SC3)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
