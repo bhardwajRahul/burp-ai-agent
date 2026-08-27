@@ -1,9 +1,19 @@
 package com.six2dez.burp.aiagent.scanner
 
+import burp.api.montoya.http.message.params.HttpParameterType
+import burp.api.montoya.http.message.params.ParsedHttpParameter
+import burp.api.montoya.http.message.requests.HttpRequest
+import com.six2dez.burp.aiagent.redact.PrivacyMode
+import com.six2dez.burp.aiagent.supervisor.AgentSupervisor
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
+import org.mockito.stubbing.Answer
 import java.io.File
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * WHAT THIS IS FOR.
@@ -97,6 +107,172 @@ class CookieRouteDispositionTest {
         )
     }
 
+    /**
+     * D-28-02's NO-DOUBLE-REDACTION boundary, from the extractor's side.
+     *
+     * This is half (b) of the composition proof: unchanged input plus unchanged code is
+     * byte-identical output. Half (a) — that `AdaptivePayloadEngine.kt` is byte-unchanged across
+     * phase 28 — is checked by `git diff` and by the file appearing in no plan's `files_modified`,
+     * because a test cannot prove a file was never edited.
+     */
+    @Test
+    fun cookieInjectionPointCarriesTheRawValueSoTheControlledConsumerIsNotDoubleRedacted() {
+        val point =
+            InjectionPointExtractor
+                .extract(cookieRequest(RAW_COOKIE_VALUE), emptySet())
+                .single { it.type == InjectionType.COOKIE }
+
+        assertEquals(
+            RAW_COOKIE_VALUE,
+            point.originalValue,
+            "InjectionPointExtractor.extract must hand the RAW cookie value to its consumers. It " +
+                "returned '${point.originalValue}' instead, which means a redaction control has " +
+                "been MOVED INTO THE EXTRACTOR. Per D-28-02 that is the wrong place for it: the " +
+                "predicate has two consumers with different dispositions. ActiveAiScanner's " +
+                "issue-detail route is controlled at its WRITE site " +
+                "(ScannerIssueSupport.sanitizeInjectionPointValue, plan 28-01), and " +
+                "AdaptivePayloadEngine is ALREADY controlled — it substitutes its own value marker " +
+                "under any non-OFF mode. Redacting here hits both, so the engine's prompt would " +
+                "tell the model a value was redacted twice by two different vocabularies. That is " +
+                "misleading to the model AND it destroys the attribution that makes each route's " +
+                "control independently testable. It also changes what the ACTIVE SCANNER sends as " +
+                "a payload baseline, because originalValue is scanner input and not only a " +
+                "reporting field. Put the control at the consumer that needs it.",
+        )
+
+        assertNotEquals(
+            ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER,
+            point.originalValue,
+            "the extractor emitted the ISSUE-DETAIL route's marker. That control belongs to " +
+                "ScannerIssueSupport.sanitizeInjectionPointValue, downstream of here (D-28-02).",
+        )
+        assertNotEquals(
+            adaptiveEngineValueMarker(),
+            point.originalValue,
+            "the extractor emitted AdaptivePayloadEngine's OWN value marker. The engine applies " +
+                "that substitution itself; doing it here too is the double redaction D-28-02 " +
+                "exists to prevent.",
+        )
+    }
+
+    @Test
+    fun theAdaptivePayloadPromptCarriesOneMarkerVocabularyUnderBalanced() {
+        val prompt = capturedAdaptivePrompt(PrivacyMode.BALANCED)
+
+        assertTrue(
+            prompt.contains(adaptiveEngineValueMarker()),
+            "AdaptivePayloadEngine's BALANCED prompt must carry its OWN value marker " +
+                "'${adaptiveEngineValueMarker()}'. Prompt was: $prompt",
+        )
+        assertTrue(
+            !prompt.contains(ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER),
+            "AdaptivePayloadEngine's prompt carries the ISSUE-DETAIL marker " +
+                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}'. Two markers on one " +
+                "route means the value was redacted twice by two vocabularies — see D-28-02. " +
+                "Prompt was: $prompt",
+        )
+    }
+
+    /**
+     * ATTRIBUTION CONTROL for the test above. Without it, a prompt that happened never to contain
+     * any value at all would satisfy the BALANCED assertions for entirely the wrong reason.
+     */
+    @Test
+    fun theAdaptivePayloadPromptCarriesTheRawValueUnderOff() {
+        val prompt = capturedAdaptivePrompt(PrivacyMode.OFF)
+
+        assertTrue(
+            prompt.contains(RAW_COOKIE_VALUE),
+            "under OFF the engine documents that it passes the raw value through, so the prompt " +
+                "must contain '$RAW_COOKIE_VALUE'. If it does not, the BALANCED test above is " +
+                "vacuous: it would pass on a prompt that renders no value at all. Prompt was: $prompt",
+        )
+    }
+
+    /**
+     * Drives the real [AdaptivePayloadEngine] and returns the prompt it actually sent.
+     *
+     * Two vacuity traps are closed here on purpose. The tech-stack seed is asserted to have TAKEN
+     * EFFECT, because without it `generateAdaptivePayloads` hits its empty-context early return and
+     * every assertion downstream passes on a prompt that was never built. And the supervisor stub
+     * invokes `onComplete` synchronously so the engine's `CountDownLatch` releases at once rather
+     * than the test sitting on the engine's timeout.
+     */
+    private fun capturedAdaptivePrompt(mode: PrivacyMode): String {
+        ScanKnowledgeBase.clear()
+        val host = "cookie-route-disposition.${mode.name.lowercase()}.test"
+        ScanKnowledgeBase.recordTechStack(host, setOf("nginx", "php"))
+        assertTrue(
+            ScanKnowledgeBase.getTechStack(host).isNotEmpty(),
+            "the tech-stack seed did not take effect, so generateAdaptivePayloads would return " +
+                "early on empty context and this test would prove nothing.",
+        )
+
+        val captured = AtomicReference<String?>(null)
+        val supervisor =
+            mock<AgentSupervisor>(
+                defaultAnswer =
+                    Answer { invocation ->
+                        if (invocation.method.name == "send") {
+                            captured.set(invocation.arguments[0] as String)
+                            @Suppress("UNCHECKED_CAST")
+                            (invocation.arguments[6] as (Throwable?) -> Unit).invoke(null)
+                        }
+                        null
+                    },
+            )
+
+        // Return value is deliberately ignored: the stub streams no chunks, so the engine parses an
+        // empty response, returns no payloads and caches nothing. The prompt is the artefact.
+        AdaptivePayloadEngine(supervisor).generateAdaptivePayloads(
+            vulnClass = VulnClass.SSRF,
+            host = host,
+            paramName = "session",
+            originalValue = RAW_COOKIE_VALUE,
+            privacyMode = mode,
+        )
+
+        ScanKnowledgeBase.clear()
+        return requireNotNull(captured.get()) {
+            "AdaptivePayloadEngine never called supervisor.send, so no prompt was captured. Do not " +
+                "read a passing assertion off a null prompt; fix the harness."
+        }
+    }
+
+    /**
+     * Reads `AdaptivePayloadEngine`'s value marker OUT OF ITS SOURCE rather than restating the
+     * literal here. The engine writes it inline instead of exporting a constant, so a test that
+     * hardcoded it would keep passing after the engine's marker changed — which is the exact way a
+     * marker-vocabulary assertion stops covering the thing it names.
+     */
+    private fun adaptiveEngineValueMarker(): String {
+        val source = File(mainSourceRoot(), ADAPTIVE_ENGINE_PATH)
+        assertTrue(source.isFile, "could not read $ADAPTIVE_ENGINE_PATH to derive the engine's value marker.")
+        val match =
+            ADAPTIVE_VALUE_MARKER_PATTERN.find(source.readText())
+                ?: throw AssertionError(
+                    "could not find the OFF-mode value substitution in $ADAPTIVE_ENGINE_PATH. The " +
+                        "engine's marker vocabulary moved; update ADAPTIVE_VALUE_MARKER_PATTERN " +
+                        "rather than hardcoding the marker into this test.",
+                )
+        return match.groupValues[1]
+    }
+
+    private fun cookieRequest(value: String): HttpRequest {
+        val param = mock<ParsedHttpParameter>()
+        whenever(param.type()).thenReturn(HttpParameterType.COOKIE)
+        whenever(param.name()).thenReturn("session")
+        whenever(param.value()).thenReturn(value)
+
+        val request = mock<HttpRequest>()
+        whenever(request.parameters()).thenReturn(listOf(param))
+        whenever(request.headers()).thenReturn(emptyList())
+        whenever(request.headerValue("Content-Type")).thenReturn(null)
+        whenever(request.bodyToString()).thenReturn("")
+        whenever(request.url()).thenReturn("http://example.com/")
+        return request
+    }
+
     private fun cookieTypeComparisonsIn(file: File): List<String> =
         file
             .readLines()
@@ -132,6 +308,21 @@ class CookieRouteDispositionTest {
 
         /** The OWNER of the cookie-parameter-type rule. */
         const val OWNER = "com/six2dez/burp/aiagent/redact/Redaction.kt"
+
+        const val ADAPTIVE_ENGINE_PATH = "com/six2dez/burp/aiagent/scanner/AdaptivePayloadEngine.kt"
+
+        /**
+         * Distinctive enough that finding it in a prompt cannot be a coincidence, and shaped like a
+         * real session cookie so a reader sees why leaking it would matter.
+         */
+        const val RAW_COOKIE_VALUE = "s%3AcookieRouteDisposition-9f13c4ae.RAWVALUE"
+
+        /**
+         * `AdaptivePayloadEngine`'s OFF-mode ternary, from which the engine's own value marker is
+         * read. Keyed on the `PrivacyMode.OFF` comparison rather than on the marker text, so the
+         * pattern survives a rename of the marker — which is the whole point of deriving it.
+         */
+        val ADAPTIVE_VALUE_MARKER_PATTERN = Regex("""privacyMode != PrivacyMode\.OFF\)\s*"([^"]+)"""")
 
         /**
          * The ways a Montoya parameter TYPE is compared against the COOKIE constant in this codebase.
