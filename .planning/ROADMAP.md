@@ -803,7 +803,7 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 **Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
 measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
 
-**Plans:** 5/6 plans executed (round 1 complete; gap-closure round 2 planned, not executed)
+**Plans:** 6/6 plans executed (round 1 complete; gap-closure round 2 planned, not executed)
 
 Plans:
 **Wave 1**
@@ -833,7 +833,7 @@ not regress. Waves below are numbered within the gap round (`/gsd-execute-phase 
 
 **Gap wave 3** *(blocked on gap wave 2)*
 
-- [ ] 28-06-PLAN.md — `checkpoint:decision` on the `AR-27-08` disposition; second append-and-amend supersession with a pre-computed byte-prefix digest; recompute `threats_open`; discharge the 28-03 RUN 2 recording failure; correct the carrier registry and add the `baseValue()` accessor that hid route 2 (D-28-08)
+- [x] 28-06-PLAN.md — `checkpoint:decision` on the `AR-27-08` disposition; second append-and-amend supersession with a pre-computed byte-prefix digest; recompute `threats_open`; discharge the 28-03 RUN 2 recording failure; correct the carrier registry and add the `baseValue()` accessor that hid route 2 (D-28-08)
 
 ---
 
