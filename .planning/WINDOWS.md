@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 55
+open_count: 56
 waived_count: 0
 fixed_count: 0
-total_count: 55
-last_updated: 2026-08-27T07:48:52.555Z
+total_count: 56
+last_updated: 2026-08-27T13:07:07.183Z
 ---
 
 # Broken Windows Ledger
@@ -70,6 +70,7 @@ last_updated: 2026-08-27T07:48:52.555Z
 | 53 | 27 | deviation | build.gradle.kts |  | PREMISE FALSIFIED, in the harmless direction, and recorded because a gate changing colour unannounced is the class of movement this ledger exists to surface. Plan 27-17's brief carried jacocoTestCoverageVerification's redact-package BRANCH gate as a KNOWN RED, maintainer-accepted (~0.928 against a 0.930 floor), and predicted only that the AR-27-09 fix would MOVE the ratio because it adds a branch to a redact-package file. MEASURED on a clean './gradlew clean check' after the fix: redact BRANCH = 181 covered / 13 missed / 194 total = 0.93299, which is ABOVE the floor, so the gate is GREEN and './gradlew check' now passes end to end for the first time in this phase. The nine gates in the new IndentedLogicalLineStartTest are what cover the difference. THE FLOOR WAS NOT ADJUSTED IN EITHER DIRECTION and remains 0.930, per the brief's explicit instruction. Recorded, and NOT recorded as a fixed defect: the margin is 0.003 (a single missed branch is 0.00515), so this gate can go red again on an unrelated change and nothing should be built on it staying green. A trap was also hit and is worth the next reader's time: an intermediate measurement read 0.92784 from build/reports/jacoco/test/jacocoTestReport.xml AFTER a failing test run, because jacocoTestReport does not regenerate when ':test' fails -- the XML was stale from a prior run. Always confirm the report mtime, or re-run 'test jacocoTestReport' to green, before quoting a coverage ratio. | open |  | 2026-08-26T21:40:11.832Z |  |
 | 54 | 27 | deviation | .planning/REQUIREMENTS.md |  | PREMISE FALSIFIED BY THE TOOLING ITSELF, at the last step of the phase, in the one direction this phase spent five rounds preventing. 'gsd-tools query phase.complete 27' on 2026-08-27 FLIPPED PRIV-05 from '[ ]' to '[x]' in REQUIREMENTS.md, closing the requirement the phase deliberately left open. All three round-5 plans carry 'REQUIREMENTS.md is untouched and PRIV-05 stays [ ]' as a must-have TRUTH; 27-VERIFICATION-5.md verified that 30/30; ROADMAP.md states for the fifth round that the phase closes with PRIV-05 NOT satisfied; and AR-27-08 plus scanner/InjectionPointExtractor.kt:29 remain owned by Phase 28. WHAT MAKES IT WORTH THE LEDGER RATHER THAN A SHRUG: the same invocation's own 'warnings' array simultaneously reported 'Traceability row write skipped for REQ-ID(s) cited by ROADMAP (no matching row found): PRIV-05'. The write was NOT skipped. A tool that reports skipping a write and performs it is worse than one that performs it silently, because the warning invites the reader to stop checking. CAUGHT BEFORE COMMIT and reverted with 'git checkout --'; REQUIREMENTS.md sha256 is 9b3219662ec0d007, byte-identical to c2d980f (pre-phase) and to every intermediate commit of rounds 4 and 5. The phase-completion commit 5406187 carries ROADMAP.md and STATE.md ONLY. STANDING RISK, stated rather than assumed away: this is not a one-off. Any future 'phase.complete' run against a phase whose ROADMAP entry cites a requirement it did not satisfy will do the same thing, and the next person may not be checking a byte-level invariant at that moment. The guard is to diff REQUIREMENTS.md after every phase.complete and before its commit, never to trust the warnings array. Related and independent: 'verification resolve-file' reads ONLY {PADDED}-VERIFICATION.md, so this phase's five numbered rounds put the authoritative status where the tool never looks -- round 1's frozen 'gaps_found' blocked completion until a supersession marker was added to it (commit 4104083, round 1's body byte-unchanged). | open |  | 2026-08-27T07:15:25.823Z |  |
 | 55 | 27 | deviation | build.gradle.kts |  | CORRECTION TO WINDOWS ENTRY 53, and to the orchestrator's own report on 2026-08-26. Entry 53 recorded that jacocoTestCoverageVerification's redact BRANCH gate had gone GREEN at 0.93299 after the AR-27-09 fix, and the orchestrator repeated that to the maintainer as 'check is green now'. BOTH ARE FALSE AT HEAD. Re-measured 2026-08-27 on a clean tree with zero tracked modifications, twice by the phase-21 re-verifier and once independently by the orchestrator via a full './gradlew clean check': redact BRANCH = 180 covered / 14 missed / 194 = 0.92784 against the 0.930 floor. BUILD FAILED in 3m 23s. Tests are green (1258, 0 failures, 1 skipped) and LINE holds at 0.97528, so this is a coverage-floor shortfall, not a test failure, and it is NOT the SafeRegex wall-clock flake. HOW THE FALSE GREEN AROSE, because the mechanism is the transferable part: the single branch separating 0.92784 from 0.93299 is 'if (remainingMs <= 0L)' in Redaction.scanWindow -- the wall-clock budget guard. Its TRUE arm executes ONLY when the redaction budget actually EXPIRES, i.e. only when the machine is under enough CPU load to blow the SafeRegex 50 ms deadline. The run that produced 0.93299 was loaded; an idle clean run never takes the branch. SO THE GATE PASSES ONLY WHEN THE MACHINE IS SLOW ENOUGH TO TIME OUT, and its colour is a property of load rather than of the code. The orchestrator's confirming run compounded it: it printed 'BUILD SUCCESSFUL in 301ms', which is Gradle reusing the prior run's up-to-date task state, and a reused verification task was accepted as a fresh pass. A coverage ratio must only ever be quoted from a run that actually executed ':test' and ':jacocoTestCoverageVerification' -- check for 'BUILD SUCCESSFUL in <seconds>' plausibility, not just exit 0. CONSEQUENCE: AR-27-09's fix did NOT close the coverage shortfall the maintainer accepted as red on 2026-08-26. That acceptance still stands and the gate is still red. Nothing was adjusted; the floor remains 0.930 at build.gradle.kts:411. | open |  | 2026-08-27T07:48:52.555Z |  |
+| 56 | 28 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieCarrierInventoryTest.kt | 539 | RESPONSE_ANALYZER/HEADER_LIST disposition states a single cap of 80 chars (derived set is {80,80,60}) and cites ActiveAiScanner.kt:1246 where the live line is :1242 — deferred by plan 28-03, needs a gated append-and-amend | open |  | 2026-08-27T13:07:07.183Z |  |
 
 ````json
 [
@@ -731,6 +732,18 @@ last_updated: 2026-08-27T07:48:52.555Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-27T07:48:52.555Z",
+    "resolved_at": null
+  },
+  {
+    "id": 56,
+    "kind": "deviation",
+    "phase": "28",
+    "file": "src/test/kotlin/com/six2dez/burp/aiagent/redact/CookieCarrierInventoryTest.kt",
+    "line": 539,
+    "description": "RESPONSE_ANALYZER/HEADER_LIST disposition states a single cap of 80 chars (derived set is {80,80,60}) and cites ActiveAiScanner.kt:1246 where the live line is :1242 — deferred by plan 28-03, needs a gated append-and-amend",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-27T13:07:07.183Z",
     "resolved_at": null
   }
 ]
