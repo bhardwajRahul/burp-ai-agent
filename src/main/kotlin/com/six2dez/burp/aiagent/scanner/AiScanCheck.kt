@@ -7,10 +7,12 @@ import burp.api.montoya.http.message.HttpRequestResponse
 import burp.api.montoya.scanner.AuditResult
 import burp.api.montoya.scanner.ConsolidationAction
 import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPoint
+import burp.api.montoya.scanner.audit.insertionpoint.AuditInsertionPointType
 import burp.api.montoya.scanner.audit.issues.AuditIssue
 import burp.api.montoya.scanner.audit.issues.AuditIssueConfidence
 import burp.api.montoya.scanner.scancheck.ActiveScanCheck
 import com.six2dez.burp.aiagent.config.AgentSettings
+import com.six2dez.burp.aiagent.redact.RedactionPolicy
 import com.six2dez.burp.aiagent.util.IssueUtils
 
 /**
@@ -319,12 +321,45 @@ class AiScanCheck(
         return "Pattern matched"
     }
 
-    private fun buildDetail(
+    /**
+     * (PRIV-05) 28-05 / `CR-02` — the SECOND producer of active-scan issue-detail lines.
+     *
+     * `AR-27-08` is defined as the cookie-value -> `scanner_issues` -> `AuditIssue.detail()`
+     * carrier. This function is that carrier by a second route: it is live-registered
+     * `PER_INSERTION_POINT` at `App.kt:214-215`, its output reaches the tool result through
+     * `api.siteMap()`, and before plan 28-05 it read NO privacy mode at all — it rendered
+     * identically under STRICT, BALANCED and OFF.
+     *
+     * THE TWO CONTROLLED LINES ARE NOT SYMMETRIC, and recording that is the point of this
+     * paragraph. The `**Original Value:**` line IS a measured carrier: `baseValue()` on a
+     * `PARAM_COOKIE` insertion point is the operator's raw cookie value, taken by Burp from proxied
+     * traffic. The `**Payload Used:**` line is NOT a carrier at HEAD: this class sources payloads
+     * from `payloadGenerator.getQuickPayloads(...)`, which returns entries from a STATIC table and
+     * interpolates no value (`PayloadGenerator.kt:633-639`) — unlike `ActiveAiScanner`'s
+     * context-aware route, which is what made route 1's payload line a real leak. It is controlled
+     * here as DEFENCE IN DEPTH and for vocabulary parity with route 1. Calling it a measured leak
+     * closure would be exactly the overclaim phase 28 exists to correct.
+     *
+     * WHY `internal` AND NOT `private`. `AuditIssue.auditIssue(...)` routes through Burp's
+     * `ObjectFactoryLocator.FACTORY`, which is null outside the Burp runtime, so no unit test can
+     * reach this function through its only caller, [testPayload] (the plan named that caller
+     * `createIssue`; the issue-construction code lives inline in [testPayload] and there is no
+     * function by that name in this class). `internal` is module-scoped and is the same visibility
+     * `ScannerIssueSupport`'s controlled functions already use; it creates no external surface on a
+     * single fat-JAR artifact.
+     *
+     * The `listOf(baseRequestResponse, markedAttack)` argument at that call site is
+     * deliberately UNTOUCHED by this control: the operator keeps the raw attack request
+     * byte-for-byte in the same issue's Burp evidence pane, which Burp renders directly and never
+     * passes through `Redaction.apply`. That is the same accepted trade route 1 records.
+     */
+    internal fun buildDetail(
         insertionPoint: AuditInsertionPoint,
         payload: Payload,
         evidence: String,
     ): String {
         val settings = getSettings()
+        val policy = RedactionPolicy.fromMode(settings.privacyMode)
         val backendId = settings.preferredBackendId
         val metadataSection =
             buildString {
@@ -350,11 +385,11 @@ class AiScanCheck(
 **AI-Confirmed Vulnerability via Burp Scanner**
 
 **Insertion Point:** ${insertionPoint.name()} (${insertionPoint.type()})
-**Original Value:** ${insertionPoint.baseValue().take(100)}
+**Original Value:** ${sanitizeCookiePointText(insertionPoint, policy, insertionPoint.baseValue(), ScannerIssueSupport.ORIGINAL_VALUE_MAX_CHARS)}
 
 **Payload Used:**
 ```
-${payload.value.take(500)}
+${sanitizeCookiePointText(insertionPoint, policy, payload.value, ScannerIssueSupport.PAYLOAD_VALUE_MAX_CHARS)}
 ```
 
 **Detection Method:** ${payload.detectionMethod}
@@ -377,4 +412,77 @@ _(Confirmed via active exploitation testing integrated with Burp Scanner)_
             DetectionMethod.BLIND_BOOLEAN -> AuditIssueConfidence.TENTATIVE
             DetectionMethod.OUT_OF_BAND -> AuditIssueConfidence.FIRM
         }
+
+    /**
+     * (PRIV-05) 28-05 / `CR-02` — route 2's cookie control, held as companion members.
+     *
+     * WHY A COMPANION AND NOT TWO MORE INSTANCE METHODS, recorded because it is a deviation from
+     * this plan's literal shape. Adding both as instance methods took `AiScanCheck` to eleven
+     * functions and turned detekt's `TooManyFunctions` red (default `thresholdInClasses` is 11; the
+     * rule is not configured in `detekt.yml` and this class has no baseline entry for it). The two
+     * ways to silence that in place were both forbidden here: growing `detekt-baseline.xml` is
+     * banned by QUAL-07 and by this plan's own acceptance criteria, and raising the threshold would
+     * weaken a repository-wide quality gate to land a two-function change. Both functions are pure
+     * — they read no instance state, only their arguments — so a companion is where they already
+     * belonged. The identity compare still lives in this file, which is what
+     * `CookieRouteDispositionTest.exactlyOneInsertionPointCookieTypePredicateExistsInMainSource`
+     * asserts, and both remain `internal`.
+     */
+    companion object {
+        /**
+         * (PRIV-05) 28-05 / `CR-02` / `AR-27-08` route 2 — is this insertion point the cookie carrier?
+         *
+         * THE MEASUREMENT BEHIND THE SPELLING, written down because assuming it is how this control
+         * ships dead. The shared predicate in `Redaction` answers the cookie-type question for the
+         * PARAMETER carriers: it trims a parameter-type NAME, upper-cases it, and compares it
+         * against the literal `COOKIE`. The constant this class actually holds is a member of a
+         * DIFFERENT closed enum — Montoya's `AuditInsertionPointType`, whose cookie member is named
+         * `PARAM_COOKIE`. That name is not `COOKIE`, so the shared predicate returns FALSE here.
+         * Reusing it would compile, read as correct, and ship a control that never fires. That is
+         * not inferred by inspection: it is pinned by `AiScanCheckDetailCookieCarrierTest`'s
+         * `theSharedStringNamePredicateDoesNotRecogniseTheInsertionPointCookieConstant`.
+         * <!-- planner-discipline-allow: isCookieParameterType -->
+         *
+         * THE ALTERNATIVE THAT WAS NOT TAKEN. Widening the shared predicate to accept
+         * `PARAM_COOKIE` too was considered and rejected for two reasons. It would move
+         * `CookieRouteDispositionTest.exactlyOneCookieTypePredicateExistsInMainSource`, which counts
+         * a DIFFERENT population — `HttpParameterType` NAME comparisons — and whose count is
+         * evidence for a different claim. And merging two unrelated Montoya enums under one
+         * predicate makes that predicate's own contract ambiguous: a reader asking "what does this
+         * key on" would get two answers. The new spelling class instead gets its OWN tripwire,
+         * `CookieRouteDispositionTest.exactlyOneInsertionPointCookieTypePredicateExistsInMainSource`.
+         *
+         * D-28-07's discipline is preserved rather than restated: the decision is taken on a member
+         * of a CLOSED enum, never on a rendered string, so no reformatting of the detail line can
+         * defeat it.
+         */
+        internal fun isCookieInsertionPoint(insertionPoint: AuditInsertionPoint): Boolean = insertionPoint.type() == AuditInsertionPointType.PARAM_COOKIE
+
+        /**
+         * (PRIV-05) 28-05 / `CR-02` — the single gate BOTH controlled detail lines call.
+         *
+         * Shaped as the two-arm `when` of [ScannerIssueSupport.sanitizeInjectionPointValue] so a
+         * reader meets ONE control applied twice across two producers rather than two mechanisms.
+         * There is deliberately no emptiness guard, for the sibling's reason: a cookie point whose
+         * value is the empty string must still render the marker, or the point's TYPE becomes
+         * observable as a difference in the rendered line.
+         *
+         * The marker is [ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER], REFERENCED and never
+         * retyped — D-28-05's one-vocabulary rule forbids a second marker constant, and a second
+         * marker LITERAL in this file is the named failure mode.
+         */
+        internal fun sanitizeCookiePointText(
+            insertionPoint: AuditInsertionPoint,
+            policy: RedactionPolicy,
+            raw: String,
+            maxChars: Int,
+        ): String =
+            when {
+                // The cookie carrier. Same marker every other cookie control in the product writes.
+                policy.stripCookies && isCookieInsertionPoint(insertionPoint) -> ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER
+                // Every other insertion-point type passes through, truncated exactly as before this
+                // gate existed. Deliberate, and the same pass-through D-28-01 chose for route 1.
+                else -> raw.take(maxChars)
+            }
+    }
 }

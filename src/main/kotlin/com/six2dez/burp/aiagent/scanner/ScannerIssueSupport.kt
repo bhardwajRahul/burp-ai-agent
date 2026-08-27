@@ -170,6 +170,38 @@ object ScannerIssueSupport {
      * can drive end to end, and that is what makes this control's probe cheap enough that a future
      * round keeps it rather than deleting it. The metadata section is therefore passed IN, already
      * built. If a seventh parameter looks necessary, that is a signal to re-read D-28-01.
+     *
+     * SUPERSEDED IN PART — 2026-08-27, phase 28 plan 28-05 (`CR-02`, D-28-08 second site). Every
+     * paragraph above is KEPT VERBATIM as the historical record. The heading's claim and its
+     * supporting sentence were FALSE WHEN WRITTEN, and deleting them would leave a later reader
+     * unable to tell what was believed from what was overlooked. Three corrections, stated plainly.
+     *
+     * (a) THERE ARE TWO PRODUCERS, not one. The second is
+     * [com.six2dez.burp.aiagent.scanner.AiScanCheck.buildDetail], a separate active scan check
+     * live-registered `PER_INSERTION_POINT` at `App.kt:214-215`, whose `AuditIssue.detail()` reaches
+     * the same `scanner_issues` MCP tool result through `api.siteMap()`. `WR-01` measured it:
+     * `grep -rn "Original Value" src/main/kotlin/` returns two write sites, not one. It is NOW
+     * controlled, by its own type-keyed gate — but that gate keys on a DIFFERENT closed enum,
+     * Montoya's `AuditInsertionPointType.PARAM_COOKIE`, because the predicate spelling used here
+     * cannot see an insertion-point type. The two controls are siblings in shape and share this
+     * file's [INJECTION_VALUE_STRIPPED_MARKER]; they are not the same predicate.
+     *
+     * (b) THE SINGLE-PRODUCER GATE NAMED ABOVE DOES NOT EXIST. `IssueDetailCookieCarrierTest`'s
+     * assertion filters the `List<String>` THIS FUNCTION ITSELF RETURNED and counts the lines
+     * carrying the prefix. It is structurally incapable of seeing another file, so it would not have
+     * failed when `AiScanCheck` reappeared as a second producer — and it did not. The sentence
+     * "a second producer is how this control gets bypassed without anyone editing
+     * [sanitizeInjectionPointValue]" remains TRUE as a statement of risk; only the claim that a gate
+     * catches it was false.
+     *
+     * (c) NO REPOSITORY-WIDE ENFORCEMENT IS ADDED BY THIS ROUND, and this clause must not be read as
+     * implying otherwise. D-28-06 records the repo-wide single-producer gate as CONSIDERED AND NOT
+     * TAKEN — a named residual, not an oversight. After plan 28-05 there are TWO CONTROLLED
+     * PRODUCERS and STILL NO GATE THAT WOULD CATCH A THIRD. The tripwire plan 28-05 did build,
+     * `CookieRouteDispositionTest.exactlyOneInsertionPointCookieTypePredicateExistsInMainSource`,
+     * is a DIFFERENT mechanism over a DIFFERENT population: it counts cookie-type PREDICATES in main
+     * source, not issue-detail PRODUCERS. It does not close `WR-01` and must not be cited as doing
+     * so.
      */
     internal fun buildActiveIssueDetailLines(
         point: InjectionPoint,
