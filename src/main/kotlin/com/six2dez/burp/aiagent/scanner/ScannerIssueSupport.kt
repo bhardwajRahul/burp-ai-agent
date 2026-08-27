@@ -1,8 +1,131 @@
 package com.six2dez.burp.aiagent.scanner
 
 import burp.api.montoya.scanner.audit.issues.AuditIssueSeverity
+import com.six2dez.burp.aiagent.redact.RedactionPolicy
 
 object ScannerIssueSupport {
+    /**
+     * (PRIV-05) 28-01 / D-28-01 — the truncation bound applied to an injection point's original
+     * value before it is written into the issue detail.
+     *
+     * Named rather than left as the bare `100` it was at `ActiveAiScanner.kt:1239` because standing
+     * rule (vi) requires a source-derivable bound to be DERIVABLE BY A TEST. A literal buried in a
+     * string template is not.
+     */
+    internal const val ORIGINAL_VALUE_MAX_CHARS = 100
+
+    /**
+     * (PRIV-05) 28-01 — the marker written in place of a stripped cookie value.
+     *
+     * The text is READ FROM the marker `McpToolHelpers.sanitizeParameters` and `sanitizeHeaders`
+     * already write for a stripped cookie (`McpToolHelpers.kt:393`), not invented here, so a reader
+     * meets ONE vocabulary across every cookie control in the product.
+     */
+    internal const val INJECTION_VALUE_STRIPPED_MARKER = "[STRIPPED]"
+
+    /**
+     * (PRIV-05) 28-01 — the truncation bound on the payload rendered into the issue detail.
+     *
+     * Carried over unchanged in VALUE from the bare `500` at the old write site. It is NAMED here
+     * only because moving the line changed its detekt baseline ID from
+     * `MagicNumber:ActiveAiScanner.kt$ActiveAiScanner$500` to a `ScannerIssueSupport` one, and
+     * QUAL-07 forbids growing `detekt-baseline.xml` to re-suppress it. This constant is NOT part of
+     * the privacy control: the payload is agent-authored, not operator traffic.
+     */
+    internal const val PAYLOAD_VALUE_MAX_CHARS = 500
+
+    /**
+     * (PRIV-05) 28-01 / `AR-27-08` — the cookie control on the ISSUE-DETAIL carrier, one hop
+     * downstream of the parameter carrier `McpToolHelpers.sanitizeParameters` guards.
+     *
+     * TYPE-KEYED, never shape-keyed. The decision is taken on [InjectionType.COOKIE], a member of a
+     * closed enum, so no reformatting of the detail line can defeat it. That discipline is not a
+     * preference: phase 27 MEASURED `Redaction.cookieTypedParamRegex` as blind to this route
+     * precisely because it keys on the passive scanner's `name=value (COOKIE)` rendering, while
+     * this route renders `Original Value: <value>`. A control placed anywhere downstream of the
+     * write site would have only a rendered string to key on and would inherit that same blindness.
+     *
+     * The substitution is a `when` over the classification rather than a single `if`, so the
+     * extension point stays visible in the code exactly as `sanitizeParameters` keeps it visible.
+     * The else branch is a DELIBERATE pass-through: URL_PARAM-, BODY_PARAM-, HEADER-,
+     * PATH_SEGMENT-, JSON_FIELD- and XML_ELEMENT-typed points carry their value verbatim in every
+     * mode, exactly as before this function existed. PRIV-05's wording is about cookie values;
+     * whether a URL- or BODY-typed point named `access_token` survives this blob is a DIFFERENT
+     * requirement class, it is NOT assumed either way here, and `AR-27-07` is the separate finding
+     * that covers it.
+     *
+     * Truncation to [ORIGINAL_VALUE_MAX_CHARS] is preserved on the pass-through branch — it is the
+     * pre-existing behaviour of `ActiveAiScanner.kt:1239` and this function changes nothing about
+     * it.
+     */
+    internal fun sanitizeInjectionPointValue(
+        point: InjectionPoint,
+        policy: RedactionPolicy,
+    ): String =
+        when {
+            // The cookie carrier. Same marker sanitizeParameters and sanitizeHeaders write for a
+            // stripped cookie, so one vocabulary is met across every cookie control in the product.
+            policy.stripCookies && point.type == InjectionType.COOKIE -> INJECTION_VALUE_STRIPPED_MARKER
+            // D-28-01: every other type passes through, truncated exactly as before. Deliberate.
+            else -> point.originalValue.take(ORIGINAL_VALUE_MAX_CHARS)
+        }
+
+    /**
+     * (PRIV-05) 28-01 / D-28-01 — THE ONLY PRODUCER OF THE ACTIVE-SCAN ISSUE DETAIL LINES IN THE
+     * REPOSITORY.
+     *
+     * That is not a stylistic preference: a second producer is how this control gets bypassed
+     * without anyone editing [sanitizeInjectionPointValue]. `IssueDetailCookieCarrierTest`'s
+     * single-producer gate fails if a detail-line accumulator reappears inline in
+     * `ActiveAiScanner`.
+     *
+     * WHY THE CONTROL SITS HERE AND NOT DOWNSTREAM. This is the last point in the route that still
+     * holds the [InjectionType]. `IssueUtils.formatIssueDetailHtml` receives `List<String>` and has
+     * neither a privacy mode nor any knowledge of which line came from which type;
+     * `Serialization.kt`'s `detail = detail()` is later still, with the type discarded and the value
+     * already inside an HTML-escaped, `<br>`-joined blob. A control at either site would have to
+     * re-parse its own `Original Value: ` prefix to locate the value — shape-keyed, the mechanism
+     * phase 27 measured as structurally blind.
+     *
+     * ACCEPTED TRADE, RECORDED RATHER THAN HIDDEN. Under STRICT and BALANCED the operator's own
+     * Burp UI issue detail now shows the marker instead of the value, because `AuditIssue.detail` is
+     * stored in Burp's site map as well as emitted over MCP. It is accepted because the operator
+     * retains the raw value byte-for-byte in the SAME issue's request pane: Burp renders
+     * `requestResponses` directly and does not pass it through `Redaction.apply`. That is a checked
+     * invariant, not a claim — see `theRequestResponsesListIsNotAlteredByTheControl`.
+     *
+     * SIX PARAMETERS IS A DESIGN BOUND, NOT A TOOL THRESHOLD. Detekt's own `functionThreshold` is
+     * 10 (`detekt.yml:9`) and would accept more without comment, so it is NOT the reason. The bound
+     * is six because the seventh parameter this function could plausibly grow is the supervisor's
+     * backend info, and admitting it would drag a Montoya-dependent collaborator into a function
+     * whose entire value is that it has none. A collaborator-free function is one a mocks-free test
+     * can drive end to end, and that is what makes this control's probe cheap enough that a future
+     * round keeps it rather than deleting it. The metadata section is therefore passed IN, already
+     * built. If a seventh parameter looks necessary, that is a signal to re-read D-28-01.
+     */
+    internal fun buildActiveIssueDetailLines(
+        point: InjectionPoint,
+        vulnClassName: String,
+        payload: Payload,
+        evidence: String,
+        metadataSection: String,
+        policy: RedactionPolicy,
+    ): List<String> {
+        val detailLines = mutableListOf<String>()
+        detailLines.add("Vulnerability confirmed via active testing")
+        detailLines.add("")
+        detailLines.add("Type:")
+        detailLines.add("  $vulnClassName")
+        detailLines.add("  Injection Point: ${point.type} - ${point.name}")
+        detailLines.add("  Original Value: ${sanitizeInjectionPointValue(point, policy)}")
+        detailLines.add("  Payload Used: ${payload.value.take(PAYLOAD_VALUE_MAX_CHARS)}")
+        detailLines.add("  Detection Method: ${payload.detectionMethod}")
+        detailLines.add("  Evidence: $evidence")
+        detailLines.add("")
+        detailLines.addAll(metadataSection.split("\r\n"))
+        return detailLines
+    }
+
     fun mapSeverity(vulnClass: VulnClass): AuditIssueSeverity =
         when (vulnClass) {
             VulnClass.SQLI, VulnClass.CMDI, VulnClass.SSTI, VulnClass.XXE,
