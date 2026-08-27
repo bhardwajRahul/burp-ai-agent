@@ -446,6 +446,204 @@ class IssueDetailCookieCarrierTest {
         )
     }
 
+    /**
+     * (PRIV-05) 28-04 / `CR-01` — THE DESIGNATED RED PROBE FOR THE PAYLOAD CONTROL.
+     *
+     * This is the assertion 28-04's SC3 mutations are measured against. `28-VERIFICATION.md`
+     * measured SC1 FALSE at this exact line: `ScannerIssueSupport.kt:121` rendered
+     * `payload.value` with no policy argument, and for a COOKIE point production DERIVES that
+     * payload from the cookie value, so the line re-leaked the bytes line 120 had just stripped.
+     */
+    @Test
+    fun cookiePayloadIsStrippedUnderStrict() {
+        val detail = detailFieldOf(redactedBlobFor(cookiePoint(), PrivacyMode.STRICT))
+
+        assertFalse(
+            detail.contains(DETAIL_SENTINEL),
+            "STRICT / PAYLOAD LINE: the COOKIE-typed injection point's originalValue must be ABSENT " +
+                "from the `detail` field, but the sentinel '$DETAIL_SENTINEL' was present. For a " +
+                "COOKIE point the payload is DERIVED FROM that value, so an uncontrolled " +
+                "'$PAYLOAD_USED_PREFIX' line re-leaks exactly what the 'Original Value: ' line just " +
+                "stripped. Extracted detail: '$detail'",
+        )
+        assertFalse(
+            detail.contains(PAYLOAD.value),
+            "STRICT / PAYLOAD LINE: the rendered payload '${PAYLOAD.value}' must be ABSENT from the " +
+                "`detail` field. Its presence means the payload survived the control verbatim.",
+        )
+        assertTrue(
+            detail.contains("$PAYLOAD_USED_PREFIX${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}"),
+            "STRICT / PAYLOAD LINE: the '$PAYLOAD_USED_PREFIX' line must render the SHARED stripped " +
+                "marker '${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' — the same " +
+                "vocabulary the Original Value line uses — but it did not. Extracted detail: " +
+                "'$detail'",
+        )
+    }
+
+    @Test
+    fun cookiePayloadIsStrippedUnderBalanced() {
+        val detail = detailFieldOf(redactedBlobFor(cookiePoint(), PrivacyMode.BALANCED))
+
+        assertFalse(
+            detail.contains(DETAIL_SENTINEL),
+            "BALANCED: the COOKIE-typed injection point's originalValue must be ABSENT from the " +
+                "`detail` field, but the sentinel '$DETAIL_SENTINEL' was present on the " +
+                "'$PAYLOAD_USED_PREFIX' line. BALANCED sets stripCookies just as STRICT does; a " +
+                "control that fires only under STRICT reads the wrong half of the policy. " +
+                "Extracted detail: '$detail'",
+        )
+        assertFalse(
+            detail.contains(PAYLOAD.value),
+            "BALANCED: the rendered payload '${PAYLOAD.value}' must be ABSENT from the `detail` field.",
+        )
+        assertTrue(
+            detail.contains("$PAYLOAD_USED_PREFIX${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}"),
+            "BALANCED: the '$PAYLOAD_USED_PREFIX' line must render the stripped marker " +
+                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}', but it did not. " +
+                "Extracted detail: '$detail'",
+        )
+    }
+
+    /**
+     * SC2 for route 1. The opposite mistake to the one above: a control that fires unconditionally
+     * would be invisible to every absence assertion in this class while destroying the diagnostic
+     * in the ONE mode the operator chose to keep it in.
+     */
+    @Test
+    fun cookiePayloadSurvivesUnderOff() {
+        val detail = detailFieldOf(redactedBlobFor(cookiePoint(), PrivacyMode.OFF))
+
+        assertTrue(
+            detail.contains("$PAYLOAD_USED_PREFIX${PAYLOAD.value}"),
+            "OFF: the '$PAYLOAD_USED_PREFIX' line must carry the rendered payload " +
+                "'${PAYLOAD.value}' VERBATIM — the control is policy-driven, not an unconditional " +
+                "rewrite. Extracted detail: '$detail'",
+        )
+        assertTrue(
+            detail.contains(DETAIL_SENTINEL),
+            "OFF: the payload carries the sentinel '$DETAIL_SENTINEL' by construction, so the OFF " +
+                "`detail` must contain it. Its absence means either the fixture stopped " +
+                "interpolating or some rule other than this control removed it.",
+        )
+        assertFalse(
+            detail.contains("$PAYLOAD_USED_PREFIX${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}"),
+            "OFF: the stripped marker must NOT appear on the '$PAYLOAD_USED_PREFIX' line; its " +
+                "presence would mean a control fired in the mode defined as applying none.",
+        )
+    }
+
+    /**
+     * The payload line's attribution control, twinning
+     * [urlParamOriginalValueSurvivesStrict_attributionControl]. Same value, same payload, different
+     * TYPE — so a green cookie result above is attributable to the type gate and not to some
+     * unrelated rule that happens to eat the sentinel or the payload text.
+     */
+    @Test
+    @Suppress("ktlint:standard:function-naming")
+    fun urlParamPayloadSurvivesStrict_attributionControl() {
+        val detail = detailFieldOf(redactedBlobFor(urlParamPoint(), PrivacyMode.STRICT))
+
+        assertTrue(
+            detail.contains("$ORIGINAL_VALUE_PREFIX$DETAIL_SENTINEL"),
+            "STRICT / ATTRIBUTION: a URL_PARAM-typed point carrying the IDENTICAL sentinel must " +
+                "keep its 'Original Value: ' line verbatim. It did not, so the COOKIE assertions " +
+                "are not attributable to the type gate. Extracted detail: '$detail'",
+        )
+        assertTrue(
+            detail.contains("$PAYLOAD_USED_PREFIX${PAYLOAD.value}"),
+            "STRICT / ATTRIBUTION: a URL_PARAM-typed point must keep its '$PAYLOAD_USED_PREFIX' " +
+                "line verbatim, including '${PAYLOAD.value}'. Its absence would mean the payload " +
+                "control is NOT type-keyed — it fires for every type, which reopens D-28-01's " +
+                "deliberate pass-through. Extracted detail: '$detail'",
+        )
+    }
+
+    /**
+     * The payload line's twin of [theStrippedMarkerIsNotTruncated]. A marker run through
+     * [ScannerIssueSupport.PAYLOAD_VALUE_MAX_CHARS] and emerging as a fragment still reads as
+     * "stripped" to a human while defeating every assertion that matches the whole marker.
+     */
+    @Test
+    fun thePayloadStrippedMarkerIsNotTruncated() {
+        val rendered = payloadRenderedFor(cookiePoint(), PrivacyMode.STRICT)
+
+        assertEquals(
+            ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER,
+            rendered,
+            "MARKER INTEGRITY: the COOKIE carrier's '$PAYLOAD_USED_PREFIX' line must render the " +
+                "stripped marker EXACTLY, not a prefix of it and not the marker with a residual " +
+                "payload suffix attached. Rendered: '$rendered'.",
+        )
+    }
+
+    /**
+     * [edge:encoding] WHOSE DEFINITION OF EQUALITY APPLIES? NONE — and that is the point.
+     *
+     * The shape-keyed alternative D-28-07 rejected would search `payload.value` for the raw value
+     * and excise it. This payload carries the value only percent-encoded, so that search finds
+     * nothing and the leak ships. The type-keyed gate never reads the text, so it strips this one
+     * exactly as it strips the raw-form payload.
+     */
+    @Test
+    fun aCookiePayloadCarryingOnlyAnEncodedFormOfTheValueIsStillStripped() {
+        // FIXTURE PREMISE, PINNED BEFORE IT IS USED. If the encoded form ever contained the raw
+        // sentinel, this test would silently degrade into a duplicate of the STRICT test above.
+        assertFalse(
+            ENCODED_ONLY_PAYLOAD.value.contains(DETAIL_SENTINEL),
+            "FIXTURE: the encoded-only payload must NOT contain the RAW sentinel " +
+                "'$DETAIL_SENTINEL'; otherwise it measures nothing this file does not already " +
+                "measure. Payload was '${ENCODED_ONLY_PAYLOAD.value}'.",
+        )
+        assertTrue(
+            ENCODED_ONLY_PAYLOAD.value.contains(ENCODED_DETAIL_SENTINEL),
+            "FIXTURE: the encoded-only payload must contain the TRANSFORMED sentinel " +
+                "'$ENCODED_DETAIL_SENTINEL' — that transformed form IS the operator's value and is " +
+                "what a shape-keyed control would miss. Payload was '${ENCODED_ONLY_PAYLOAD.value}'.",
+        )
+
+        val rendered = payloadRenderedFor(cookiePoint(), PrivacyMode.STRICT, ENCODED_ONLY_PAYLOAD)
+
+        assertEquals(
+            ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER,
+            rendered,
+            "STRICT / [edge:encoding]: a COOKIE point's payload must be replaced by " +
+                "'${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' whatever its TEXT looks " +
+                "like. This payload carries the value only as '$ENCODED_DETAIL_SENTINEL'. Rendering " +
+                "'$rendered' means the gate is reading the payload's text instead of the point's " +
+                "TYPE — the shape-keyed mechanism D-28-07 rejected and phase 27 measured as " +
+                "structurally blind.",
+        )
+    }
+
+    /**
+     * [edge:empty] The gate is keyed on the TYPE and never on the value being non-empty. The
+     * `28-REVIEW.md` `CR-01` sketch carried an `isNotEmpty()` guard; under it, an empty-valued
+     * cookie point would render a bare prefix and pass straight through both controls.
+     */
+    @Test
+    fun anEmptyValuedCookiePointStillRendersTheMarkerOnBothLines() {
+        val point = emptyValuedCookiePoint()
+
+        listOf(PrivacyMode.STRICT, PrivacyMode.BALANCED).forEach { mode ->
+            assertEquals(
+                ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER,
+                originalValueRenderedFor(point, mode),
+                "$mode / [edge:empty]: a COOKIE point whose originalValue is the EMPTY STRING must " +
+                    "still render '${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' on the " +
+                    "'$ORIGINAL_VALUE_PREFIX' line. An emptiness guard on the gate would render an " +
+                    "empty value here and leak the TYPE's presence as an observable difference.",
+            )
+            assertEquals(
+                ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER,
+                payloadRenderedFor(point, mode),
+                "$mode / [edge:empty]: a COOKIE point whose originalValue is the EMPTY STRING must " +
+                    "still render '${ScannerIssueSupport.INJECTION_VALUE_STRIPPED_MARKER}' on the " +
+                    "'$PAYLOAD_USED_PREFIX' line. The payload gate reads `point.type` only; adding " +
+                    "an emptiness guard to it is the CR-01 sketch's defect, not an optimisation.",
+            )
+        }
+    }
+
     private fun activeScannerSource(): String {
         val file = File(ACTIVE_SCANNER_SOURCE_PATH)
         assertTrue(
@@ -471,6 +669,31 @@ class IssueDetailCookieCarrierTest {
                 POSITIVE_CONTROL_COOKIE_VALUE.contains(DETAIL_SENTINEL),
             "FIXTURE: neither sentinel may contain the other. A substring relation defeats an " +
                 "absence assertion exactly as a duplicate does.",
+        )
+
+        // [edge:adjacency], the CONTAINMENT half — 28-04. The two relations below are deliberate and
+        // OPPOSITE: the payload must CONTAIN the detail sentinel, and must NOT overlap the
+        // positive-control cookie value. Asserting only distinctness (above) would leave the payload
+        // free to drift into either an accidental equality or an accidental overlap, and either one
+        // makes an absence assertion over the payload line pass for the wrong reason.
+        assertTrue(
+            PAYLOAD.value.contains(DETAIL_SENTINEL),
+            "FIXTURE / NON-VACUITY: the payload fixture is DERIVED at construction time from " +
+                "`PayloadGenerator().generateContextAwarePayloads(VulnClass.SQLI, DETAIL_SENTINEL, " +
+                "$DERIVED_PAYLOAD_LIMIT)` and MUST CONTAIN the sentinel '$DETAIL_SENTINEL'. It " +
+                "rendered as '${PAYLOAD.value}'. A PayloadGenerator that stops interpolating the " +
+                "original value would otherwise leave every payload assertion in this class " +
+                "VACUOUSLY GREEN — an absence assertion over a payload that never carried the " +
+                "sentinel proves nothing about the '$PAYLOAD_USED_PREFIX' line. That exact vacuity " +
+                "is what `28-VERIFICATION.md` missing[3] measured in the hand-typed fixture this " +
+                "one replaced.",
+        )
+        assertFalse(
+            PAYLOAD.value.contains(POSITIVE_CONTROL_COOKIE_VALUE),
+            "FIXTURE: the derived payload must NOT overlap the positive-control cookie value " +
+                "'$POSITIVE_CONTROL_COOKIE_VALUE'. An overlap would let the PRE-EXISTING header " +
+                "rule's substitution account for a change inside `detail` and make this plan's " +
+                "control unattributable. Payload was '${PAYLOAD.value}'.",
         )
     }
 
@@ -521,8 +744,11 @@ class IssueDetailCookieCarrierTest {
          */
         const val METADATA_SECTION_MARKER = "Backend: test-backend"
 
-        /** The rendered prefix of the detail line this control owns. */
+        /** The rendered prefix of the detail line 28-01's control owns. */
         const val ORIGINAL_VALUE_PREFIX = "Original Value: "
+
+        /** The rendered prefix of the detail line 28-04's control owns — route 1 of `AR-27-08`. */
+        const val PAYLOAD_USED_PREFIX = "Payload Used: "
 
         /** How far past [ScannerIssueSupport.ORIGINAL_VALUE_MAX_CHARS] the bound fixture overshoots. */
         const val BOUND_OVERSHOOT_CHARS = 25
@@ -539,11 +765,59 @@ class IssueDetailCookieCarrierTest {
 
         const val ACTIVE_SCANNER_SOURCE_PATH = "src/main/kotlin/com/six2dez/burp/aiagent/scanner/ActiveAiScanner.kt"
 
+        /** How many payloads the derived fixture asks `PayloadGenerator` for. */
+        const val DERIVED_PAYLOAD_LIMIT = 5
+
+        /**
+         * (PRIV-05) 28-04 / `CR-01` — the payload the detail lines render, DERIVED FROM PRODUCTION
+         * rather than hand-typed.
+         *
+         * `28-VERIFICATION.md` `missing[3]` measured the previous hand-typed value
+         * `"benign-probe-payload"` as the reason 14 green tests said NOTHING about the
+         * `Payload Used:` line: it carried no trace of the injection point's value, so no assertion
+         * over the blob could tell a controlled payload line from an uncontrolled one. Production
+         * builds a COOKIE point's payload by INTERPOLATING the cookie value
+         * (`ActiveAiScanner.kt:511-515` passes `target.injectionPoint.originalValue` into
+         * `PayloadGenerator.generateContextAwarePayloads`, which interpolates it at
+         * `PayloadGenerator.kt:782`), so the fixture is built the SAME WAY, through the same pure
+         * function — it touches no `ScanKnowledgeBase` and no singleton, so this stays mocks-free.
+         *
+         * [assertSentinelsAreDistinctAndNonOverlapping] asserts this value CONTAINS
+         * [DETAIL_SENTINEL]. A generator that stops interpolating turns that guard red instead of
+         * silently restoring the blind fixture.
+         *
+         * The `detectionMethod` is `BLIND_BOOLEAN` here where the hand-typed fixture said
+         * `REFLECTION`, because that is what the string-context SQLI arm actually emits. The
+         * `Detection Method:` detail line's text changes accordingly; that is the production truth
+         * arriving in the fixture, not a regression.
+         */
         val PAYLOAD =
+            PayloadGenerator()
+                .generateContextAwarePayloads(VulnClass.SQLI, DETAIL_SENTINEL, DERIVED_PAYLOAD_LIMIT)
+                .first()
+
+        /**
+         * [edge:encoding] The sentinel in TRANSFORMED form: every `-` percent-encoded as `%2D`.
+         *
+         * Derived from [DETAIL_SENTINEL] rather than typed, so a sentinel change cannot leave this
+         * silently unrelated to it. The raw sentinel is NOT a substring of the result.
+         */
+        val ENCODED_DETAIL_SENTINEL = DETAIL_SENTINEL.replace("-", "%2D")
+
+        /**
+         * [edge:encoding] A payload that carries the cookie value ONLY in encoded form.
+         *
+         * This is the fixture that answers "whose definition of equality applies?" with NONE. A
+         * shape-keyed control — the substring-excision alternative D-28-07 REJECTED — would search
+         * `payload.value` for the raw value, find nothing, and pass the payload through untouched.
+         * The type-keyed gate never reads the text at all, so it strips this exactly as it strips
+         * the raw-form payload.
+         */
+        val ENCODED_ONLY_PAYLOAD =
             Payload(
-                value = "benign-probe-payload",
+                value = "$ENCODED_DETAIL_SENTINEL' AND '1'='1",
                 vulnClass = VulnClass.SQLI,
-                detectionMethod = DetectionMethod.REFLECTION,
+                detectionMethod = DetectionMethod.BLIND_BOOLEAN,
                 risk = PayloadRisk.SAFE,
                 expectedEvidence = "evidence-marker-present",
             )
@@ -558,14 +832,25 @@ class IssueDetailCookieCarrierTest {
 
         fun urlParamPoint() = InjectionPoint(InjectionType.URL_PARAM, COOKIE_POINT_NAME, DETAIL_SENTINEL)
 
+        /**
+         * [edge:empty] A COOKIE point whose value is the EMPTY STRING.
+         *
+         * The gate is keyed on the TYPE, never on the value being non-empty, so this point must
+         * still render the marker on both controlled lines. The `CR-01` sketch in `28-REVIEW.md`
+         * carried an emptiness guard; it was rejected precisely because it would let this point
+         * through.
+         */
+        fun emptyValuedCookiePoint() = InjectionPoint(InjectionType.COOKIE, COOKIE_POINT_NAME, "")
+
         fun detailLinesFor(
             point: InjectionPoint,
             mode: PrivacyMode,
+            payload: Payload = PAYLOAD,
         ): List<String> =
             ScannerIssueSupport.buildActiveIssueDetailLines(
                 point,
                 VulnClass.SQLI.name,
-                PAYLOAD,
+                payload,
                 "evidence-marker-present",
                 METADATA_SECTION,
                 RedactionPolicy.fromMode(mode),
@@ -631,6 +916,36 @@ class IssueDetailCookieCarrierTest {
                     "control gets bypassed without anyone editing it.",
             )
             return matching[0].substringAfter(ORIGINAL_VALUE_PREFIX)
+        }
+
+        /**
+         * (PRIV-05) 28-04 — the twin of [originalValueRenderedFor] for the `Payload Used: ` line.
+         *
+         * ITS REACH, STATED HONESTLY RATHER THAN INHERITED. The sibling helper frames its
+         * `assertEquals(1, ...)` as a repository-wide SINGLE PRODUCER gate. `28-REVIEW.md` `WR-01`
+         * MEASURED that framing as false — the assertion filters the list
+         * `buildActiveIssueDetailLines` itself returned and is structurally incapable of seeing a
+         * producer in another file — so this helper does not repeat it. D-28-06 keeps the
+         * repository-wide gate as a NAMED RESIDUAL that this round deliberately does not build.
+         */
+        fun payloadRenderedFor(
+            point: InjectionPoint,
+            mode: PrivacyMode,
+            payload: Payload = PAYLOAD,
+        ): String {
+            val matching = detailLinesFor(point, mode, payload).filter { it.contains(PAYLOAD_USED_PREFIX) }
+            assertEquals(
+                1,
+                matching.size,
+                "ONE LINE PER CALL: exactly one line of the list `buildActiveIssueDetailLines` " +
+                    "RETURNED may carry the '$PAYLOAD_USED_PREFIX' prefix. Found ${matching.size}: " +
+                    "$matching. This assertion's reach is exactly that list and no wider: it CANNOT " +
+                    "see a second detail-line producer in another file, and at this commit " +
+                    "`AiScanCheck.buildDetail` is one (plan 28-05 owns it). Do not read a green " +
+                    "result here as a repository-wide single-producer guarantee — D-28-06 records " +
+                    "that gate as a residual this round did not build.",
+            )
+            return matching[0].substringAfter(PAYLOAD_USED_PREFIX)
         }
 
         /**
