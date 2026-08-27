@@ -803,7 +803,7 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 **Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
 measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
 
-**Plans:** 6/6 plans executed (round 1 complete; gap-closure round 2 planned, not executed)
+**Plans:** 8 plans — 6/6 executed (round 1 + gap-closure round 2); gap-closure round 3 planned, not executed
 
 Plans:
 **Wave 1**
@@ -834,6 +834,24 @@ not regress. Waves below are numbered within the gap round (`/gsd-execute-phase 
 **Gap wave 3** *(blocked on gap wave 2)*
 
 - [x] 28-06-PLAN.md — `checkpoint:decision` on the `AR-27-08` disposition; second append-and-amend supersession with a pre-computed byte-prefix digest; recompute `threats_open`; discharge the 28-03 RUN 2 recording failure; correct the carrier registry and add the `baseValue()` accessor that hid route 2 (D-28-08)
+
+### Gap closure round 3 — the record repair (`D-28-09` / `D-28-10` / `D-28-11`)
+
+Round 2 closed all seven round-1 gaps and the mechanism work is sound. `28-VERIFICATION.md` returned
+`gaps_found` 5/6 with SC1 adjudicated **(b) not satisfied** on the write-time/read-time bound: both
+controls decide once at issue construction and bake the result into an immutable `AuditIssue.detail()`,
+so an issue built under `OFF` still emits the raw cookie value on a later STRICT read. The maintainer
+**ACCEPTED that bound as a NAMED RESIDUAL on 2026-08-28** (`D-28-09`), conditional on the silence
+being repaired (`D-28-10`). This round changes **no runtime behaviour** — it repairs the record and
+earns the conditions the acceptance rests on. `AR-27-08` stays OPEN; PRIV-05 stays `- [ ]`.
+
+**Gap wave 4**
+
+- [ ] 28-07-PLAN.md — TRACER: name the `WRITE-TIME/READ-TIME BOUND` at the privacy-mode tooltip and at `AiScanCheck.consolidateIssues`; make the `**Payload Used:**` probe claim TRUE with four named assertions; correct the false `type()` KDoc premise and NAME (not widen) the route-2 fail-open set (`D-28-10` conditions 2-3, `D-28-11`)
+
+**Gap wave 5** *(blocked on gap wave 4)*
+
+- [ ] 28-08-PLAN.md — third append-and-amend supersession on `ISSUE_DETAIL_CARRIER_DISPOSITION` and on `26-SECURITY.md` row 315 clause (d), both behind pre-computed byte-prefix digests; recompute `threats_open`; then, LAST and gated on six machine-checked conditions, apply the SC1 override to `28-VERIFICATION.md` frontmatter (`D-28-10` conditions 1 and 4)
 
 ---
 
