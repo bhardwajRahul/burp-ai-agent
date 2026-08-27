@@ -46,7 +46,7 @@ Everything else in this milestone is real but was found by reading: an agent loo
 - [x] **Phase 24: Scheduler & Process Robustness** — Guard recurring tasks against death-by-exception; fix the CLI output race and unbounded resource use (completed 2026-08-22)
 - [x] **Phase 25: Secondary Hardening** — Stop leaking the MCP token to unverified port holders; teach SsrfGuard the alternate IP notations (completed 2026-08-22)
 - [ ] **Phase 26: Coverage, Static-Analysis Debt & Docs** — Allowlist shell escaping, raise coverage on security paths, shrink the detekt baseline, publish the advisory
-- [ ] **Phase 27: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity** — Close gap: PRIV-05 — mirror the cookie name-variant fix into `sanitizeHeaders`, so the MCP tool path strips `X-Cookie` / `Cookie2` / `Set-Cookie2` / `X-Original-Cookie` / `X-Forwarded-Cookie` the way the prompt path already does
+- [x] **Phase 27: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity** — Close gap: PRIV-05 — mirror the cookie name-variant fix into `sanitizeHeaders`, so the MCP tool path strips `X-Cookie` / `Cookie2` / `Set-Cookie2` / `X-Original-Cookie` / `X-Forwarded-Cookie` the way the prompt path already does (completed 2026-08-27)
 - [ ] **Phase 28: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`** — Close `AR-27-08`: a COOKIE-typed injection point's value reaches the `scanner_issues` tool result through `AuditIssue.detail()` and survives STRICT and BALANCED (measured by plan 27-08 with a firing positive control; medium, latent behind three preconditions). Closes `InjectionPointExtractor.kt:29` in the same phase — the predicate is only meaningful as part of the route it feeds. Opened 2026-08-25 by plan 27-09 because phase 27 completes with PRIV-05 NOT satisfied and a deferral without an owner is round four, pre-arranged
 
 ## Phase Details
@@ -396,7 +396,7 @@ reopens `26-SECURITY.md` T-26-02-01, which had recorded it as closed.
 **Depends on:** Phase 26
 **Gap closure (2026-08-24):** `27-VERIFICATION.md` scored 7/9 and failed the two truths the goal rests on. `Serialization.kt` embeds a RAW HTTP message in a JSON string, `toolJson.encodeToString` escapes every CRLF to a literal two-character sequence, and both cookie rules are line-anchored `(?im)^…$` — so the CANONICAL `Cookie:` and `Set-Cookie:` headers leak verbatim in STRICT and BALANCED through `proxy_http_history`, `proxy_http_history_regex`, `site_map`, `site_map_regex` and `scanner_issues`, across 14 measured emission sites with no `sanitizeHeaders` in front. Strictly broader than the variant-spelling defect that created the phase. `AR-27-01` is reclassified from accepted residual to live finding. Plans 27-04 to 27-06 close it; the maintainer chose to fix rather than to scope PRIV-05 down.
 
-**Plans:** 16/16 plans executed
+**Plans:** 16/16 plans complete
 
 Plans:
 **Wave 1**
@@ -820,7 +820,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
 | 26. Coverage, Static-Analysis Debt & Docs | 7/7 | In Progress|  |
-| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 16/16 | In Progress|  |
+| 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 16/16 | Complete    | 2026-08-27 |
 
 ## Backlog
 
