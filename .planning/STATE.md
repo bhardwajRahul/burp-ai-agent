@@ -6,15 +6,15 @@ current_phase: 28
 current_phase_name: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`
 status: executing
 stopped_at: Phase 27 complete, ready to plan Phase 26
-last_updated: "2026-08-27T09:00:05.754Z"
+last_updated: "2026-08-27T13:11:52.415Z"
 last_activity: 2026-08-27
-last_activity_desc: Phase 27 complete, transitioned to Phase 26
-state_head: b265644d7bb80eddc61e349be98497e4ae158dc2
+last_activity_desc: Phase 28 execution started
+state_head: f5ebe2d51b37f3d333e91411f514b3953ee8e989
 progress:
   total_phases: 9
   completed_phases: 5
   total_plans: 80
-  completed_plans: 77
+  completed_plans: 80
   percent: 56
 ---
 
@@ -25,15 +25,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-05)
 
 **Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable.
-**Current focus:** Phase 27 — PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity
+**Current focus:** Phase 28 — The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`
 
 ## Current Position
 
-Phase: 28 (The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`) — READY TO EXECUTE
-Plan: Not started
-Status: Ready to execute
+Phase: 28 (The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 28
 Resume file: None
-Last activity: 2026-08-27 — Phase 27 complete, transitioned to Phase 26
+Last activity: 2026-08-27 — Phase 28 execution started
 
 ## Milestone Origin
 

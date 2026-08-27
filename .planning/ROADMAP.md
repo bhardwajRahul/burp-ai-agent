@@ -803,7 +803,7 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 **Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
 measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans executed
 
 Plans:
 **Wave 1**
@@ -816,7 +816,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 28-03-PLAN.md — measure the `ResponseAnalyzer` evidence tail and file `AR-28-01`; amend `AR-27-08` append-and-amend; recompute `threats_open`; state the PRIV-05 judgement (SC5, SC6)
+- [x] 28-03-PLAN.md — measure the `ResponseAnalyzer` evidence tail and file `AR-28-01`; amend `AR-27-08` append-and-amend; recompute `threats_open`; state the PRIV-05 judgement (SC5, SC6)
 
 ---
 
