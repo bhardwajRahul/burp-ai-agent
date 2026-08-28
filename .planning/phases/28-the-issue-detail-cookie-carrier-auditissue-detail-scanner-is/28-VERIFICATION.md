@@ -4,7 +4,19 @@ verified: 2026-08-27T22:40:00Z
 status: gaps_found
 score: 5/6 must-haves verified
 behavior_unverified: 0
-overrides_applied: 0
+overrides_applied: 1
+overrides:
+  - must_have: "SC1 — A COOKIE-typed injection point's `originalValue` does not appear in the `scanner_issues` tool result in STRICT or BALANCED"
+    reason: >-
+      The write-time/read-time bound is accepted as a NAMED RESIDUAL. Every issue produced under
+      STRICT or BALANCED — the whole default posture — is measurably clean across all four detail
+      lines of both producers. The residual requires a deliberate OFF scan followed by a mode switch,
+      the same latent, opt-in reachability profile that put AR-27-08 at MEDIUM rather than high.
+      Accepted on condition the silence is repaired: named in ISSUE_DETAIL_CARRIER_DISPOSITION's
+      STILL OPEN clause and in 26-SECURITY.md row 315 clause (d), noted at
+      AiScanCheck.consolidateIssues, and surfaced next to the privacy-mode selector.
+    accepted_by: "Project maintainer, human answer given interactively at the `verify_phase_goal` gate on 2026-08-28 and recorded as D-28-09 (the acceptance) and D-28-10 (its conditions) in 28-CONTEXT.md. NOT an auto-advance default: `workflow.auto_advance` and `workflow._auto_chain_active` were both `false` on disk in .planning/config.json when the question was put and when this override was written."
+    accepted_at: "2026-08-28T07:58:34Z"
 re_verification:
   previous_status: gaps_found
   previous_score: 5/6
