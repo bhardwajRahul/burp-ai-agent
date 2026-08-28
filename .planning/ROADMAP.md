@@ -45,7 +45,7 @@ Everything else in this milestone is real but was found by reading: an agent loo
 - [x] **Phase 23: EDT Confinement & UI Responsiveness** — Tool execution, backend HTTP and MCP stop() off the Swing EDT (completed 2026-08-21)
 - [x] **Phase 24: Scheduler & Process Robustness** — Guard recurring tasks against death-by-exception; fix the CLI output race and unbounded resource use (completed 2026-08-22)
 - [x] **Phase 25: Secondary Hardening** — Stop leaking the MCP token to unverified port holders; teach SsrfGuard the alternate IP notations (completed 2026-08-22)
-- [ ] **Phase 26: Coverage, Static-Analysis Debt & Docs** — Allowlist shell escaping, raise coverage on security paths, shrink the detekt baseline, publish the advisory
+- [x] **Phase 26: Coverage, Static-Analysis Debt & Docs** — Allowlist shell escaping, raise coverage on security paths, shrink the detekt baseline, publish the advisory (completed 2026-08-28)
 - [x] **Phase 27: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity** — Close gap: PRIV-05 — mirror the cookie name-variant fix into `sanitizeHeaders`, so the MCP tool path strips `X-Cookie` / `Cookie2` / `Set-Cookie2` / `X-Original-Cookie` / `X-Forwarded-Cookie` the way the prompt path already does (completed 2026-08-27)
 - [x] **Phase 28: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`** — Close `AR-27-08`: a COOKIE-typed injection point's value reaches the `scanner_issues` tool result through `AuditIssue.detail()` and survives STRICT and BALANCED (measured by plan 27-08 with a firing positive control; medium, latent behind three preconditions). Closes `InjectionPointExtractor.kt:29` in the same phase — the predicate is only meaningful as part of the route it feeds. Opened 2026-08-25 by plan 27-09 because phase 27 completes with PRIV-05 NOT satisfied and a deferral without an owner is round four, pre-arranged (completed 2026-08-28)
 
@@ -872,7 +872,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | 23. EDT Confinement & UI Responsiveness | 8/8 | Complete    | 2026-08-21 |
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
 | 25. Secondary Hardening | 3/3 | Complete    | 2026-08-22 |
-| 26. Coverage, Static-Analysis Debt & Docs | 7/7 | In Progress|  |
+| 26. Coverage, Static-Analysis Debt & Docs | 7/7 | Complete    | 2026-08-28 |
 | 27. PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity | 16/16 | Complete    | 2026-08-27 |
 
 ## Backlog

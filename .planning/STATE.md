@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
-current_phase: 26
-current_phase_name: Coverage, Static-Analysis Debt & Docs
+current_phase: 27
+current_phase_name: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity
 status: planning
-stopped_at: Phase 28 complete, ready to plan Phase 26
-last_updated: "2026-08-28T10:41:43.693Z"
+stopped_at: Phase 26 complete, ready to plan Phase 27
+last_updated: "2026-08-28T11:05:05.717Z"
 last_activity: 2026-08-28
-last_activity_desc: Phase 28 complete, transitioned to Phase 26
-state_head: abd507cb25fbf1b6d2eeb9724d8552de0b6b1acf
+last_activity_desc: Phase 26 complete, transitioned to Phase 27
+state_head: de464b5e82bf635257f94ec5d8759da9aa89e6b6
 progress:
   total_phases: 9
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 86
   completed_plans: 86
-  percent: 67
+  percent: 78
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 26 — Coverage, Static-Analysis Debt & Docs
+Phase: 27 — PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity
 Plan: Not started
 Status: Ready to plan
 Resume file: None
-Last activity: 2026-08-28 — Phase 28 complete, transitioned to Phase 26
+Last activity: 2026-08-28 — Phase 26 complete, transitioned to Phase 27
 
 ## Milestone Origin
 
@@ -79,7 +79,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 
 **Velocity:**
 
-- Total plans completed: 111
+- Total plans completed: 118
 - Average duration: —
 - Total execution time: 0 hours
 
@@ -105,6 +105,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | 25 | 3 | - | - |
 | 27 | 16 | - | - |
 | 28 | 9 | - | - |
+| 26 | 7 | - | - |
 
 **Recent Trend:**
 
@@ -280,5 +281,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-08-21T13:34:19.433Z
-Stopped at: Phase 28 complete, ready to plan Phase 26
+Stopped at: Phase 26 complete, ready to plan Phase 27
 Resume file: None
