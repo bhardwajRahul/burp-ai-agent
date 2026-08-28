@@ -109,7 +109,7 @@ interceptor still runs after the first responds), and `finish()` is not callable
 5. The interaction between user custom patterns and `PrivacyMode.OFF` is settled deliberately and documented in `DECISIONS.md` — whichever way it goes, it is a decision rather than a side effect of the `redactTokens` branch.
 6. The existing `RedactionTest` suite including the RFC 5869 HKDF vector stays green; the fix must not perturb host anonymization.
 
-**Plans**: 18 plans — 7 original in 4 waves, 5 gap-closure in 4 waves, plus 6 second-round gap-closure in 5 waves
+**Plans**: 19 plans — 7 original in 4 waves, 5 gap-closure in 4 waves, 6 second-round gap-closure in 5 waves, plus 1 third-round gap-closure in 1 wave
 Plans:
 **Wave 1**
 
@@ -185,6 +185,21 @@ a leak this phase just closed. PRIV-06 is not met while CR-01 (round 2) stands.
 **Gap-2 Wave 5** *(blocked on Gap-2 Wave 4 — same file)*
 
 - [x] 21-18-PLAN.md — WR-03 deletes the fail-open `replaceAllSafe` façade; WR-07 widens the ReDoS probe to a corpus and re-validates persisted patterns at startup; WR-04/W-08 make a throwing truncation sink harmless and unwire it in `App.shutdown()` (gap-2 wave 5)
+
+**Third gap-closure round** *(planned 2026-08-13 from the Phase 21 verifier's W-A finding; run with `/gsd-execute-phase 21 --gaps-only`)*
+
+**Gap-3 Wave 1**
+
+- [x] 21-19-PLAN.md — W-A on the PROMPT carrier: both cookie header rules widened from the two exact names to name-contains-`cookie`, with name-preserving replacements and a negative lookahead keeping the request and response rules disjoint. It closes the five **hyphenated** variants the verifier measured (`Cookie2`, `X-Cookie`, `Set-Cookie2`, `X-Original-Cookie`, `X-Forwarded-Cookie`). It did **not** close the W-A *class*: `McpToolHelpers.sanitizeHeaders`'s exact-name comparison (a second carrier it never touched), the CR/LF-escaped tool-result carrier the `(?im)^` anchor could not reach, and `COOKIE_NAME_PART` excluding `_` (`X_Cookie`, `my_cookie`, `session_cookie` — leaking on the prompt path, W-A's own carrier) all survived it. Phase 27 closed those three in 27-01, 27-04 / 27-11 / 27-14 / 27-17, and 27-10 respectively (gap-3 wave 1)
+
+**Why this entry is dated 2026-08-28 while the plan it records is dated 2026-08-13**: 21-19 was
+executed, committed and summarised on 2026-08-13, but was never recorded here or in `STATE.md` —
+`grep -c '21-19'` returned **zero** in both files until this line was written. Because it was not in
+the plan record, nothing re-verified it. That omission is the reason a fix which closed one of two
+carriers and five of six name shapes was recorded as a complete closure of the class, stayed that way
+for twelve days, surfaced only at the v0.10.0 milestone audit on 2026-08-24, and became Phase 27's
+five rounds of rework. Restored by plan 21-20 (`21-VERIFICATION.md` G-2); the attribution itself is
+corrected in `CONCERNS.md` and `21-19-SUMMARY.md` by the same plan.
 
 **SC6 note**: two existing `RedactionTest` assertions are *deliberately* inverted by locked decisions and are
 not regressions — `oversizeBodySkippedSafely` (rewritten by D-01, it currently asserts the fail-open as

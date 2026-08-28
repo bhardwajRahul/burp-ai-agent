@@ -49,6 +49,46 @@ completed: 2026-08-13
 
 **Closed the last open finding of the phase: any header whose NAME contains `cookie` is now stripped under STRICT and BALANCED — keeping its own name — where previously only the two exact spellings `Cookie` and `Set-Cookie` were, letting five real header names reach the AI backend verbatim.**
 
+> **CORRECTION — 2026-08-28 (phase 21, plan 21-20; source: `21-VERIFICATION.md` G-1). Two claims in
+> this summary are amended to their measured scope. Nothing here is deleted: this file records what
+> was believed on 2026-08-13, and the append-and-amend rule applies to it as it does to
+> `CONCERNS.md`.**
+>
+> **(1) The one-liner above.** "Closed the last open finding of the phase" — it was not the last one,
+> and "any header whose NAME contains `cookie`" was not true when it was written. What 21-19 closed
+> is the passive-scan **prompt carrier**, for **hyphenated** name shapes: the five names the verifier
+> measured (`Cookie2`, `X-Cookie`, `Set-Cookie2`, `X-Original-Cookie`, `X-Forwarded-Cookie`), every
+> one of which separates its words with `-`. `COOKIE_NAME_PART` was `[A-Za-z0-9-]*`, which
+> **excludes `_`**, so `X_Cookie`, `my_cookie` and `session_cookie` still leaked on that same prompt
+> path under STRICT and BALANCED. `cookieHeaderNameVariantsAreStripped` could not see it, because all
+> five of its fixtures use hyphens.
+>
+> **(2) The "**NAME** class is **closed**" claim under §Record Correction (Task 3) below.** The class
+> was not closed here. Three residuals remained, and **Phase 27** closed them: **(a)**
+> `McpToolHelpers.sanitizeHeaders` compared exact names, so all five variants survived
+> `request_parse` / `response_parse` — a second carrier this plan never touched — closed by
+> **27-01**; **(b)** `Serialization.kt` escapes every CR/LF, so the `(?im)^` anchor never landed on
+> the tool-result carrier and even the widened regex could not fire there — closed by **27-04 /
+> 27-11 / 27-14 / 27-17**; **(c)** the `_` exclusion above — closed by **27-10**. Residual (c) is the
+> sharpest, because it means this plan did not fully close W-A **even on the single path W-A was
+> about**: `sanitizeHeadersForPrompt` is an *admitter*, so a name it admits that the regex cannot
+> match reaches the outbound prompt and is then not removed. That difference set was
+> fail-**open** — the same admitter-vs-redactor asymmetry W-A itself was, reintroduced one character
+> wide by the fix for it.
+>
+> **(3) Why this stood for twelve days.** 21-19 was executed, committed and summarised, but was never
+> added to `ROADMAP.md` or `STATE.md`, so no re-verification ever ran against it. The incomplete fix
+> survived to the v0.10.0 milestone audit on 2026-08-24 and became Phase 27's five rounds of rework.
+> Plan 21-20 restored the entry to both files (`21-VERIFICATION.md` G-2).
+>
+> **(4) What is NOT corrected.** The code. `21-VERIFICATION.md` re-scored phase 21's SC1–SC6 at
+> **6/6** and recorded that the work "has survived a substantial downstream rewrite without a single
+> guard going red". The overstatement is this summary's account of its own scope, not what it
+> shipped. On the same ground, this file's `requirements-completed: [PRIV-05]` frontmatter is
+> overstated and is deliberately left as written, for the record: PRIV-05 is still `- [ ]` in
+> `.planning/REQUIREMENTS.md`, correctly so, because `AR-27-08` is open and owned by Phase 28.
+
+
 ## Performance
 
 - **Duration:** ~35 min
@@ -175,6 +215,12 @@ open-ended and never complete, whereas name-contains-`cookie` is bounded and com
 whose members are all cookie-bearing by convention. Both traps and both mutation directions are
 recorded there too, so the next person to touch these rules inherits the reasoning rather than
 rediscovering it. No other entry was modified.
+
+**Amended 2026-08-28 — see the CORRECTION marker above (plan 21-20, `21-VERIFICATION.md` G-1).**
+The "**NAME** class is **closed**" claim in this section is true only of the prompt carrier and
+its hyphenated name shapes. The class was closed by **Phase 27** — 27-01, 27-04 / 27-11 / 27-14 /
+27-17, and 27-10 — not here. The `CONCERNS.md` entry cited above has since had its own headline
+amended on the same ground by plan 21-20.
 
 ## Known Stubs
 
