@@ -106,17 +106,40 @@ class AiScanCheck(
      * (`ScannerIssueSupport.sanitizeInjectionPointValue`) and route 2 ([buildDetail] through
      * [sanitizeCookiePointText]) both run at issue CONSTRUCTION and bake their result into
      * `AuditIssue.detail()` — an immutable string Burp stores and the `scanner_issues` MCP tool
-     * replays verbatim. There is no read-time pass over it. An issue built while `privacyMode` was
-     * `OFF` therefore still emits the raw cookie value on a later STRICT read.
+     * replays verbatim.
+     *
+     * A READ-TIME REDACTION PASS DOES RUN OVER IT — WHAT IS MISSING IS A TYPE-KEYED ONE.
+     * `mcp/tools/McpTool.kt:45` and `:78` wrap every tool result in
+     * `McpToolContext.redactIfNeeded` (`mcp/McpToolContext.kt:59`), which calls
+     * `Redaction.apply(raw, RedactionPolicy.fromMode(privacyMode), stableHostSalt = hostSalt)`
+     * UNCONDITIONALLY, under the CURRENT mode. So the `scanner_issues` blob carrying this detail
+     * string IS redacted on the way out. What that pass cannot do is re-apply the cookie gate the
+     * two write-time routes above apply, because the `AuditInsertionPointType` those routes key on
+     * is gone by serialization time — and the redactor's three cookie rules each key on framing a
+     * detail line does not carry: `cookieHeaderRegex`/`setCookieHeaderRegex` need a logical-line
+     * `Cookie:`-style header name, `redactCookieSections` needs a `=== COOKIES ===` span, and
+     * `cookieTypedParamRegex` needs a trailing ` (COOKIE)` marker. [buildDetail] emits a bare
+     * `**Original Value:** <value>` markdown line, which carries none of the three. An issue built
+     * while `privacyMode` was `OFF` therefore still emits that cookie value on a later STRICT read
+     * UNLESS one of the generic, non-cookie rules happens to match the value's own shape. That
+     * conditional is the honest form of this residual, and the width of the condition is unmeasured
+     * — see the next paragraph.
      *
      * AND THIS FUNCTION IS WHY THAT IS NOT SELF-HEALING. On a matching canonical name AND a
      * matching normalized URL it returns [ConsolidationAction.KEEP_EXISTING], so a re-scan under
      * STRICT does not replace the stale issue in the site map. The operator's later, stricter
      * intent cannot reach the already-recorded detail string through this path.
      *
-     * NOR CAN THE REDACTOR RESCUE IT DOWNSTREAM. Plan 28-05's own red probe recorded the sentinel
-     * surviving STRICT redaction VERBATIM whenever the write gate does not fire, so `Redaction.apply`
-     * provably does not stand between a stale detail string and its reader.
+     * WHAT THE REDACTOR WAS MEASURED NOT TO RESCUE, AND FOR WHICH SHAPE. Plan 28-05's red probe
+     * recorded `DETAIL_SENTINEL = "cedar-anchor-marble-feather"` surviving STRICT redaction VERBATIM
+     * whenever the write gate does not fire. Read that result at its actual reach: the sentinel's
+     * own KDoc (`AiScanCheckDetailCookieCarrierTest`) records that it was SHAPED for the measurement
+     * — "no digits, no `=`, no metacharacters, so only the new type gate can plausibly remove it",
+     * and deliberately free of the token `cookie` so no header-name rule could bind. The probe
+     * therefore establishes the absence of a TYPE-KEYED read-time control, which is exactly what it
+     * was built to establish. It does NOT establish the residual's width for a realistic
+     * high-entropy cookie value — a JWT or a base64 session id is the opposite shape, is what the
+     * generic STRICT rules target, and was NOT measured.
      *
      * DISPOSITION: ACCEPTED as a named residual by maintainer answer on 2026-08-28 (`D-28-09`),
      * conditional (`D-28-10`) on it being named in four places — here, at the privacy-mode selector
@@ -124,6 +147,17 @@ class AiScanCheck(
      * and in `26-SECURITY.md` row 315. THE REASON FOR THE ACCEPTANCE, stated so a reader does not
      * re-litigate it from scratch: a read-time fix is NEW ARCHITECTURE on the emission path and
      * belongs to its own phase, not to a record-repair round.
+     *
+     * RECORDED AS A CORRECTION, NOT A SILENT EDIT. Round 3 (plan 28-08) committed the two claims
+     * above in an ABSOLUTE form: it denied that ANY read-time pass ran over the detail string, and
+     * it called the red probe's result a PROOF that the redactor never stands between that string
+     * and its reader. Round 4 (plan 28-09) narrowed both to the conditional forms written above,
+     * after the round-3 code review (`28-REVIEW-3.md`, WR-02 and WR-03) found them overstated and
+     * the tree confirmed it. Neither retired phrase is quoted here, deliberately — the greps that
+     * enforce their retirement are literal, and a quotation would keep tripping them forever. The
+     * disposition is UNCHANGED: `AR-27-08` stays OPEN and `D-28-09` stands. Only the account of the
+     * redactor's reach was wrong, and narrowing it makes the residual's naming more accurate, not
+     * weaker.
      */
     override fun consolidateIssues(
         newIssue: AuditIssue,
