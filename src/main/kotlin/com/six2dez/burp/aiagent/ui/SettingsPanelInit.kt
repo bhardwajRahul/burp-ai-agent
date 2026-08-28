@@ -30,10 +30,16 @@ import javax.swing.event.DocumentListener
  * reads exactly the string an operator reads.
  *
  * WHY THE BOUND IS STATED TO THE OPERATOR AT ALL. Both cookie controls decide ONCE, at issue
- * construction, and bake the result into the immutable `AuditIssue.detail()` string; there is no
- * read-time pass over it. `AiScanCheck.consolidateIssues` is the mechanism that then makes a stale
- * finding sticky, and its KDoc carries the full chain and the canonical name for this residual. The
- * maintainer's acceptance of that residual on 2026-08-28 (`D-28-09`) was made CONDITIONAL
+ * construction, and bake the result into the immutable `AuditIssue.detail()` string. A read-time
+ * redaction pass DOES run over that string on the way out — `McpTool.kt:45`/`:78` wrap every tool
+ * result in `McpToolContext.redactIfNeeded`, which calls
+ * `Redaction.apply(raw, RedactionPolicy.fromMode(privacyMode))` under the CURRENT mode — but it is
+ * not TYPE-keyed, and its cookie rules bind to a `Cookie:` header, a `=== COOKIES ===` span or a
+ * ` (COOKIE)` marker, none of which a detail line carries. So it does not re-decide what the write
+ * gate decided. `AiScanCheck.consolidateIssues` is the mechanism that then makes a stale finding
+ * sticky, and its KDoc carries the full chain, the canonical name for this residual, and the record
+ * that round 3 stated the bound absolutely while round 4 narrowed it (`28-REVIEW-3.md` WR-02/WR-03).
+ * The maintainer's acceptance of that residual on 2026-08-28 (`D-28-09`) was made CONDITIONAL
  * (`D-28-10`) on naming it here, at the one surface where an operator states an intent about
  * redaction: shipping a control an operator will read as retroactive is the option that is not
  * available.
