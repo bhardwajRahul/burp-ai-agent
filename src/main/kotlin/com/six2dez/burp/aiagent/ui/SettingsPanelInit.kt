@@ -47,9 +47,12 @@ import javax.swing.event.DocumentListener
  * WHAT THIS STRING DELIBERATELY DOES NOT SAY. It offers no remediation — no instruction to delete a
  * finding and re-scan. This round measured no remediation, and an unmeasured instruction placed in
  * the one location an operator is least able to check is worse than silence. Before shortening this
- * copy, read `PrivacyModeTooltipBoundTest`: all three clauses below are pinned there as substrings,
- * and the third test exists specifically so the bound can never be swapped IN PLACE OF the sentence
- * describing what the setting does.
+ * copy, read `PrivacyModeTooltipBoundTest`: every clause below is pinned there as a substring, and
+ * `theTooltipStillStatesWhatTheSettingDoes` exists specifically so the bound can never be swapped
+ * IN PLACE OF the sentence describing what the setting does. That guard is named rather than
+ * numbered on purpose — an earlier revision called it "the third test", and inserting a new test
+ * ahead of it silently aimed the next editor one test off, in the very comment written to direct
+ * them.
  *
  * NARROWED 2026-08-28 (phase 28 UAT test 2, closing `28-REVIEW-3.md` WR-05). This copy previously
  * carried a third sentence, an unqualified forward-only claim, between the purpose sentence and the

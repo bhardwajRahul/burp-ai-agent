@@ -160,12 +160,19 @@ Recorded so a reader cannot mistake `threats_open: 0` for "the carrier is closed
 
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
-| 2026-08-28 | 51 | 51 | 0 | `/gsd-secure-phase 28` (orchestrator, ASVS L1 short-circuit) |
+| 2026-08-28 | 52 | 52 | 0 | `/gsd-secure-phase 28` (orchestrator, ASVS L1 short-circuit) |
 
 **Note 1 — no auditor subagent was spawned.** The `secure-phase` short-circuit applies:
 `threats_open: 0` + `register_authored_at_plan_time: true` + `asvs_level == 1`. Classification was
 grep-depth, performed by the orchestrator against the tree. Raising `workflow.security_asvs_level` to
 2 would force a `gsd-security-auditor` pass with L2 boundary-placement checks on the next run.
+
+**Note 1a — corrected 2026-08-28.** This trail first said **51** threats. The register carries **52**
+rows: `T-28-01`…`T-28-50` is 50, plus `T-28-04a` and `T-28-SC`, both of which the original count
+skipped. Found by the round-4 verifier. The status column was re-derived across all 52 and every row
+reads `closed`, so `threats_open: 0` was correct either way — but a security document that miscounts
+its own register is precisely the defect this phase exists to correct, so it is fixed here and the
+error is recorded rather than quietly overwritten.
 
 **Note 2 — `T-28-37` was re-verified after its mitigation was edited.** The privacy-mode tooltip
 changed during phase 28 UAT (test 2, closing `28-REVIEW-3.md` WR-05): the unscoped

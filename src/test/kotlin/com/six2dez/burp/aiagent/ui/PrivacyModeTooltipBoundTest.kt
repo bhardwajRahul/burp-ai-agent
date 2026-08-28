@@ -22,8 +22,18 @@ private const val PURPOSE_CLAUSE = "Controls how traffic is redacted before send
  * ordinary captured traffic a switch to STRICT *is* retroactive. Scanner findings are the only
  * genuinely forward-only case, so the pin moves onto the half-sentence that says so with its scope
  * attached. The claim is still pinned; it is no longer pinned in a form the product contradicts.
+ *
+ * WHY THE SUBJECT IS PART OF THE NEEDLE. The first draft of this pin was the bare predicate
+ * `keep the values they were built with`, which does not carry its own subject — so
+ * `Recorded findings and captured requests keep the values they were built with` would have
+ * satisfied every test in this file while reintroducing the exact over-broad claim the narrowing
+ * removed. The negative pin below catches only the LITERAL retired sentence, not a reworded one.
+ * Including `Scanner findings already recorded` makes the SCOPE part of what is pinned, which is
+ * the thing that actually matters here. Found by the round-4 verifier reviewing this file's own
+ * change; the earlier form was not a regression (the pin it replaced mandated the false sentence)
+ * but it was a tripwire that did not reach as far as its test name implied.
  */
-private const val FORWARD_ONLY_CLAUSE = "keep the values they were built with"
+private const val FORWARD_ONLY_CLAUSE = "Scanner findings already recorded keep the values they were built with"
 
 /**
  * The blanket form this copy used to carry, kept ONLY so a test can assert its absence.
@@ -130,7 +140,7 @@ class PrivacyModeTooltipBoundTest {
     /**
      * EXACTLY ONE OPERATOR-FACING SITE, AND IT REFERENCES THE CONSTANT.
      *
-     * The three assertions above measure a constant. They are only evidence about what an operator
+     * The clause assertions above measure a constant. They are only evidence about what an operator
      * READS if that constant is what the panel assigns — and if no SECOND assignment exists
      * elsewhere in main source carrying an un-pinned literal. This scan closes both gaps, and it is
      * a SOURCE scan rather than a symbol reference for that second reason: a symbol reference cannot

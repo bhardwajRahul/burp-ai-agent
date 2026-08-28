@@ -1,7 +1,7 @@
 ---
 phase: 28-the-issue-detail-cookie-carrier-auditissue-detail-scanner-is
-verified: 2026-08-28T11:05:00Z
-status: human_needed
+verified: 2026-08-28T13:10:00Z
+status: passed
 score: 6/6 must-haves verified
 behavior_unverified: 0
 overrides_applied: 1
@@ -18,9 +18,9 @@ overrides:
     accepted_by: "Project maintainer, human answer given interactively at the `verify_phase_goal` gate on 2026-08-28 and recorded as D-28-09 (the acceptance) and D-28-10 (its conditions) in 28-CONTEXT.md. NOT an auto-advance default: `workflow.auto_advance` and `workflow._auto_chain_active` were both `false` on disk in .planning/config.json when the question was put and when this override was written."
     accepted_at: "2026-08-28T07:58:34Z"
 re_verification:
-  round: 3
-  previous_status: gaps_found
-  previous_score: 5/6
+  round: 4
+  previous_status: human_needed
+  previous_score: 6/6
   history:
     - round: 1
       status: gaps_found
@@ -34,6 +34,10 @@ re_verification:
       status: human_needed
       score: 6/6
       note: "This pass. Covers gap-closure plans 28-07, 28-08 and 28-09 (rounds 3 and 4). SC1 carried by the D-28-09 override with all four D-28-10 conditions independently measured; the record-integrity gap closed, including the NEW overclaim round 3 itself committed and round 4 retired."
+    - round: 4
+      status: passed
+      score: 6/6
+      note: "This pass. Verifies the two things round 3 could not. UAT test 1 discharged D-28-10 condition 3 in OBSERVED behaviour (live Burp, all clauses legible). UAT test 2 CHANGED the artifact round 3 verified: commit 5f779e8 deleted the unqualified `Applies from now on, not retroactively.` from PRIVACY_MODE_TOOLTIP, retargeted FORWARD_ONLY_CLAUSE onto `keep the values they were built with`, and added the negative pin `theTooltipDoesNotMakeAnUnscopedForwardOnlyClaim` (class 4 -> 5). That change was authored by the same session that planned round 4 and carries no plan-time threat model (registered retroactively as T-28-50), so I treated it as unreviewed and tried to falsify it four ways: narrowed copy correct, retargeted pin NOT weaker than the one it replaced, negative pin NOT vacuous (proved against the pre-change constant), ADDED-never-SUBSTITUTED property intact. All four held. Three findings recorded at WARNING/INFO, none a gap. Full suite re-run by this verifier: 181 classes / 1309 tests / 0 failures / 0 errors / 1 skipped."
   gaps_closed:
     - "Gap 1 (SC1, the write-time/read-time bound) — DISPOSITIONED, not re-measured. Route (ii) taken: maintainer acceptance D-28-09 recorded as a named residual, with the four D-28-10 conditions verified independently by this verifier: (1) `ISSUE_DETAIL_CARRIER_DISPOSITION` clause (a) carries the literal `WRITE-TIME/READ-TIME BOUND` (`CookieCarrierInventoryTest.kt:784`); (2) `26-SECURITY.md` row 315 clause (d) extended under `AMENDED 2026-08-28 by plan 28-08`, literal present exactly once in the row; (3) `AiScanCheck.consolidateIssues`'s KDoc carries the full chain at `:100-161`; (4) `PRIVACY_MODE_TOOLTIP` (`SettingsPanelInit.kt:54-58`) assigned at `:96`, the only `privacyMode.toolTipText` site in `src/main`, pinned by `PrivacyModeTooltipBoundTest` 4/4 green."
     - "Gap 2, half 1 — the probe claim for detail line (4) was made TRUE rather than retracted. `grep -o 'Payload Used'` on `AiScanCheckDetailCookieCarrierTest.kt` went 0 -> 8; four named tests added (`cookiePayloadLineIsStrippedUnderStrict`, `...UnderBalanced`, `cookiePayloadLineSurvivesUnderOff`, `urlParamPayloadLineSurvivesStrict_attributionControl`). Class count 10 -> 16, all green in this verifier's own run. The DEFENCE-IN-DEPTH asymmetry is preserved in the tests' own banner comment and in both records — the assertions made a claim true, they did not close a leak."
@@ -44,21 +48,17 @@ re_verification:
 deferred: []
 behavior_unverified_items: []
 coincidental_reliance_items: []
-human_verification:
-  - test: "In a live Burp, open Settings -> the privacy-mode selector and hover it. Read the tooltip to its end without moving the pointer."
-    expected: "All three clauses are legible, including the two that D-28-10 made conditions of the SC1 acceptance: `Applies from now on, not retroactively.` and `Scanner findings already recorded keep the values they were built with; re-scanning does not rewrite them.`"
-    why_human: "Visual/widget behaviour. Measured at source by this verifier: `PRIVACY_MODE_TOOLTIP` is a 206-character plain string with NO `<html>` wrapper, and `grep -rn 'ToolTipManager' src/main/kotlin/com/six2dez/burp/aiagent/ui/` returns nothing, so Swing's default 4000 ms `dismissDelay` and single-line rendering apply. `28-REVIEW-3.md` WR-01 records the same measurement and the finding is deliberately DEFERRED in `28-09-SUMMARY.md`. The string is present and wired — whether an operator can actually READ the conditioned clauses is the one part of D-28-10 condition 3 that no grep can settle, and it is the condition the acceptance rests on."
-  - test: "Read the tooltip's second sentence as an operator: `Applies from now on, not retroactively.` Decide whether it should be scoped before ship."
-    expected: "A decision recorded either way — keep the pessimistic blanket wording, or narrow it to the scanner-detail lines it is actually about."
-    why_human: "Operator-copy judgement, deliberately deferred as `28-REVIEW-3.md` WR-05 and owned in `28-09-SUMMARY.md`. The sentence is unqualified and generalises a narrow residual: `McpToolContext.redactIfNeeded` DOES apply the current policy to already-captured traffic at send time, so switching to STRICT is retroactive for the dominant path. It errs pessimistic, which is the safe direction, and `FORWARD_ONLY_CLAUSE` in `PrivacyModeTooltipBoundTest.kt` currently pins the exact wording — so correcting it is a copy change plus a test change, not a silent edit."
+human_verification: []
 ---
-> **READ ORDER — THIS FILE NOW CARRIES THREE VERIFICATION ROUNDS.** The frontmatter above is
-> CURRENT (round 3, `human_needed`, 6/6 with one override). The report body immediately below is the
+> **READ ORDER — THIS FILE NOW CARRIES FOUR VERIFICATION ROUNDS.** The frontmatter above is
+> CURRENT (round 4, `passed`, 6/6 with one override). The report body immediately below is the
 > **round-2** report, preserved BYTE-UNCHANGED because it is the artifact the maintainer's `D-28-09`
 > acceptance was given against — its `gaps_found` / 5/6 headline is a historical statement, not the
-> current one. The **round-3 report** (covering gap-closure plans 28-07, 28-08 and 28-09) is appended
-> at the end of this file, under "Round 3 Re-Verification". Nothing in the round-2 body was edited,
-> softened or deleted; the fenced `overrides:` template block at what was line 282 is untouched.
+> current one. The **round-3 report** (covering gap-closure plans 28-07, 28-08 and 28-09) follows it,
+> also unedited — its `human_needed` headline is likewise historical, and it was written BEFORE the
+> UAT copy change. The **round-4 report** is appended last, under "Round 4 Re-Verification". Nothing
+> in the round-2 or round-3 bodies was edited, softened or deleted; the fenced `overrides:` template
+> block in the round-2 body is untouched.
 
 ---
 
@@ -583,3 +583,399 @@ PRIV-05 staying `- [ ]` under `D-28-04`; and `./gradlew check`'s accepted red.
 
 _Verified: 2026-08-28_
 _Verifier: Claude (gsd-verifier), round 3 — covering gap-closure plans 28-07, 28-08 and 28-09_
+
+
+---
+
+# Phase 28: The Issue-Detail Cookie Carrier — Verification Report (Round 4)
+
+**Phase Goal:** Close `AR-27-08`. A COOKIE-typed injection point's value reaches the `scanner_issues`
+MCP tool result through `AuditIssue.detail()` and survives `Redaction.apply` in STRICT and BALANCED,
+emitted verbatim. Closes `AR-27-08` AND `InjectionPointExtractor.kt:29` together.
+
+**Verified:** 2026-08-28
+**Status:** passed
+**Score:** 6/6 must-haves verified (1 by override)
+**Re-verification:** Yes — round 4, after the phase-28 UAT and the copy change it decided
+**Mode:** standard (no `mode:` on the ROADMAP phase; MVP rules dormant)
+
+## What this round was asked to decide
+
+Round 3 returned `human_needed` on exactly one thing: `D-28-10` condition 3's legibility, which no
+grep settles. Three things happened after it:
+
+1. **UAT test 1 passed** — an operator read all clauses in a live Burp. Condition 3 discharged in
+   observed behaviour, not only in code.
+2. **UAT test 2 changed the artifact round 3 verified** (commit `5f779e8`).
+3. **`28-SECURITY.md` was created** (commit `5750d3e`) — 51 threats, `threats_open: 0`.
+
+Item 2 is the whole job of this round. That edit and the round-4 plan were authored by the **same
+orchestrator session** now asking for a blessing, and `28-09-PLAN.md` carries no `<threat_model>`
+block — I confirmed that independently (`grep -c '<threat_model>'` returns 1 for eight plans and
+**0** for `28-09`), which is exactly what `28-SECURITY.md` records as `T-28-50`. So I treated the
+copy change as unreviewed work and set out to break it. **I could not.** Three findings came out of
+the attempt; all three are WARNING/INFO and none is a gap. They are stated in full below rather than
+softened, because two of them were introduced by the very commit under scrutiny.
+
+## Goal Achievement
+
+### Observable Truths
+
+| # | Truth (verbatim ROADMAP Success Criterion) | Status | Evidence |
+|---|---|---|---|
+| SC1 | A COOKIE-typed injection point's `originalValue` does not appear in the `scanner_issues` tool result in STRICT or BALANCED. Cookie NAMES may remain; VALUES must not. | ✓ **PASSED (override)** | Override carried forward VERBATIM — `D-28-09`, accepted by the project maintainer on 2026-08-28T07:58:34Z. The frontmatter block hashes to `beac445bf1be5e214a0a3af05e7320a8d9f6c936a2c717e1c7c41c14bd72076b` after this write, the same value it carried before it. Round 2's underlying measurement is untouched and not re-litigated. **All four `D-28-10` conditions are now discharged, including condition 3, which round 3 could only mark present-not-observed** — see the condition table below. |
+| SC2 | Under `OFF` the value still appears — the fix is policy-driven, not an unconditional rewrite. | ✓ VERIFIED (regression) | No control code changed since round 3: `git diff --stat 85b5054 HEAD -- src/main src/test` returns **exactly two files**, both the tooltip pair. `AiScanCheckDetailCookieCarrierTest` 16/16, `IssueDetailCookieCarrierTest` 21/21 in this verifier's own full run. |
+| SC3 | A red probe reverting the control turns a NAMED assertion red, with the specific assertion and its failure message recorded. | ✓ VERIFIED (regression) | Unchanged. 28-04's five measured runs and 28-05's three probes stand; nothing in rounds 3–4 or the UAT touched a control. |
+| SC4 | `InjectionPointExtractor.kt:29` resolved in the same phase as the route, with its two consumers' differing dispositions preserved (`AdaptivePayloadEngine.kt:52` must not be double-redacted). | ✓ VERIFIED | Re-derived at HEAD: `git diff --stat ad2ca90 HEAD -- .../AdaptivePayloadEngine.kt` **empty**. `InjectionPointExtractorTest` 12/12, `CookieRouteDispositionTest` 7/7. |
+| SC5 | `26-SECURITY.md`'s `AR-27-08` row amended — append-and-amend, prior text byte-prefix intact — and `threats_open` recomputed rather than asserted. | ✓ VERIFIED | Both pinned digests re-derived independently under `LC_ALL=C` at HEAD: 8693-byte prefix = `8dc326ac23204becce687deeba867740eb2d4dde21346c58d7da9595d137ae2e`, 16071-byte prefix = `5316a97149017ae824d162b72b99d954cb0fa25b28b0c3a8214c01e42390ed72`, row length **25949** — all three identical to round 3, so the UAT commit did not disturb the register. |
+| SC6 | `ResponseAnalyzer`'s narrow transitive tail examined in the same pass. | ✓ VERIFIED (regression) | `EvidenceTailReachTest` 2/2 in this verifier's own run. |
+| G2 | *(round-2 gap 2, carried as a truth)* The phase's own record enumerates its residuals exhaustively and names a committed probe only where one exists. | ✓ VERIFIED | Regression-checked at HEAD: `WRITE-TIME/READ-TIME BOUND` present once in `CookieCarrierInventoryTest.kt`, once in row 315, once in `AiScanCheck.kt`; the retired absolutes `no read-time pass` and `provably` still measure **0** at every one of the four/two sites. |
+
+**Score: 6/6 truths verified (1 by override, 0 present-behaviour-unverified).**
+
+The headline is unchanged from round 3. What changed is the **status**, and only because the one
+human item round 3 raised came back `pass` from a human at a running Burp.
+
+### The four `D-28-10` conditions — condition 3 now closed in observed behaviour
+
+| # | `D-28-10` condition | Status | Evidence measured at HEAD |
+|---|---|---|---|
+| 1a | Named in `ISSUE_DETAIL_CARRIER_DISPOSITION`'s STILL OPEN clause | ✓ | `grep -c "WRITE-TIME/READ-TIME BOUND" CookieCarrierInventoryTest.kt` = **1**. File byte-unchanged since round 3. |
+| 1b | Named in `26-SECURITY.md` row 315 clause (d), 8693-byte prefix intact | ✓ | Literal present exactly **1** time in the row; both pinned digests and the 25949-byte row length re-assert. |
+| 2 | Noted at `AiScanCheck.consolidateIssues` | ✓ | `KEEP_EXISTING` at `AiScanCheck.kt:170`, described in the KDoc at `:129`. File byte-unchanged since round 3. |
+| 3 | Surfaced next to the privacy-mode selector | ✓ **DISCHARGED — code AND observed** | Two independent legs. **Code:** `PRIVACY_MODE_TOOLTIP` present, `grep -rn 'privacyMode.toolTipText' src/main/kotlin/` returns exactly **1** line (`SettingsPanelInit.kt:108`) and it references the constant with no string literal; `PrivacyModeTooltipBoundTest` **5/5** green in my own run. **Observed:** `28-UAT.md` test 1 `result: pass` — a human confirmed in a live Burp that the clauses are legible to the end. WR-01's premise stands as a latent robustness note but does not materialise. |
+
+**Condition 3's discharge survives the copy change, and I checked that specifically rather than
+assuming it.** The condition is that the BOUND is named at the operator surface. The sentence that
+names the bound — `Scanner findings already recorded keep the values they were built with;
+re-scanning does not rewrite them.` — is **still there**. What was deleted is a *different* sentence:
+an unscoped generalisation that was never the bound, and that `McpToolContext.redactIfNeeded`
+contradicts for ordinary captured traffic. The naming is narrower **and truer** than it was when
+round 3 checked it.
+
+**The legibility evidence also survives, a fortiori.** UAT test 1 was performed against a **206**-character
+string; the shipped constant is now **166** characters, formed by deleting one whole sentence and
+nothing else. I measured both by parsing the concatenated literal out of the constant at HEAD and at
+its parent `1f2e348`. A plain, single-line, `<html>`-free tooltip that a human read to the end at 206
+characters cannot become harder to read at 166 within the same 4000 ms dismiss window. No re-test is
+owed.
+
+### Falsifying the UAT copy change — the four attacks, and what each returned
+
+**Attack 1 — is `keep the values they were built with` actually in the shipped constant, and is it a
+meaningful pin or a substring that would match anything?**
+
+Present. I did not read it out of a SUMMARY; I parsed the constant's concatenated string literal
+directly out of `SettingsPanelInit.kt` at HEAD:
+
+```
+'Controls how traffic is redacted before sending to a model. Scanner findings already recorded keep
+the values they were built with; re-scanning does not rewrite them.'   (166 chars)
+```
+
+The pin is a 36-character domain phrase, not a generic token — it cannot be satisfied by accident.
+**But it does not pin its own subject**, and that is finding W-3 below.
+
+**Attack 2 — is `theTooltipDoesNotMakeAnUnscopedForwardOnlyClaim` non-vacuous? Would it actually go
+red if the blanket sentence returned?**
+
+**Yes, and I proved it by measurement rather than by reading the assertion.** A negative pin is
+vacuous when its needle could never appear. This one's needle is the exact string that *did* appear,
+in this same constant, one commit ago. I reconstructed the pre-change constant from
+`git show 1f2e348:.../SettingsPanelInit.kt` and evaluated the predicate on both:
+
+| Constant | `contains("Applies from now on, not retroactively")` | What `assertFalse` does |
+|---|---|---|
+| pre-change (`1f2e348`, 206 chars) | **True** | **RED** |
+| HEAD (`5f779e8`, 166 chars) | False | green |
+
+So restoring the deleted sentence — the precise regression the pin exists to catch — turns the test
+red by construction. That is the strongest form of non-vacuity evidence available without mutating
+the tree, and it is a real measurement of the actual predicate against the actual prior copy. Note
+also that the RETARGETED positive pin would have passed on the OLD copy too (the old 206-char string
+contains `keep the values they were built with` as well) — which is exactly why the negative pin was
+needed, and the test's own KDoc says so. The two pins are complementary, not redundant.
+
+**Attack 3 — does the tooltip still discharge `D-28-10` condition 3 now that a clause was REMOVED?**
+
+Yes — see the condition table above. The bound is still named, at the one wired surface, and named
+accurately. The deleted sentence was a generalisation *about* the bound, not the bound. Deleting it
+removes a false claim; the true one that carries the forward-only meaning WITH its scope attached is
+untouched.
+
+**Attack 4 — did removing the sentence break the ADDED-never-SUBSTITUTED property
+`theTooltipStillStatesWhatTheSettingDoes` protects?**
+
+No. That test pins `Controls how traffic is redacted before sending to a model`, and I measured that
+clause present in the HEAD constant. The property it defends is that the *bound* must not displace
+the *purpose* sentence. The deletion removed neither: it removed a third, separate claim. The test is
+still load-bearing and still green.
+
+### Findings from the four attacks
+
+None of these is a gap. All three are stated because two were introduced by the commit under
+scrutiny, in the file whose accuracy IS `D-28-10` condition 3's surface.
+
+**W-1 — `SettingsPanelInit.kt:51` now points at the wrong test.** Its KDoc reads *"…and the third
+test exists specifically so the bound can never be swapped IN PLACE OF the sentence describing what
+the setting does."* `5f779e8` inserted the new negative pin at position **2**, so the substitution
+guard `theTooltipStillStatesWhatTheSettingDoes` is now the **fourth** test (`:120`); the third
+(`:101`) is the recorded-findings clause. The instruction "before shortening this copy, read
+`PrivacyModeTooltipBoundTest`" is aimed at the next editor, and it now aims them one test off. The
+companion claim in the same sentence — *"all three clauses below are pinned there as substrings"* —
+**is still true** (three clauses, three positive pins), so this is an ordinal slip, not a coverage
+overclaim. Fix: name the test instead of numbering it.
+
+**W-2 — `PrivacyModeTooltipBoundTest.kt:133` undercounts itself.** *"The three assertions above
+measure a constant."* There are now **four** `@Test` methods above that KDoc. Same cause, same
+species, same one-word fix.
+
+**W-3 — the retargeted positive pin does not enforce its own scope, and the test's NAME claims it
+does.** `theTooltipNamesScannerFindingsAsForwardOnly` asserts only the substring
+`keep the values they were built with`. No test in the class pins the subject `Scanner findings`. A
+copy edit to *"Recorded findings and captured requests keep the values they were built with;
+re-scanning does not rewrite them."* passes all five tests — purpose present, forward-only pin
+present, retired blanket clause absent, recorded-findings clause present, one assignment site — while
+reintroducing precisely the WR-05 defect in different words. **This is NOT a regression:** the pin it
+replaced (`Applies from now on, not retroactively`) *mandated* the unscoped false sentence, so the
+new arrangement is strictly stronger. But the negative pin stops the **literal** blanket form only,
+not the class of it, and the commit message and KDoc both describe it as stopping "the blanket form
+coming back as a well-meaning copy edit". Same species as the phase's own owned WR-06. Fix is one
+token: extend `FORWARD_ONLY_CLAUSE` to `Scanner findings already recorded keep the values they were
+built with`.
+
+**I considered filing W-1/W-2/W-3 as gaps and decided against it, for a stated reason.** `D-28-11`
+governs "prose asserting something the tree does not support" and is the decision that made round-2's
+gap 2 non-negotiable — but that gap was a record claiming a **committed probe that did not exist**, a
+coverage claim. W-1 and W-2 are navigational pointers whose substantive claims (three clauses pinned;
+a substitution guard exists; the source scan is what ties constant to panel) all remain true, and W-3
+is a tripwire-reach limitation of the same kind the phase already owns and names. None touches the
+operator-facing string, any assertion, any control, or any success criterion. Filing them as gaps
+would be the mirror-image error this phase spent four rounds correcting: a verdict wider than its
+measurement.
+
+### Required Artifacts
+
+| Artifact | Expected | Status | Details |
+|---|---|---|---|
+| `SettingsPanelInit.PRIVACY_MODE_TOOLTIP` | Operator-facing statement of the bound, referenced not inlined, ACCURATE | ✓ VERIFIED (was "copy flagged") | `:66-69`, 166 chars. WR-05 is CLOSED, not deferred: the unqualified claim is gone and the KDoc records why, naming `McpToolContext.redactIfNeeded` as the mechanism that falsifies it. Single assignment at `:108`, `internal`, no literal at the site. Two ordinal slips in its KDoc — W-1. |
+| `PrivacyModeTooltipBoundTest` | Pins the clauses, the exactly-one-site fact, and now the RETIREMENT | ✓ VERIFIED | **5/5** green in my own run (was 4/4), confirmed from `TEST-…PrivacyModeTooltipBoundTest.xml`: `tests=5 failures=0 errors=0 skipped=0`. New negative pin proven non-vacuous against the pre-change constant. Scope not pinned — W-3; self-count stale — W-2. |
+| `AiScanCheck.consolidateIssues` KDoc | Names the bound where the code makes it sticky | ✓ VERIFIED | Byte-unchanged since round 3 (`git diff 85b5054 HEAD -- src/main` touches only `SettingsPanelInit.kt`). `KEEP_EXISTING` at `:170`. |
+| `AiScanCheckDetailCookieCarrierTest` | Non-vacuous route-2 probe incl. line (4) | ✓ VERIFIED | 16/16 from XML. Unchanged since round 3. |
+| `CookieCarrierInventoryTest.ISSUE_DETAIL_CARRIER_DISPOSITION` | Residual enumeration, complete and current | ✓ VERIFIED | 4/4. Byte-unchanged; `WRITE-TIME/READ-TIME BOUND` still present once. |
+| `26-SECURITY.md` row 315 | Append-and-amend, prefixes intact, `AR-27-08` OPEN | ✓ VERIFIED | Both digests and the 25949-byte length identical to round 3. |
+| `AdaptivePayloadEngine.kt` | Byte-unchanged (SC4) | ✓ VERIFIED | Empty diff vs `ad2ca90`. |
+| `detekt-baseline.xml` | Byte-unchanged (QUAL-07) | ✓ VERIFIED | Empty diff vs `ad2ca90`. |
+| `.planning/REQUIREMENTS.md` | Byte-unchanged, PRIV-05 `- [ ]` | ✓ VERIFIED | `shasum -a 256` = `9b3219662ec0d007c1c82d64eed3ef2698bd306ce69f01205ac9bbc3f42fcfb4`; line 23 is `- [ ]`; absent from `git status --porcelain`. |
+| `28-UAT.md` | Both human items resolved with recorded results | ✓ VERIFIED | `status: complete`, 2 total / 2 passed / 0 issues / 0 pending. Test 2 carries `decision: narrow` and the reason for deleting rather than qualifying. |
+| `28-SECURITY.md` | Threat register with `threats_open: 0` | ✓ VERIFIED | Exists (commit `5750d3e`). Every one of the 52 register rows reads `closed` — I re-derived the status column rather than trusting the frontmatter. The `28-09` missing-`<threat_model>` fact is recorded, not hidden, and I confirmed it independently. |
+
+### Key Link Verification
+
+| From | To | Via | Status |
+|---|---|---|---|
+| `SettingsPanelInit.kt:108` | `PRIVACY_MODE_TOOLTIP` | `privacyMode.toolTipText = PRIVACY_MODE_TOOLTIP` — the only such assignment in `src/main` (measured: 1) | ✓ WIRED |
+| `PrivacyModeTooltipBoundTest` | `PRIVACY_MODE_TOOLTIP` | `internal` + friend test source set — same symbol, not a copy | ✓ WIRED |
+| `PrivacyModeTooltipBoundTest` | `src/main/kotlin` tree | `mainSourceFiles()` walk with a `MIN_EXPECTED_MAIN_FILES = 150` floor so an empty walk cannot pass | ✓ WIRED |
+| `mcp/tools/McpTool.kt:45`, `:78` | `McpToolContext.redactIfNeeded` (`:59`) | `context.redactIfNeeded(execute(...))` | ✓ WIRED — citations in the NEW KDoc re-checked at source and accurate |
+| `McpToolContext.kt:67` | `Redaction.apply` | `RedactionPolicy.fromMode(privacyMode)`, unconditional, CURRENT mode | ✓ WIRED (not type-keyed — the accepted residual) |
+| `AiScanCheck.kt:388`, `:392` | `sanitizeCookiePointText` | Raw-string interpolation in `buildDetail` | ✓ WIRED (byte-unchanged since round 3) |
+| `ScannerIssueSupport.kt:221` | `sanitizeRenderedPayload` | Direct call in the detail-line accumulator | ✓ WIRED (byte-unchanged) |
+| `InjectionPointExtractor.kt:37` | `Redaction.isCookieParameterType` | Shared predicate, RAW value passed through on purpose | ✓ WIRED |
+
+### Data-Flow Trace (Level 4)
+
+| Artifact | Data variable | Source | Produces real data | Status |
+|---|---|---|---|---|
+| `PRIVACY_MODE_TOOLTIP` | the tooltip string | A `const val` read by both the panel and the test — one object, two readers | Yes | ✓ FLOWING |
+| `buildDetail` | `insertionPoint.baseValue()`, `type()` | Real Montoya `AuditInsertionPoint` | Yes | ✓ FLOWING |
+| `scanner_issues` blob | stored `AuditIssue.detail()` | `api.siteMap().issues()` -> `detail = detail()` -> `redactIfNeeded` under the CURRENT mode | Yes | ⚠️ STALE-BY-CONSTRUCTION on the OFF-then-STRICT path — the accepted `D-28-09` residual, stated conditionally at all four record sites and now stated accurately at the operator surface too |
+
+### Behavioral Spot-Checks
+
+| Behavior | Command | Result | Status |
+|---|---|---|---|
+| Tooltip class green after the UAT change | `./gradlew test --tests '*PrivacyModeTooltipBoundTest' --rerun-tasks`, then read the class XML | **5 tests, 0 failures, 0 errors, 0 skipped**; five named methods incl. `theTooltipDoesNotMakeAnUnscopedForwardOnlyClaim` | ✓ PASS |
+| Full suite, this verifier's own forced run | `JAVA_HOME=$(…21) ./gradlew test --rerun-tasks`, aggregated over `build/test-results/test/TEST-*.xml` | **181 classes, 1309 tests, 0 failures, 0 errors, 1 skipped** — +1 vs round 3's 1308, and the +1 is the new negative pin | ✓ PASS |
+| The 1 skip is the pre-existing one | XML scan for `skipped > 0` | `ExternalMcpClientManagerTest` — the known `@Disabled`, not new | ✓ PASS |
+| Negative pin non-vacuity | evaluate `contains(RETIRED_BLANKET_CLAUSE)` on the constant parsed from HEAD **and** from `1f2e348` | `True` on the pre-change 206-char constant, `False` on the 166-char HEAD constant | ✓ PASS — the pin would be RED if the sentence returned |
+| Tooltip length did not grow | parse the concatenated literal at both commits | 206 -> **166** characters | ✓ PASS — UAT test 1's legibility result holds a fortiori |
+| Retired sentence gone from `src/main` | `grep -rn "Applies from now on" src/` | 0 hits in `src/main`; 3 hits in the test file, all deliberate (the `RETIRED_BLANKET_CLAUSE` constant + two KDoc citations) | ✓ PASS |
+| Exactly one operator-facing site | `grep -ro "privacyMode.toolTipText" src/main/kotlin/ \| wc -l` | **1** | ✓ PASS |
+| Blast radius of the UAT change | `git diff -U0 85b5054 HEAD -- src/main/kotlin` filtered to non-comment lines | exactly **one** line, the deletion of `"Applies from now on, not retroactively. " +` | ✓ PASS — no scope creep, nothing else in main source moved |
+| Files changed since round 3 | `git diff --stat 85b5054 HEAD -- src/main src/test` | `SettingsPanelInit.kt` and `PrivacyModeTooltipBoundTest.kt` only | ✓ PASS |
+| `AdaptivePayloadEngine` / `detekt-baseline` untouched | `git diff --stat ad2ca90 HEAD -- …` | empty, empty | ✓ PASS |
+| Row-315 digests after the UAT commit | `LC_ALL=C awk 'NR==315{printf "%s", substr($0,1,N)}' \| shasum -a 256` | `8dc326ac…7ae2e` (8693), `5316a971…0ed72` (16071), length 25949 | ✓ PASS |
+| `D-28-10` conditions 1a/1b/2 literals | `grep -c` at the three sites | 1, 1, 1 | ✓ PASS |
+| Retired absolutes still retired | `grep -c "no read-time pass"` at four sites; `grep -c "provably"` at two | 0,0,0,0 and 0,0 | ✓ PASS |
+| New KDoc citations accurate | `grep -n redactIfNeeded` on `mcp/tools/McpTool.kt` and `mcp/McpToolContext.kt` | `:45`, `:78`; `fun redactIfNeeded` at `:59`; `Redaction.apply` at `:67` | ✓ PASS |
+| `28-09-PLAN.md` threat-model absence | `grep -c '<threat_model>'` over all nine plans | 1 for eight plans, **0** for `28-09` — matches what `28-SECURITY.md` self-declares | ✓ PASS (the register is honest about its own weakest row) |
+| `28-SECURITY.md` open threats | re-derive the status column over all `^| T-28-` rows | 52 rows, **52 `closed`**, 0 open | ✓ PASS |
+| `ktlintCheck` + `detekt` | `JAVA_HOME=$(…21) ./gradlew ktlintCheck detekt` | `BUILD SUCCESSFUL`, exit 0 | ✓ PASS |
+| Debt markers in the two changed files | `grep -nE 'TBD\|FIXME\|XXX\|TODO\|HACK\|PLACEHOLDER'` | none | ✓ PASS |
+
+`./gradlew check` was not run as a gate — RED for the maintainer-accepted coverage-floor reason, as
+in rounds 2 and 3.
+
+### Probe Execution
+
+No `scripts/*/tests/probe-*.sh` exists in this repository and no phase-28 plan declares one. The
+phase's probe discipline is the JUnit red-probe protocol (SC3), unchanged. The round-4 analogue is
+the non-vacuity measurement in Attack 2, which is a red-probe in the same spirit — it establishes
+what turns the new assertion red, against a real prior state of the tree rather than a hypothetical.
+
+### Decision Coverage
+
+`check.decision-coverage-verify` over `28-CONTEXT.md`: **4 of 4** trackable decisions honored by
+shipped artifacts, `not_honored: []`. Non-blocking gate; recorded for drift tracking.
+
+### Test Quality Audit
+
+| Test File | Linked Req | Active | Skipped | Circular | Assertion Level | Verdict |
+|---|---|---|---|---|---|---|
+| `PrivacyModeTooltipBoundTest.kt` | PRIV-05 (`D-28-10` cond. 3) | 5 | 0 | No | Value + negative-value + filesystem-scan | ✓ Sufficient — with W-3's scope caveat |
+| `AiScanCheckDetailCookieCarrierTest.kt` | PRIV-05 | 16 | 0 | No | Value | ✓ Sufficient |
+| `IssueDetailCookieCarrierTest.kt` | PRIV-05 | 21 | 0 | No | Value | ✓ Sufficient |
+| `CookieCarrierInventoryTest.kt` | PRIV-05 | 4 | 0 | No | Value | ✓ Sufficient |
+| `CookieRouteDispositionTest.kt` | PRIV-05 | 7 | 0 | No | Value | ✓ Sufficient |
+| `InjectionPointExtractorTest.kt` | PRIV-05 | 12 | 0 | No | Value | ✓ Sufficient |
+| `EvidenceTailReachTest.kt` | PRIV-05 | 2 | 0 | No | Value | ✓ Sufficient |
+
+**Disabled tests on requirements:** 0. **Circular patterns detected:** 0 — expected values are
+hand-authored copy and hand-derived sentinels, never captured from the system under test; the one
+fixture derived from production code (`PAYLOAD` from `PayloadGenerator`) carries an explicit
+non-vacuity assertion. **Insufficient assertions:** 0 (W-3 is a scope limitation of a sufficient
+assertion, not an insufficient one). **Provenance of the round-4 negative pin:** VALID — the needle
+comes from the tree's own prior state, retrievable at `1f2e348`, not from the new code.
+
+### Requirements Coverage
+
+| Requirement | Source plans | Status | Evidence |
+|---|---|---|---|
+| PRIV-05 — "Cookie values do not reach an AI backend in STRICT or BALANCED mode **by any path**" | 28-01 … 28-09 (all nine declare it) | ✗ BLOCKED — **and correctly recorded as such by standing decision `D-28-04`** | Stays `- [ ]`, byte-verified: `sha256 9b32196…fcfb4`, line 23 `- [ ]`, clean `git status`. `28-SECURITY.md`'s "What This Phase Did NOT Close" section restates the same five open paths independently of the carrier registry, so two records now agree rather than one asserting. |
+
+No orphaned requirements: PRIV-05's mapping row points at phase 21, and all nine plans claim it.
+
+### Anti-Patterns Found
+
+| File | Line | Pattern | Severity | Impact |
+|---|---|---|---|---|
+| — | — | `TBD` / `FIXME` / `XXX` / `TODO` / `HACK` / `PLACEHOLDER` in the two files changed since round 3 | — | **None found.** Debt-marker gate clean. |
+| `SettingsPanelInit.kt` | 51 | "the third test exists specifically so the bound can never be swapped IN PLACE OF…" — the substitution guard is now the FOURTH test | ⚠️ Warning | **W-1, introduced by `5f779e8`.** Aims the next editor one test off, in the KDoc written to instruct them. The sibling claim "all three clauses below are pinned" is still true. Fix: name the test, don't number it. |
+| `PrivacyModeTooltipBoundTest.kt` | 133 | "The three assertions above measure a constant" — there are now four | ⚠️ Warning | **W-2, introduced by `5f779e8`.** Same cause and fix as W-1. |
+| `PrivacyModeTooltipBoundTest.kt` | 26, 62 | Test named `…NamesScannerFindingsAsForwardOnly` asserts a substring that does not include `Scanner findings` | ⚠️ Warning | **W-3.** An unscoped rewrite keeping the same predicate phrase passes all five tests. NOT a regression — the pin it replaced mandated the false sentence — but the negative pin catches the literal form only. One-token fix stated above. |
+| `AiScanCheckDetailCookieCarrierTest.kt` | ~447 | `theRouteTwoGateIsFailOpenForTheseCookieCapableTypes` calls a pre-redaction string the residual's "OBSERVABLE width" | ⚠️ Warning | `28-REVIEW-3.md` WR-04 — carried over from round 3, unchanged, deliberately deferred and owned in `28-09-SUMMARY.md`. Not re-litigated. |
+| `PrivacyModeTooltipBoundTest.kt` | 192, 225 | Source-scan needle is the literal `privacyMode.toolTipText`; a `setToolTipText(...)` call would be invisible | ℹ️ Info | `28-REVIEW-3.md` WR-06 — deferred and owned. Zero hits today. |
+| `CookieRouteDispositionTest.kt` | 378 | `trimmed.startsWith("*")` retained in `matchingCodeLinesIn` | ⚠️ Warning | Carried from round 2, unchanged, not re-litigated. |
+| `28-SECURITY.md` | audit trail | Trail says "51 threats"; the register carries **52** rows (`T-28-01`…`T-28-50` + `T-28-04a` + `T-28-SC`) | ℹ️ Info | Bookkeeping only. The blocking metric is unaffected: every row reads `closed`, so `threats_open: 0` is correct on either count. |
+
+### Deferred Items
+
+None deferrable within the milestone — phase 28 is its last phase. `28-REVIEW-3.md` WR-01 and WR-05
+are **CLOSED by the UAT** (test 1 and test 2 respectively) rather than deferred; WR-04 and WR-06
+remain deferred with named owners in `28-09-SUMMARY.md`, and I confirmed both are still recorded
+there with their reasons.
+
+**Named follow-on, carried forward unchanged, still not a gap:** the residual's width for a JWT- or
+base64-shaped cookie value under STRICT's *generic* (non-cookie) rules is marked **UNMEASURED** at
+every record site. It is measurable — a test feeding such a value through `Redaction.apply` would
+settle it — and it bears on how severe the accepted residual actually is. It is also the reason the
+tooltip's retained sentence is the strongest honest claim available: saying recorded findings *keep*
+their values is conservative in the operator's favour, and cannot be tightened until that width is
+measured. It belongs with the read-time-layer work `D-28-09` sent to its own phase.
+
+### Human Verification Required
+
+**None.** Both items round 3 raised are resolved in `28-UAT.md` with recorded results — test 1
+`result: pass` (legibility observed in a live Burp), test 2 `result: pass`, `decision: narrow`
+(recorded maintainer decision, implemented in `5f779e8`). Nothing in round 4 introduced a new
+behaviour-dependent claim: the change is one deleted sentence in a string constant plus one added
+assertion, both fully settleable by measurement, and I settled both.
+
+### Gaps Summary
+
+**No gaps. Status `passed`.**
+
+Round 3 stopped at `human_needed` on one question — whether an operator can READ the tooltip that
+discharges `D-28-10` condition 3. A human answered it: yes. That is the only reason the status moves,
+and it moves on observed behaviour rather than on a re-reading of the same code.
+
+The work I actually did this round was to attack the copy change that answer produced. It deserved
+attacking: it was authored by the same session that planned round 4, it changed the exact artifact my
+previous round had certified, it shipped with no plan-time threat model, and "a human approved the
+direction" is not evidence about an implementation. So I checked the implementation, and:
+
+- The narrowed copy is **correct**. The deleted sentence was false for the dominant path —
+  `McpToolContext.redactIfNeeded` (`McpToolContext.kt:59` -> `Redaction.apply` at `:67`) re-redacts
+  every MCP tool result under the CURRENT mode, and I re-verified those citations at source. The
+  sentence that names the actual bound was not touched.
+- The retargeted pin is **not weaker** than the one it replaced. Its predecessor *mandated* the false
+  sentence; this one pins a true clause and a sibling test forbids the false one. Net: one more
+  content assertion than before, and none of them defending a claim the product contradicts.
+- The negative pin is **not vacuous**, proven against the constant as it stood one commit earlier
+  rather than argued from the assertion's shape.
+- The ADDED-never-SUBSTITUTED property is **intact** — the purpose clause is present and its guard
+  is still green.
+- And `D-28-10` condition 3 is **still discharged**, on a shorter string, which makes the human
+  legibility result stronger rather than stale.
+
+What the attack did turn up is three claim-scope defects, two of them minted by that same commit
+(W-1, W-2) and one inherent in the retarget (W-3). I have stated all three at full strength and
+explained, in the body above, exactly why I judged them WARNING rather than gap: they are
+navigational and reach-limitation defects in comments and a test name, not coverage overclaims, and
+none touches the operator string, an assertion, a control, or a success criterion. A reader who
+disagrees with that line has everything needed to overrule me — the file, the line, and the one-token
+fix are all named.
+
+Not re-reported, per standing decisions: `D-28-06`'s absent repo-wide producer gate; `AR-28-01`'s
+uncontrolled `Evidence:` tail; route 2's line (4) as defence in depth; PRIV-05 staying `- [ ]` under
+`D-28-04`; and `./gradlew check`'s accepted red.
+
+---
+
+_Verified: 2026-08-28_
+_Verifier: Claude (gsd-verifier), round 4 — covering the phase-28 UAT and commits `5f779e8`, `5750d3e`_
+
+---
+
+## Post-Report Addendum — W-1/W-2/W-3 and the count INFO were acted on (2026-08-28)
+
+Appended by the orchestrator AFTER round 4 was written. The verifier's own report above is
+byte-unchanged; this section records what happened to its three findings, so a later reader does not
+have to guess whether they were read.
+
+All three warnings and the one INFO were **fixed**, not deferred. They were small, and every one of
+them was a defect in work this same session authored — the round-4 plan, the UAT tooltip edit, and
+`28-SECURITY.md` — so leaving them for a later round would have meant shipping self-authored,
+independently-unreviewed defects that the independent reviewer had already named.
+
+| Finding | Disposition | What changed |
+|---|---|---|
+| **W-1** — `SettingsPanelInit.kt` KDoc says "the third test", but the new pin made the substitution guard the fourth | FIXED | The guard is now named (`theTooltipStillStatesWhatTheSettingDoes`), not numbered, with a note saying why numbering it was the bug. |
+| **W-2** — `PrivacyModeTooltipBoundTest` KDoc says "the three assertions above"; there are four | FIXED | Reworded to "the clause assertions above" — no count to go stale. |
+| **W-3** — `FORWARD_ONLY_CLAUSE` did not pin its own subject, so a reworded over-broad claim would pass all five tests | FIXED | Needle widened from `keep the values they were built with` to `Scanner findings already recorded keep the values they were built with`. |
+| **INFO** — `28-SECURITY.md` audit trail said 51 threats; the register has 52 rows | FIXED | Corrected to 52, with the cause (`T-28-04a` and `T-28-SC` skipped in the original count) recorded as Note 1a rather than silently overwritten. |
+
+**W-3 was closed by counterexample, not by assertion.** The verifier supplied the attack string
+`"Recorded findings and captured requests keep the values they were built with; re-scanning does not
+rewrite them."` — over-broad in exactly the way WR-05 was, and green under the old needle. Evaluated
+against both needles:
+
+| String | old needle `keep the values…` | new needle `Scanner findings already recorded keep the values…` |
+|---|---|---|
+| shipped constant | contains → pass | contains → **pass** |
+| W-3 attack string | contains → **pass (the hole)** | does not contain → **fail (hole closed)** |
+
+The tripwire now reaches as far as its test name claims.
+
+**What this addendum does NOT change.** No must-have was re-scored, no gap was opened or closed, and
+`status: passed` stands on the verifier's own evidence, not on these fixes — all four findings were
+explicitly classified WARNING/INFO and none was a gap. `PRIVACY_MODE_TOOLTIP`'s operator-facing string
+is byte-unchanged by this addendum: W-1 and W-2 are comments, W-3 is a test constant, and the INFO is
+in a different file. The suite stays at 1309 tests / 181 classes, with `PrivacyModeTooltipBoundTest`
+5/5 — no test was added or removed, only one needle widened.
+
+**One limit, stated rather than left implied.** These fixes were authored by the same session that
+authored the defects they fix, and they have not themselves been independently reviewed. W-3's closure
+is backed by an executable counterexample, which is strong; W-1 and W-2 are comment corrections whose
+only evidence is that they now name what they point at.
