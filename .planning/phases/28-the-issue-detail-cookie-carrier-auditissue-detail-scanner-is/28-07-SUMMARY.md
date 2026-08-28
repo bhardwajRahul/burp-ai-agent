@@ -313,3 +313,10 @@ None — no external service configuration required.
 ---
 *Phase: 28-the-issue-detail-cookie-carrier-auditissue-detail-scanner-is*
 *Completed: 2026-08-28*
+
+## Self-Check: PASSED
+
+- All 5 key files verified present on disk (`ls`): the new `PrivacyModeTooltipBoundTest.kt`, the three modified sources, and this SUMMARY.
+- All 4 commits verified in `git log`: `7ae5a79`, `6b7d61c`, `f58b8dd`, `b82bb99`.
+- Working tree clean after the SUMMARY commit; no untracked files left behind.
+- All plan `<acceptance_criteria>` re-run and recorded in the Measured Deltas table above; all `<verification>` items 1-6 run and recorded in Verification Results.
