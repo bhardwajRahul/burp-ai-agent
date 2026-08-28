@@ -696,6 +696,15 @@ class CookieCarrierInventoryTest {
          * bottom; none replaces what came before. `AR-27-08` itself STAYS OPEN in `26-SECURITY.md`,
          * narrowed to a named residual by a human maintainer decision on 2026-08-27, so nothing in
          * this file may be quoted as closing it.
+         *
+         * THIRD SUPERSESSION APPENDED — 2026-08-28, phase 28, plan 28-08. The marker-count
+         * sentence in the 2026-08-27 (plan 28-06) paragraph above was true at that plan's commit
+         * and is stale from this commit onward. It is amended here rather than rewritten, because
+         * rewriting prior text is the practice this constant exists to record against. THE CONSTANT
+         * NOW CARRIES THREE SUPERSESSIONS AND ONE MEASUREMENT, in that order. The third one
+         * WITHDRAWS NOTHING — it EXTENDS the STILL OPEN clause of the 2026-08-27 (plan 28-06) block
+         * with the write-time/read-time bound, its human disposition, and the two claims round 3
+         * had to repair. Read all four blocks top to bottom; none replaces what came before.
          */
         const val ISSUE_DETAIL_CARRIER_DISPOSITION =
             "UNCONTROLLED, MEASURED 2026-08-25 (AR-27-08, severity MEDIUM). A cookie sentinel in the " +
@@ -764,6 +773,85 @@ class CookieCarrierInventoryTest {
                 "DETAIL-PRODUCER GATE EXISTS: WR-01 measured the one this file's own gate implied " +
                 "as structurally unable to see another file, and D-28-06 records building a " +
                 "repository-wide one as CONSIDERED AND NOT TAKEN. Two producers are controlled and " +
-                "a third would be caught by nothing."
+                "a third would be caught by nothing." +
+                " SUPERSEDED A THIRD TIME 2026-08-28 (phase 28, plan 28-08) — THIS BLOCK " +
+                "WITHDRAWS NOTHING. It EXTENDS the STILL OPEN clause of the 2026-08-27 (plan " +
+                "28-06) block immediately above; the 2026-08-25 measurement and both prior " +
+                "supersessions stand byte-exact, kept for the reason the first one gave — they " +
+                "are the evidence the controls were needed. ROUND 3 ADDED NO CONTROL and changed " +
+                "no runtime behaviour; a reader who takes this block as evidence of a new control " +
+                "has misread it. " +
+                "(a) THE WRITE-TIME/READ-TIME BOUND, NAMED. All four controlled lines decide " +
+                "ONCE, at issue construction, and bake the result into AuditIssue.detail() — an " +
+                "immutable string Burp stores and the scanner_issues MCP tool replays. There is " +
+                "no read-time pass. An issue built while privacyMode was OFF therefore still " +
+                "emits the raw cookie value on a later STRICT read. AiScanCheck.consolidateIssues " +
+                "returns KEEP_EXISTING on a matching canonical name and normalized URL, so a " +
+                "re-scan under STRICT does not repair the site map; and plan 28-05's own red " +
+                "probe recorded the sentinel surviving STRICT redaction verbatim whenever the " +
+                "write gate does not fire, so Redaction.apply provably cannot rescue it " +
+                "downstream. " +
+                "(b) THE DISPOSITION AND ITS AUTHORITY. ACCEPTED AS A NAMED RESIDUAL by a HUMAN " +
+                "maintainer answer on 2026-08-28 (D-28-09, recorded in 28-CONTEXT.md) — the " +
+                "question was put at the verify_phase_goal gate and answered, not defaulted by " +
+                "auto-advance. THE REASON THE MAINTAINER GAVE, recorded so it is not " +
+                "re-litigated: every issue PRODUCED under STRICT or BALANCED — the entire default " +
+                "posture, AgentSettings.kt:493 defaults to BALANCED — is measurably clean across " +
+                "all four detail lines of both producers, and the residual requires a deliberate " +
+                "OFF scan followed by a mode switch, the same latent, opt-in reachability profile " +
+                "that put AR-27-08 at MEDIUM rather than high. A read-time fix is new " +
+                "architecture on the emission path and belongs to its own phase. " +
+                "(c) WHERE THE BOUND IS NOW NAMED, by identifier, because D-28-10 made the " +
+                "acceptance CONDITIONAL on exactly this: AiScanCheck.consolidateIssues's KDoc " +
+                "and SettingsPanelInit's PRIVACY_MODE_TOOLTIP (both plan 28-07), 26-SECURITY.md " +
+                "row 315 clause (d) (plan 28-08), and here. " +
+                "(d) THE PROBE CLAIM FOR DETAIL LINE (4) WAS FALSE WHEN THIS CONSTANT MADE IT, " +
+                "AND IS TRUE NOW. The 28-06 block above names AiScanCheckDetailCookieCarrierTest " +
+                "as the committed probe for line (4), the rendered payload line; at that commit a " +
+                "grep for that line's literal prefix on that file returned 0, KDoc included — " +
+                "the class asserted nothing about it. That was prose written ahead of the tree, " +
+                "and naming it precisely is worth more than softening it. Plan 28-07 supplied " +
+                "the assertions: cookiePayloadLineIsStrippedUnderStrict, " +
+                "cookiePayloadLineIsStrippedUnderBalanced, cookiePayloadLineSurvivesUnderOff and " +
+                "urlParamPayloadLineSurvivesStrict_attributionControl. THE ASYMMETRY IS " +
+                "UNCHANGED BY THE REPAIR: line (4) on route 2 remains DEFENCE IN DEPTH and not a " +
+                "measured carrier, because AiScanCheck sources payloads from the static " +
+                "getQuickPayloads table and interpolates no insertion-point value. Adding " +
+                "assertions made a claim TRUE; it did not close a leak. " +
+                "(e) THE ROUTE-2 GATE'S FAIL-OPEN SET, PREVIOUSLY UNRECORDED (D-28-11). " +
+                "AiScanCheck.isCookieInsertionPoint is an identity compare against " +
+                "AuditInsertionPointType.PARAM_COOKIE, and FOUR members of that 17-member enum " +
+                "can carry a cookie value while not being PARAM_COOKIE: HEADER, USER_PROVIDED, " +
+                "EXTENSION_PROVIDED and UNKNOWN. For those four the gate is fail-OPEN today. " +
+                "Contrast route 1, whose InjectionType has exactly ONE cookie-capable member and " +
+                "it IS COOKIE — the property that made D-28-01's pass-through safe BY " +
+                "CONSTRUCTION, and which this enum lacks. WIDENING WAS CONSIDERED AND NOT TAKEN, " +
+                "for plan 28-07's four recorded reasons: it would strip the original-value line " +
+                "on every header-typed, user-provided, extension-provided and unknown insertion " +
+                "point, a product behaviour change nobody asked for; it contradicts D-28-01's " +
+                "deliberate pass-through discipline that route 2 copied on purpose; it would " +
+                "move CookieRouteDispositionTest's two pinned predicate populations and would " +
+                "need its own red probe and its own reachability measurement; and plan 28-07 was " +
+                "chartered as RECORD REPAIR, so shipping a behaviour change inside it would " +
+                "leave the register describing code that no longer exists. THE RESIDUAL IS " +
+                "PINNED by " +
+                "AiScanCheckDetailCookieCarrierTest.theRouteTwoGateIsFailOpenForTheseCookieCapableTypes, " +
+                "whose GREEN run records the residual's width and is NOT evidence of correct " +
+                "behaviour, and bounded by that file's " +
+                "theInsertionPointTypeEnumPopulationIsTheOneTheResidualWasMeasuredAgainst, so a " +
+                "Burp release that adds a member turns the pin RED instead of widening the " +
+                "residual in silence. THE CORRECTED KDoc PREMISE: the claim that a real Burp " +
+                "implementation may return null from type() was FALSE against the shipped jar — " +
+                "javap on montoya-api-2026.2.jar shows a DEFAULT method whose entire body is " +
+                "`getstatic AuditInsertionPointType.EXTENSION_PROVIDED; areturn`. " +
+                "(f) WHAT IS STILL OPEN AFTER THIS ROUND, so this constant cannot be read as a " +
+                "closure: AR-28-01, the `Evidence:` line of the same blob (MEDIUM), " +
+                "maintainer-accepted at 28-03's blocking checkpoint and deliberately not " +
+                "reopened; AR-27-08 itself, which STAYS OPEN in 26-SECURITY.md; the " +
+                "write-time/read-time bound of (a), now a named residual; the route-2 fail-open " +
+                "set of (e); and the continued absence of any repository-wide detail-producer " +
+                "gate — WR-01 is not closed by anything written here and D-28-06 records " +
+                "building one as CONSIDERED AND NOT TAKEN. Two producers are controlled and a " +
+                "third would still be caught by nothing."
     }
 }
