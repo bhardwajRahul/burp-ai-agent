@@ -803,7 +803,7 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 **Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
 measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
 
-**Plans:** 8 plans — 6/6 executed (round 1 + gap-closure round 2); gap-closure round 3 planned, not executed
+**Plans:** 7/8 plans executed — 6/6 executed (round 1 + gap-closure round 2); gap-closure round 3 planned, not executed
 
 Plans:
 **Wave 1**
@@ -847,7 +847,7 @@ earns the conditions the acceptance rests on. `AR-27-08` stays OPEN; PRIV-05 sta
 
 **Gap wave 4**
 
-- [ ] 28-07-PLAN.md — TRACER: name the `WRITE-TIME/READ-TIME BOUND` at the privacy-mode tooltip and at `AiScanCheck.consolidateIssues`; make the `**Payload Used:**` probe claim TRUE with four named assertions; correct the false `type()` KDoc premise and NAME (not widen) the route-2 fail-open set (`D-28-10` conditions 2-3, `D-28-11`)
+- [x] 28-07-PLAN.md — TRACER: name the `WRITE-TIME/READ-TIME BOUND` at the privacy-mode tooltip and at `AiScanCheck.consolidateIssues`; make the `**Payload Used:**` probe claim TRUE with four named assertions; correct the false `type()` KDoc premise and NAME (not widen) the route-2 fail-open set (`D-28-10` conditions 2-3, `D-28-11`)
 
 **Gap wave 5** *(blocked on gap wave 4)*
 

@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
 current_phase: 28
-current_phase_name: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`
+current_phase_name: The Issue-Detail Cookie Carrier — AuditIssue.detail() → scanner_issues
 status: executing
 stopped_at: Phase 27 complete, ready to plan Phase 26
-last_updated: "2026-08-27T23:41:35.661Z"
+last_updated: "2026-08-28T07:06:50.946Z"
 last_activity: 2026-08-28
-last_activity_desc: Phase 28 round 3 planned (28-07, 28-08)
-state_head: 5d9b27d6c5d2af2719183b0053efb03b7300df01
+last_activity_desc: Phase 28 execution started
+state_head: 0d2f1fea1aeef3c92eb91048ebd3c6f28b1015bf
 progress:
   total_phases: 9
   completed_phases: 5
   total_plans: 85
-  completed_plans: 80
+  completed_plans: 83
   percent: 56
 ---
 
@@ -25,15 +25,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-05)
 
 **Core value:** Bring modern AI to a real security workflow without leaking sensitive traffic to third-party providers — privacy controls and an audit trail are non-negotiable.
-**Current focus:** Phase 28 — The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`
+**Current focus:** Phase 28 — The Issue-Detail Cookie Carrier — AuditIssue.detail() → scanner_issues
 
 ## Current Position
 
-Phase: 28 (The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`) — READY TO EXECUTE (round 3)
-Plan: 6 of 8 complete — 28-07 and 28-08 planned, not started
-Status: Ready to execute round 3 (record repair)
+Phase: 28 (The Issue-Detail Cookie Carrier — AuditIssue.detail() → scanner_issues) — EXECUTING
+Plan: 1 of 8
+Status: Executing Phase 28
 Resume file: None
-Last activity: 2026-08-28 — round 3 planned (28-07, 28-08); rounds 1-2 executed and verified 5/6, SC1 residual accepted conditionally (D-28-09)
+Last activity: 2026-08-28 — Phase 28 execution started
 
 ## Milestone Origin
 
