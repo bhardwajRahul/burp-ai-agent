@@ -47,7 +47,7 @@ Everything else in this milestone is real but was found by reading: an agent loo
 - [x] **Phase 25: Secondary Hardening** — Stop leaking the MCP token to unverified port holders; teach SsrfGuard the alternate IP notations (completed 2026-08-22)
 - [ ] **Phase 26: Coverage, Static-Analysis Debt & Docs** — Allowlist shell escaping, raise coverage on security paths, shrink the detekt baseline, publish the advisory
 - [x] **Phase 27: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity** — Close gap: PRIV-05 — mirror the cookie name-variant fix into `sanitizeHeaders`, so the MCP tool path strips `X-Cookie` / `Cookie2` / `Set-Cookie2` / `X-Original-Cookie` / `X-Forwarded-Cookie` the way the prompt path already does (completed 2026-08-27)
-- [ ] **Phase 28: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`** — Close `AR-27-08`: a COOKIE-typed injection point's value reaches the `scanner_issues` tool result through `AuditIssue.detail()` and survives STRICT and BALANCED (measured by plan 27-08 with a firing positive control; medium, latent behind three preconditions). Closes `InjectionPointExtractor.kt:29` in the same phase — the predicate is only meaningful as part of the route it feeds. Opened 2026-08-25 by plan 27-09 because phase 27 completes with PRIV-05 NOT satisfied and a deferral without an owner is round four, pre-arranged
+- [x] **Phase 28: The Issue-Detail Cookie Carrier — `AuditIssue.detail()` → `scanner_issues`** — Close `AR-27-08`: a COOKIE-typed injection point's value reaches the `scanner_issues` tool result through `AuditIssue.detail()` and survives STRICT and BALANCED (measured by plan 27-08 with a firing positive control; medium, latent behind three preconditions). Closes `InjectionPointExtractor.kt:29` in the same phase — the predicate is only meaningful as part of the route it feeds. Opened 2026-08-25 by plan 27-09 because phase 27 completes with PRIV-05 NOT satisfied and a deferral without an owner is round four, pre-arranged (completed 2026-08-28)
 
 ## Phase Details
 
@@ -803,7 +803,7 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 **Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
 measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
 
-**Plans:** 9/9 plans executed — 6/6 executed (round 1 + gap-closure round 2); gap-closure round 3 planned, not executed
+**Plans:** 9/9 plans complete
 
 Plans:
 

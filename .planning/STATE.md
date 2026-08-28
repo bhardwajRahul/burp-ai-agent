@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
-current_phase: 28
-current_phase_name: The Issue-Detail Cookie Carrier — AuditIssue.detail() → scanner_issues
-status: executing
-stopped_at: Phase 27 complete, ready to plan Phase 26
-last_updated: "2026-08-28T07:06:50.946Z"
+current_phase: 26
+current_phase_name: Coverage, Static-Analysis Debt & Docs
+status: planning
+stopped_at: Phase 28 complete, ready to plan Phase 26
+last_updated: "2026-08-28T10:41:43.693Z"
 last_activity: 2026-08-28
-last_activity_desc: Phase 28 execution started
-state_head: 0d2f1fea1aeef3c92eb91048ebd3c6f28b1015bf
+last_activity_desc: Phase 28 complete, transitioned to Phase 26
+state_head: abd507cb25fbf1b6d2eeb9724d8552de0b6b1acf
 progress:
   total_phases: 9
-  completed_phases: 5
-  total_plans: 85
-  completed_plans: 83
-  percent: 56
+  completed_phases: 6
+  total_plans: 86
+  completed_plans: 86
+  percent: 67
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 28 (The Issue-Detail Cookie Carrier — AuditIssue.detail() → scanner_issues) — EXECUTING
-Plan: 1 of 8
-Status: Executing Phase 28
+Phase: 26 — Coverage, Static-Analysis Debt & Docs
+Plan: Not started
+Status: Ready to plan
 Resume file: None
-Last activity: 2026-08-28 — Phase 28 execution started
+Last activity: 2026-08-28 — Phase 28 complete, transitioned to Phase 26
 
 ## Milestone Origin
 
@@ -79,7 +79,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 
 **Velocity:**
 
-- Total plans completed: 102
+- Total plans completed: 111
 - Average duration: —
 - Total execution time: 0 hours
 
@@ -104,6 +104,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | 24 | 5 | - | - |
 | 25 | 3 | - | - |
 | 27 | 16 | - | - |
+| 28 | 9 | - | - |
 
 **Recent Trend:**
 
@@ -279,5 +280,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-08-21T13:34:19.433Z
-Stopped at: Phase 27 complete, ready to plan Phase 26
+Stopped at: Phase 28 complete, ready to plan Phase 26
 Resume file: None
