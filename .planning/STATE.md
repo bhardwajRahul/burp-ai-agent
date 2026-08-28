@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
-current_phase: 21
-current_phase_name: Redaction Completeness
+current_phase: 22
+current_phase_name: Agent Tool-Call Trust Boundary
 status: planning
-stopped_at: Phase 20 complete, ready to plan Phase 21
-last_updated: "2026-08-28T11:39:06.407Z"
+stopped_at: Phase 21 complete, ready to plan Phase 22
+last_updated: "2026-08-28T12:19:11.418Z"
 last_activity: 2026-08-28
-last_activity_desc: Phase 20 complete, transitioned to Phase 21
-state_head: 74cf3548bc331d88a47766e3e6bafd7f9d5e5052
+last_activity_desc: Phase 21 complete, transitioned to Phase 22
+state_head: eb1fc51a18c9579538942725fde2759a674b1576
 progress:
   total_phases: 9
-  completed_phases: 8
-  total_plans: 86
-  completed_plans: 86
-  percent: 89
+  completed_phases: 9
+  total_plans: 87
+  completed_plans: 87
+  percent: 100
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 21 — Redaction Completeness
+Phase: 22 — Agent Tool-Call Trust Boundary
 Plan: Not started
 Status: Ready to plan
 Resume file: None
-Last activity: 2026-08-28 — Phase 20 complete, transitioned to Phase 21
+Last activity: 2026-08-28 — Phase 21 complete, transitioned to Phase 22
 
 ## Milestone Origin
 
@@ -79,7 +79,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 
 **Velocity:**
 
-- Total plans completed: 118
+- Total plans completed: 119
 - Average duration: —
 - Total execution time: 0 hours
 
@@ -98,7 +98,7 @@ verified and 6/6 E2E flows wired, so these are orphaned checkboxes rather than c
 | 19 | 5 | - | - |
 | 16 | 6 | - | - |
 | 20 | 10 | - | - |
-| 21 | 19 | - | - |
+| 21 | 20 | - | - |
 | 22 | 9 | - | - |
 | 23 | 8 | - | - |
 | 24 | 5 | - | - |
@@ -284,5 +284,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-08-21T13:34:19.433Z
-Stopped at: Phase 20 complete, ready to plan Phase 21
+Stopped at: Phase 21 complete, ready to plan Phase 22
 Resume file: None
