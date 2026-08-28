@@ -783,14 +783,24 @@ class CookieCarrierInventoryTest {
                 "has misread it. " +
                 "(a) THE WRITE-TIME/READ-TIME BOUND, NAMED. All four controlled lines decide " +
                 "ONCE, at issue construction, and bake the result into AuditIssue.detail() — an " +
-                "immutable string Burp stores and the scanner_issues MCP tool replays. There is " +
-                "no read-time pass. An issue built while privacyMode was OFF therefore still " +
-                "emits the raw cookie value on a later STRICT read. AiScanCheck.consolidateIssues " +
+                "immutable string Burp stores and the scanner_issues MCP tool replays. A " +
+                "read-time redaction pass DOES run over that blob: McpTool.kt:45 and :78 wrap " +
+                "every tool result in McpToolContext.redactIfNeeded, which calls " +
+                "Redaction.apply(raw, RedactionPolicy.fromMode(privacyMode)) unconditionally, " +
+                "under the CURRENT mode. What does NOT run again is the TYPE-KEYED gate — the " +
+                "AuditInsertionPointType is gone by serialization time — and the redactor's three " +
+                "cookie rules each bind to framing a detail line does not carry: a Cookie:-style " +
+                "logical-line header name, a === COOKIES === span, or a trailing ' (COOKIE)' " +
+                "marker. An issue built while privacyMode was OFF therefore still emits that " +
+                "cookie value on a later STRICT read UNLESS some generic, non-cookie rule happens " +
+                "to match the value's own shape. AiScanCheck.consolidateIssues " +
                 "returns KEEP_EXISTING on a matching canonical name and normalized URL, so a " +
                 "re-scan under STRICT does not repair the site map; and plan 28-05's own red " +
-                "probe recorded the sentinel surviving STRICT redaction verbatim whenever the " +
-                "write gate does not fire, so Redaction.apply provably cannot rescue it " +
-                "downstream. " +
+                "probe recorded DETAIL_SENTINEL surviving STRICT redaction verbatim whenever the " +
+                "write gate does not fire — a sentinel whose own KDoc records it was shaped with " +
+                "no digits, no '=' and no metacharacters so that ONLY the type gate could remove " +
+                "it, which bounds the type-keyed question and leaves the residual's width for a " +
+                "JWT or base64 session value UNMEASURED. " +
                 "(b) THE DISPOSITION AND ITS AUTHORITY. ACCEPTED AS A NAMED RESIDUAL by a HUMAN " +
                 "maintainer answer on 2026-08-28 (D-28-09, recorded in 28-CONTEXT.md) — the " +
                 "question was put at the verify_phase_goal gate and answered, not defaulted by " +
@@ -852,6 +862,22 @@ class CookieCarrierInventoryTest {
                 "set of (e); and the continued absence of any repository-wide detail-producer " +
                 "gate — WR-01 is not closed by anything written here and D-28-06 records " +
                 "building one as CONSIDERED AND NOT TAKEN. Two producers are controlled and a " +
-                "third would still be caught by nothing."
+                "third would still be caught by nothing." +
+                " NARROWED 2026-08-28 (phase 28, plan 28-09) — THIS BLOCK WITHDRAWS NOTHING AND " +
+                "ADDS NO CONTROL. It narrows two claims the plan 28-08 block above stated " +
+                "absolutely: that no read-time redaction pass ran over the detail blob at all, " +
+                "and that the 28-05 red probe PROVED the redactor could never rescue the value " +
+                "downstream. The round-3 code review found both overstated (28-REVIEW-3.md, " +
+                "WR-02 and WR-03) and the tree confirmed it: the pass exists — McpTool.kt:45 " +
+                "and :78 wrap every tool result in McpToolContext.redactIfNeeded, which calls " +
+                "Redaction.apply under the CURRENT mode — but it is not type-keyed; and the " +
+                "probe's sentinel was built to be invisible to every generic rule, so it bounds " +
+                "the type-keyed question ONLY. Clause (a) above is rewritten accordingly. Every " +
+                "other clause, the DISPOSITION and its AUTHORITY in (b), and AR-27-08's OPEN " +
+                "status in 26-SECURITY.md are UNTOUCHED — narrowing an overclaim about the " +
+                "redactor's reach makes this residual's naming MORE accurate, not weaker, and " +
+                "D-28-09 and D-28-10 stand exactly as recorded. The retired phrases are " +
+                "deliberately not quoted anywhere in this file: the greps that enforce their " +
+                "retirement are literal."
     }
 }
