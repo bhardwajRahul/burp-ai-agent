@@ -96,7 +96,34 @@ class AiScanCheck(
     }
 
     /**
-     * Consolidate duplicate issues
+     * Consolidate duplicate issues.
+     *
+     * WRITE-TIME/READ-TIME BOUND — THIS PARAGRAPH IS A NOTE, NOT A CONTROL. Nothing below changes
+     * what this function returns. It is here because this function is the mechanism that makes a
+     * stale finding stick, and a residual whose mechanism is undocumented gets re-derived wrongly.
+     *
+     * BOTH COOKIE CONTROLS DECIDE ONCE, AT WRITE TIME. Route 1
+     * (`ScannerIssueSupport.sanitizeInjectionPointValue`) and route 2 ([buildDetail] through
+     * [sanitizeCookiePointText]) both run at issue CONSTRUCTION and bake their result into
+     * `AuditIssue.detail()` — an immutable string Burp stores and the `scanner_issues` MCP tool
+     * replays verbatim. There is no read-time pass over it. An issue built while `privacyMode` was
+     * `OFF` therefore still emits the raw cookie value on a later STRICT read.
+     *
+     * AND THIS FUNCTION IS WHY THAT IS NOT SELF-HEALING. On a matching canonical name AND a
+     * matching normalized URL it returns [ConsolidationAction.KEEP_EXISTING], so a re-scan under
+     * STRICT does not replace the stale issue in the site map. The operator's later, stricter
+     * intent cannot reach the already-recorded detail string through this path.
+     *
+     * NOR CAN THE REDACTOR RESCUE IT DOWNSTREAM. Plan 28-05's own red probe recorded the sentinel
+     * surviving STRICT redaction VERBATIM whenever the write gate does not fire, so `Redaction.apply`
+     * provably does not stand between a stale detail string and its reader.
+     *
+     * DISPOSITION: ACCEPTED as a named residual by maintainer answer on 2026-08-28 (`D-28-09`),
+     * conditional (`D-28-10`) on it being named in four places — here, at the privacy-mode selector
+     * (`PRIVACY_MODE_TOOLTIP` in `ui/SettingsPanelInit.kt`), in `ISSUE_DETAIL_CARRIER_DISPOSITION`
+     * and in `26-SECURITY.md` row 315. THE REASON FOR THE ACCEPTANCE, stated so a reader does not
+     * re-litigate it from scratch: a read-time fix is NEW ARCHITECTURE on the emission path and
+     * belongs to its own phase, not to a record-repair round.
      */
     override fun consolidateIssues(
         newIssue: AuditIssue,

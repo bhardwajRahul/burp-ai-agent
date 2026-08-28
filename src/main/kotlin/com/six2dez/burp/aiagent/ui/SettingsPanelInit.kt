@@ -22,6 +22,36 @@ import javax.swing.event.DocumentEvent
 import javax.swing.event.DocumentListener
 
 /**
+ * The privacy-mode selector's tooltip, extracted from its assignment in [initUiWiring] so a test can
+ * read the SAME symbol the panel does. Until this constant existed the string was an inline literal
+ * inside an extension function needing a live `SettingsPanel`, and was therefore unreachable from a
+ * unit test — extracting it is what makes the copy below pinnable rather than merely asserted by
+ * inspection. `internal` is module-scoped, and the test source set is a friend module, so the test
+ * reads exactly the string an operator reads.
+ *
+ * WHY THE BOUND IS STATED TO THE OPERATOR AT ALL. Both cookie controls decide ONCE, at issue
+ * construction, and bake the result into the immutable `AuditIssue.detail()` string; there is no
+ * read-time pass over it. `AiScanCheck.consolidateIssues` is the mechanism that then makes a stale
+ * finding sticky, and its KDoc carries the full chain and the canonical name for this residual. The
+ * maintainer's acceptance of that residual on 2026-08-28 (`D-28-09`) was made CONDITIONAL
+ * (`D-28-10`) on naming it here, at the one surface where an operator states an intent about
+ * redaction: shipping a control an operator will read as retroactive is the option that is not
+ * available.
+ *
+ * WHAT THIS STRING DELIBERATELY DOES NOT SAY. It offers no remediation — no instruction to delete a
+ * finding and re-scan. This round measured no remediation, and an unmeasured instruction placed in
+ * the one location an operator is least able to check is worse than silence. Before shortening this
+ * copy, read `PrivacyModeTooltipBoundTest`: all three clauses below are pinned there as substrings,
+ * and the third test exists specifically so the bound can never be swapped IN PLACE OF the sentence
+ * describing what the setting does.
+ */
+internal const val PRIVACY_MODE_TOOLTIP =
+    "Controls how traffic is redacted before sending to a model. " +
+        "Applies from now on, not retroactively. " +
+        "Scanner findings already recorded keep the values they were built with; " +
+        "re-scanning does not rewrite them."
+
+/**
  * Wires all UI component styling, tooltips, tab panels, and event listeners for SettingsPanel.
  * Extracted from the SettingsPanel init block to keep SettingsPanel.kt under the module size target.
  * Called exclusively from the SettingsPanel init { } block.
@@ -55,7 +85,9 @@ internal fun SettingsPanel.initUiWiring() {
     refreshProfilesBtn.toolTipText = "Reload AGENTS profiles from disk."
     profileWarningLabel.font = DesignTokens.Typography.body
     profileWarningLabel.foreground = DesignTokens.Colors.statusError
-    privacyMode.toolTipText = "Controls how traffic is redacted before sending to a model."
+    // The bound-naming copy lives in the PRIVACY_MODE_TOOLTIP constant above; this is a
+    // reference to it, not a lost string.
+    privacyMode.toolTipText = PRIVACY_MODE_TOOLTIP
     determinism.font = DesignTokens.Typography.body
     determinism.background = DesignTokens.Colors.surface
     determinism.foreground = DesignTokens.Colors.onSurface
