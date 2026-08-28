@@ -803,7 +803,7 @@ needs its own red probe and its own reachability analysis, which is closure-phas
 **Not in scope, named so it is not silently absorbed:** `AR-27-07` (non-cookie parameter types,
 measured low) is a separate disposition and is routed to `27-HUMAN-UAT.md` test 8, not to this phase.
 
-**Plans:** 7/8 plans executed — 6/6 executed (round 1 + gap-closure round 2); gap-closure round 3 planned, not executed
+**Plans:** 8/8 plans executed — 6/6 executed (round 1 + gap-closure round 2); gap-closure round 3 planned, not executed
 
 Plans:
 **Wave 1**
@@ -851,7 +851,7 @@ earns the conditions the acceptance rests on. `AR-27-08` stays OPEN; PRIV-05 sta
 
 **Gap wave 5** *(blocked on gap wave 4)*
 
-- [ ] 28-08-PLAN.md — third append-and-amend supersession on `ISSUE_DETAIL_CARRIER_DISPOSITION` and on `26-SECURITY.md` row 315 clause (d), both behind pre-computed byte-prefix digests; recompute `threats_open`; then, LAST and gated on six machine-checked conditions, apply the SC1 override to `28-VERIFICATION.md` frontmatter (`D-28-10` conditions 1 and 4)
+- [x] 28-08-PLAN.md — third append-and-amend supersession on `ISSUE_DETAIL_CARRIER_DISPOSITION` and on `26-SECURITY.md` row 315 clause (d), both behind pre-computed byte-prefix digests; recompute `threats_open`; then, LAST and gated on six machine-checked conditions, apply the SC1 override to `28-VERIFICATION.md` frontmatter (`D-28-10` conditions 1 and 4)
 
 ---
 
