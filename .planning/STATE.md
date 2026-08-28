@@ -2,20 +2,20 @@
 gsd_state_version: 1.0
 milestone: v0.10.0
 milestone_name: Security Correctness & Agent Trust
-current_phase: 27
-current_phase_name: PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity
+current_phase: 21
+current_phase_name: Redaction Completeness
 status: planning
-stopped_at: Phase 26 complete, ready to plan Phase 27
-last_updated: "2026-08-28T11:05:05.717Z"
+stopped_at: Phase 20 complete, ready to plan Phase 21
+last_updated: "2026-08-28T11:39:06.407Z"
 last_activity: 2026-08-28
-last_activity_desc: Phase 26 complete, transitioned to Phase 27
-state_head: de464b5e82bf635257f94ec5d8759da9aa89e6b6
+last_activity_desc: Phase 20 complete, transitioned to Phase 21
+state_head: 74cf3548bc331d88a47766e3e6bafd7f9d5e5052
 progress:
   total_phases: 9
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 86
   completed_plans: 86
-  percent: 78
+  percent: 89
 ---
 
 # Project State
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-08-05)
 
 ## Current Position
 
-Phase: 27 — PRIV-05 Gap Closure — sanitizeHeaders Cookie Parity
+Phase: 21 — Redaction Completeness
 Plan: Not started
 Status: Ready to plan
 Resume file: None
-Last activity: 2026-08-28 — Phase 26 complete, transitioned to Phase 27
+Last activity: 2026-08-28 — Phase 20 complete, transitioned to Phase 21
 
 ## Milestone Origin
 
@@ -281,5 +281,5 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-08-21T13:34:19.433Z
-Stopped at: Phase 26 complete, ready to plan Phase 27
+Stopped at: Phase 20 complete, ready to plan Phase 21
 Resume file: None
