@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 12
+open_count: 9
 waived_count: 46
-fixed_count: 0
+fixed_count: 3
 total_count: 58
-last_updated: 2026-08-28T14:58:08.385Z
+last_updated: 2026-08-28T17:06:04.423Z
 ---
 
 # Broken Windows Ledger
@@ -15,11 +15,11 @@ last_updated: 2026-08-28T14:58:08.385Z
 
 | id | phase | kind | file | line | description | status | reason | recorded_at | resolved_at |
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
-| 1 | 23 | unrun-verify | .planning/phases/23-edt-confinement-ui-responsiveness/23-01-SUMMARY.md |  | FLAG-23-04: sub-frame Send/Cancel flicker on the auto-approved chain path and the ~160-char tool-cancel line's wrap are live-UAT only; routed to 23-HUMAN-UAT.md by plan 23-05 | open |  | 2026-08-20T18:48:49.436Z |  |
+| 1 | 23 | unrun-verify | .planning/phases/23-edt-confinement-ui-responsiveness/23-01-SUMMARY.md |  | FLAG-23-04: sub-frame Send/Cancel flicker on the auto-approved chain path and the ~160-char tool-cancel line's wrap are live-UAT only; routed to 23-HUMAN-UAT.md by plan 23-05 | fixed |  | 2026-08-20T18:48:49.436Z | 2026-08-28T17:05:56.540Z |
 | 2 | 23 | unrun-verify | src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt |  | No committed test asserts the UI-SPEC Rule S-4 /tool transcript echo or the S3 busy-state entry on either user-originated tool path; both verified only by execution-time source-order greps (23-02 D7) | open |  | 2026-08-20T19:23:53.967Z |  |
-| 3 | 23 | unrun-verify | src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelActions.kt |  | The JOptionPane save-failure and restore-failure modals are not headless-testable (getRootFrame throws HeadlessException); asserted only via the inline banner, modal routed to 23-HUMAN-UAT.md | open |  | 2026-08-20T20:12:38.644Z |  |
-| 4 | 23 | unrun-verify | src/main/kotlin/com/six2dez/burp/aiagent/ui/BottomTabsPanel.kt |  | FLAG-23-01: whether the recolored disabled Save button reads as inert on Burp's live L&F is unverifiable headlessly; routed to 23-HUMAN-UAT.md | open |  | 2026-08-20T20:12:38.741Z |  |
-| 5 | 23 | deviation | src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt |  | D-23-04-1: clearChatState() (teardown path 3 of 5, the one D-08 never listed) does not supersede a running tool worker, so a Clear Chat can be followed by a result row and a followup turn for the conversation just cleared. Logged in 23 deferred-items.md by plan 23-04; surfaced here by the 23-05 phase gate so it is visible at ship time. | waived | Historical record of a plan-vs-execution deviation, resolved when recorded. Not outstanding work. Waived at the v0.10.0 round-2 milestone audit triage (2026-08-28) so the ship gate reflects open work rather than the audit trail. | 2026-08-20T21:40:01.047Z | 2026-08-28T14:57:47.303Z |
+| 3 | 23 | unrun-verify | src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelActions.kt |  | The JOptionPane save-failure and restore-failure modals are not headless-testable (getRootFrame throws HeadlessException); asserted only via the inline banner, modal routed to 23-HUMAN-UAT.md | fixed |  | 2026-08-20T20:12:38.644Z | 2026-08-28T17:06:04.335Z |
+| 4 | 23 | unrun-verify | src/main/kotlin/com/six2dez/burp/aiagent/ui/BottomTabsPanel.kt |  | FLAG-23-01: whether the recolored disabled Save button reads as inert on Burp's live L&F is unverifiable headlessly; routed to 23-HUMAN-UAT.md | fixed |  | 2026-08-20T20:12:38.741Z | 2026-08-28T17:06:04.423Z |
+| 5 | 23 | deviation | src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt |  | D-23-04-1: clearChatState() (teardown path 3 of 5, the one D-08 never listed) does not supersede a running tool worker, so a Clear Chat can be followed by a result row and a followup turn for the conversation just cleared. Logged in 23 deferred-items.md by plan 23-04; surfaced here by the 23-05 phase gate so it is visible at ship time. | waived | test | 2026-08-20T21:40:01.047Z | 2026-08-28T14:57:47.303Z |
 | 6 | 23 | deviation | src/test/kotlin/com/six2dez/burp/aiagent/ui/SettingsSaveAsyncTest.kt |  | Plan 23-08 Task 2's specified single-shape scanner test would have left the active-scanner guard unfalsifiable (sequential early returns short-circuit); rebuilt as two shapes — recorded so the pattern is not copied | waived | Historical record of a plan-vs-execution deviation, resolved when recorded. Not outstanding work. Waived at the v0.10.0 round-2 milestone audit triage (2026-08-28) so the ship gate reflects open work rather than the audit trail. | 2026-08-21T10:20:38.074Z | 2026-08-28T14:58:04.562Z |
 | 7 | 24 | deviation | .planning/phases/24-scheduler-process-robustness/24-01-PLAN.md |  | 24-01 task 3 red-before-green used git checkout <ref> -- <path> instead of the plan's git stash push/pop, which is prohibited in a worktree (shared refs/stash) | waived | Historical record of a plan-vs-execution deviation, resolved when recorded. Not outstanding work. Waived at the v0.10.0 round-2 milestone audit triage (2026-08-28) so the ship gate reflects open work rather than the audit trail. | 2026-08-21T13:33:28.113Z | 2026-08-28T14:58:04.649Z |
 | 8 | 24 | deviation | .planning/phases/24-scheduler-process-robustness/24-04-PLAN.md |  | Plan 24-04 acceptance criteria reference gradle/libs.versions.toml, which does not exist in this repo (no version catalog); same wrong reference as 24-03. Dependency-graph invariant is checked via build.gradle.kts instead. | waived | Historical record of a plan-vs-execution deviation, resolved when recorded. Not outstanding work. Waived at the v0.10.0 round-2 milestone audit triage (2026-08-28) so the ship gate reflects open work rather than the audit trail. | 2026-08-21T14:37:17.711Z | 2026-08-28T14:58:04.735Z |
@@ -83,10 +83,10 @@ last_updated: 2026-08-28T14:58:08.385Z
     "file": ".planning/phases/23-edt-confinement-ui-responsiveness/23-01-SUMMARY.md",
     "line": null,
     "description": "FLAG-23-04: sub-frame Send/Cancel flicker on the auto-approved chain path and the ~160-char tool-cancel line's wrap are live-UAT only; routed to 23-HUMAN-UAT.md by plan 23-05",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-20T18:48:49.436Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-28T17:05:56.540Z"
   },
   {
     "id": 2,
@@ -107,10 +107,10 @@ last_updated: 2026-08-28T14:58:08.385Z
     "file": "src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelActions.kt",
     "line": null,
     "description": "The JOptionPane save-failure and restore-failure modals are not headless-testable (getRootFrame throws HeadlessException); asserted only via the inline banner, modal routed to 23-HUMAN-UAT.md",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-20T20:12:38.644Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-28T17:06:04.335Z"
   },
   {
     "id": 4,
@@ -119,10 +119,10 @@ last_updated: 2026-08-28T14:58:08.385Z
     "file": "src/main/kotlin/com/six2dez/burp/aiagent/ui/BottomTabsPanel.kt",
     "line": null,
     "description": "FLAG-23-01: whether the recolored disabled Save button reads as inert on Burp's live L&F is unverifiable headlessly; routed to 23-HUMAN-UAT.md",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-20T20:12:38.741Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-28T17:06:04.423Z"
   },
   {
     "id": 5,
