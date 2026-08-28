@@ -109,10 +109,7 @@ interceptor still runs after the first responds), and `finish()` is not callable
 5. The interaction between user custom patterns and `PrivacyMode.OFF` is settled deliberately and documented in `DECISIONS.md` — whichever way it goes, it is a decision rather than a side effect of the `redactTokens` branch.
 6. The existing `RedactionTest` suite including the RFC 5869 HKDF vector stays green; the fix must not perturb host anonymization.
 
-**Plans**: 20/20 plans executed — 7 original in 4 waves, 5 gap-closure in 4 waves, 6 second-round gap-closure in 5 waves, plus 1 third-round gap-closure in 1 wave
-Plans:
-
-- [x] 21-20-PLAN.md
+**Plans**: 20/20 plans executed — 7 original in 4 waves, 5 gap-closure in 4 waves, 6 second-round gap-closure in 5 waves, 1 third-round gap-closure in 1 wave, plus 1 record-repair round in 1 wave
 
 **Wave 1**
 
@@ -203,6 +200,10 @@ carriers and five of six name shapes was recorded as a complete closure of the c
 for twelve days, surfaced only at the v0.10.0 milestone audit on 2026-08-24, and became Phase 27's
 five rounds of rework. Restored by plan 21-20 (`21-VERIFICATION.md` G-2); the attribution itself is
 corrected in `CONCERNS.md` and `21-19-SUMMARY.md` by the same plan.
+
+**Gap-4 Wave 1** *(record repair — no code)*
+
+- [x] 21-20-PLAN.md — closes `21-VERIFICATION.md`'s three blockers without touching `src/`: G-1 re-attributes the W-A *class* closure to Phase 27 in `CONCERNS.md:65` and `21-19-SUMMARY.md` (residuals (a)→27-01, (b)→27-04/27-11/27-14/27-17, (c)→27-10, with (c)'s admitter-vs-redactor fail-OPEN mechanism stated); G-2 restores 21-19 above and records the omission as a cause; G-3 is recorded as resolved by measurement — redact BRANCH 0.93299 vs the 0.930 floor (gap-4 wave 1)
 
 **SC6 note**: two existing `RedactionTest` assertions are *deliberately* inverted by locked decisions and are
 not regressions — `oversizeBodySkippedSafely` (rewritten by D-01, it currently asserts the fail-open as

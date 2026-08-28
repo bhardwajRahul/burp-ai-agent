@@ -1,27 +1,35 @@
 ---
 phase: 21-redaction-completeness
 verified: 2026-08-13T08:41:15Z
-status: gaps_found
-score: 8/9 re-verified (SC1-SC6 held 6/6; plan 21-19 2/3)
-re_verified: 2026-08-27
+status: passed
+score: 9/9 must-haves verified (SC1-SC6 6/6; plan 21-19 3/3 — G-1/G-2 closed by plan 21-20, G-3 closed by measurement)
+re_verified: 2026-08-28
+behavior_unverified: 0
 overrides_applied: 0
 re_verification:
-  previous_status: none
-  previous_score: n/a
-  note: "Initial verification. No prior 21-VERIFICATION.md existed; 21-VALIDATION.md is the planning-time validation strategy, not a verification record."
-human_verification:
-  - test: "Load the fat JAR in a live Burp, proxy a request carrying `Cookie: JSESSIONID=…; PHPSESSID=…; connect.sid=…; auth_token=…; csrftoken=…; remember_me=…`, trigger a passive AI scan in STRICT and then BALANCED, and inspect the outbound prompt via the context preview / AI request log."
-    expected: "None of the six cookie values appears anywhere in the prompt; each cookie NAME is still present as `NAME=[REDACTED]`; the `=== PARAMETERS ===` section shows `(COOKIE)` lines with values replaced and `(URL)` / `(BODY)` lines untouched."
-    why_human: "`PassiveAiScannerAnalysis.doAnalysis` needs a live `MontoyaApi`, a backend session and `ScanKnowledgeBase` state. The Wave-0 extractions move the PRIV-05-relevant logic out of that reach and I verified it end to end against the real emitter, but the surrounding `doAnalysis` orchestration itself is not unit-reachable."
-  - test: "MAINTAINER DISPOSITION (not a test): decide how to treat the cookie-header NAME VARIANT residual — `Cookie2`, `X-Cookie`, `Set-Cookie2`, `X-Original-Cookie`, `X-Forwarded-Cookie`. `sanitizeHeadersForPrompt` admits any header whose lowercased name contains `cookie` (or starts with `x-`), but `cookieHeaderRegex` / `setCookieHeaderRegex` anchor on the exact names `^cookie:` / `^set-cookie:`, so these five reach the prompt verbatim under STRICT and BALANCED. Measured, not inferred (see Anti-Patterns table)."
-    expected: "Either (a) the class is added to `.planning/codebase/CONCERNS.md`'s existing 'Redaction regex coverage gaps' entry beside the already-accepted `authHeaderRegex` vendor-header residual, so the record claims only what ships (the phase's own D-08 REFINED standard); or (b) it is closed by widening the two cookie header regexes. Until one of the two happens, PRIV-05's lead sentence — 'Cookie values do not reach an AI backend … by any path' — is stronger than what ships."
-    why_human: "Scope and record decision, not an implementation defect. Pre-existing since the first commit, explicitly declared out of scope at planning time (`21-CONTEXT.md`: 'They are not the bug'), and its sibling class is already an accepted documented residual. Only a maintainer can choose accept-and-record versus close."
-  - test: "In a live Burp, set Privacy to OFF with at least one custom redaction pattern configured, then with none; read the ChatPanel privacy line, the ContextPreviewDialog banner, the PrivacyPill tooltip and all four SettingsPanelActions OFF arms."
-    expected: "No string claims OFF means no redaction. With patterns configured the wording says built-in redaction is disabled but custom patterns still apply; with none configured it says built-in redaction is disabled and no custom patterns are configured."
-    why_human: "D-07 covers Swing label strings; this project has no UI integration-test harness (recorded in CONCERNS.md 'UI layer has no integration tests')."
-  - test: "Unload the extension in a live Burp while a passive scan is in flight; then reload it with a hand-edited preferences file containing a pathological custom pattern."
-    expected: "No exception surfaces from `Redaction.apply` during teardown, and the pathological persisted pattern is dropped at startup rather than seeded."
-    why_human: "`App.shutdown()`'s `Redaction.truncationLogger = null` step and `App.initialize`'s `isPatternSafe` seeding filter both need a live `MontoyaApi`. 21-18 states this plainly and identifies `maybeLogTruncation`'s `runCatching` as the automated defence that holds regardless — I confirmed that wrap exists and is guarded by `truncationLoggerThatThrowsDoesNotAbortRedaction`."
+  round: 3
+  previous_status: gaps_found
+  previous_score: "8/9 re-verified (SC1-SC6 held 6/6; plan 21-19 2/3)"
+  previous_verified: 2026-08-27
+  gaps_closed:
+    - "G-1 (record accuracy) — CONCERNS.md:65 headline amended in place and 21-19-SUMMARY.md lines 50/171 amended under one dated CORRECTION marker; residuals (a)/(b)/(c) attributed to 27-01, 27-04/27-11/27-14/27-17 and 27-10 respectively, with (c)'s admitter-vs-redactor fail-OPEN mechanism stated at both sites"
+    - "G-2 (process) — 21-19 restored to ROADMAP.md (line 196, with the three residuals named) and to STATE.md (lines 239/240/250); phase-21 plan count 18 -> 19 -> 20; the omission recorded as a CAUSE at ROADMAP.md:198-205, not silently inserted"
+    - "G-3 (live blocker) — NOT closed by work; re-measured and found already passing. ./gradlew check exit 0 at HEAD; redact BRANCH missed 13 / covered 181 = 0.93299 vs the 0.930 floor, LINE 0.97978 vs 0.975. Independently measured by this verifier from a freshly generated jacocoTestReport.xml, not accepted from the brief."
+  gaps_remaining: []
+  regressions: []
+  warnings:
+    - "ROADMAP.md:112 headline reads '20/20 plans executed' while its own wave breakdown sums to 19 (7 + 5 + 6 + 1); 21-20 is parked under a bare 'Plans:' heading above Wave 1 rather than a labelled fourth round. Introduced by tracking commit 5681155, not by plan 21-20. Cosmetic."
+    - "redact BRANCH clears its floor by 0.00299 — under one branch of headroom (194 total). Losing a single covered branch in Redaction returns the gate to 0.92784 RED. QUAL-06 is green but has no margin."
+    - "21-19-SUMMARY.md frontmatter provides[0] ('closing W-A') and key-decisions[0] ('W-A CLOSED rather than RECORDED') still read as class-closure. Outside plan 21-20's stated scope, which named lines 50 and 171; the prose CORRECTION marker at line 52 governs the file. Advisory."
+  judgment_calls_reviewed:
+    - call: "Executor added one labelled record-note line beneath the amended headline instead of satisfying two jointly-unsatisfiable must-haves (amend-in-place with no seventh AMENDMENT block, AND numstat additions > deletions)."
+      verdict: "ACCEPTED — both intents preserved. grep -c 'AMENDMENT' is 8 before and 8 after; git diff --numstat is +2/-1; the superseded opening claim is quoted verbatim inside the amended line; the note does not restate the six prior amendments and says so."
+    - call: "Executor left 21-19-SUMMARY.md's requirements-completed: [PRIV-05] frontmatter unedited, arguing that editing it would destroy evidence."
+      verdict: "ACCEPTED, on stronger grounds than the executor gave. gsd-core/workflows/execute-plan.md:409 defines requirements-completed as a verbatim copy of the PLAN's requirements array — provenance, not a completion assertion. 21-19-PLAN.md:13 is requirements: [PRIV-05], so the field is correct by its own contract, and editing it would desynchronise this summary from 86 siblings. The authoritative field, REQUIREMENTS.md PRIV-05, is - [ ] and byte-frozen."
+constraints_honoured:
+  - ".planning/REQUIREMENTS.md sha256 9b3219662ec0d007c1c82d64eed3ef2698bd306ce69f01205ac9bbc3f42fcfb4 — re-measured, matches. PRIV-05 still - [ ], correctly: AR-27-08 is open and owned by Phase 28, which accepted a further residual (D-28-09). 'By any path' is still not literally true."
+  - "git status --porcelain -- src/ prints nothing; no commit in 21-20's range (f5003d0..HEAD) touches src/."
+  - "21-VERIFICATION.md was not edited by plan 21-20 (git log f5003d0..HEAD -- 21-VERIFICATION.md is empty) — the plan did not mark its own homework."
 ---
 
 # Phase 21: Redaction Completeness — Verification Report
@@ -449,3 +457,207 @@ until a milestone audit re-opened PRIV-05.
 
 _Re-verified: 2026-08-27_
 _Verifier: Claude (gsd-verifier) — goal-backward, FORCE stance, differential-probe method_
+
+---
+
+## Re-verification round 3 — 2026-08-28
+
+**Everything above this line is preserved verbatim.** The report of 2026-08-13 and the re-verification
+of 2026-08-27, including its G-1 / G-2 / G-3 account, are byte-identical to what they were when
+committed. This section appends the verdict on those three gaps and changes nothing else. The one
+edit outside this section is the frontmatter, which carries the machine-readable verdict and must
+reflect the current round; the initial round's `human_verification` block is archived verbatim at the
+end of this section rather than deleted.
+
+**Trigger.** Plan **21-20** was written and executed on 2026-08-28 to close G-1 and G-2. G-3 was not
+worked on at all — the brief asserts it was already passing and asked this verifier to re-measure it
+rather than accept either the "accepted red" or the "green" framing. That is what happened below.
+
+**Method.** Every claim is measured at HEAD (`5681155`). No sentence of `21-20-SUMMARY.md` is taken as
+evidence; the `.planning` diffs were read directly and the build was run in this verifier's own
+process. `.planning/REQUIREMENTS.md` was re-hashed, not assumed.
+
+### The three gaps
+
+| Gap | Prior verdict | This round | Basis |
+|-----|---------------|------------|-------|
+| **G-1** record accuracy | 🛑 BLOCKER | ✓ **CLOSED** | Both sites amended; residuals attributed by plan id with mechanism |
+| **G-2** process | 🛑 BLOCKER | ✓ **CLOSED** | 21-19 present in `ROADMAP.md` and `STATE.md`; omission recorded as a cause |
+| **G-3** live blocker | 🛑 BLOCKER | ✓ **CLOSED by measurement** | `./gradlew check` exit 0; redact BRANCH `0.93299` ≥ `0.930`, measured here |
+
+#### G-1 — CLOSED
+
+**`CONCERNS.md:65`.** The headline now opens `**W-A — the PROMPT carrier was closed by plan 21-19
+(maintainer-decided 2026-08-13); the cookie header NAME *class* was closed by PHASE 27.**` and carries
+four numbered parts: (1) what 21-19 actually closed — the passive-scan prompt carrier for **hyphenated**
+name shapes, the five names this report measured, "every one of which separates its words with `-`";
+(2) the three residuals attributed by plan id — **(a)** `McpToolHelpers.sanitizeHeaders` exact-name
+comparison, second carrier, closed by **27-01**; **(b)** the CR/LF-escaped tool-result carrier the
+`(?im)^` anchor could not reach, closed by **27-04 / 27-11 / 27-14 / 27-17**; **(c)** `COOKIE_NAME_PART`
+excluding `_`, closed by **27-10**; (3) why (c) is the sharpest, stated as a mechanism rather than as
+bookkeeping — `sanitizeHeadersForPrompt` is an **admitter**, so the admitter-vs-redactor difference set
+was fail-**OPEN**, "the same asymmetry W-A itself was, reintroduced one character wide by the fix for
+it"; (4) what is **not** being corrected — the code, with SC1–SC6 6/6 quoted. The superseded opening
+claim is preserved verbatim inside the amended line, and the six Phase-27 amendments beneath it are
+untouched and unrestated.
+
+**`21-19-SUMMARY.md`.** Both named claims are amended under a single dated `CORRECTION — 2026-08-28`
+marker at line 52, four numbered parts, `+46 / -0` — nothing deleted. Item (1) corrects the line-50
+one-liner ("Closed the last open finding of the phase — it was not the last one"). Item (2) corrects the
+line-171 §Record Correction claim, with a back-reference planted at line 219 so a reader arriving at
+that section is not stranded. Item (3) records **why it stood for twelve days** — never in `ROADMAP.md`
+or `STATE.md`, so nothing re-verified it. Item (4) protects the 6/6.
+
+**Judgment call 1 — the record-note line. ACCEPTED.** The plan required both "amend in place, do not
+append a seventh AMENDMENT block" and "`git diff --numstat` additions > deletions", which for a pure
+single-line edit are jointly unsatisfiable. The executor amended the headline and added one labelled
+`**Record note — 2026-08-28 …**` bullet. Measured: `grep -c 'AMENDMENT'` is **8 before and 8 after**,
+`git diff --numstat f5003d0 HEAD -- CONCERNS.md` is **`2 1`**. Both intents are preserved — the entry
+did not gain a redundant amendment round (the note is four sentences and explicitly states "the
+amendments below are unaffected, unrestated and still stand as written"), and the append-and-amend
+discipline holds because the superseded claim is quoted verbatim inside the line that replaced it.
+
+**Judgment call 2 — `requirements-completed: [PRIV-05]` left unedited. ACCEPTED**, and on firmer
+ground than the executor's own "destroying evidence" argument. The field is not a completion assertion:
+`gsd-core/workflows/execute-plan.md:409` defines it as "**MUST** copy `requirements` array from PLAN.md
+frontmatter verbatim", and `21-19-PLAN.md:13` is `requirements: [PRIV-05]`. It is **provenance** — which
+requirement the plan was working on — and is correct by its own contract; editing it would desynchronise
+this summary from 86 siblings that follow the same convention. The field that carries the actual claim,
+`REQUIREMENTS.md` PRIV-05, is `- [ ]` and byte-frozen. The correction's item (4) names the frontmatter
+explicitly and states the true status, so a reader is not misled either.
+
+⚠️ **Advisory, not a gap.** Two other frontmatter fields still read as class-closure —
+`provides[0]` ("…closing W-A") and `key-decisions[0]` ("W-A CLOSED rather than RECORDED"). They were
+outside plan 21-20's stated scope, which named lines 50 and 171, and the CORRECTION marker sits four
+lines below them. Worth tightening the next time this file is touched; not worth reopening a gap for.
+
+#### G-2 — CLOSED
+
+`ROADMAP.md:196` now carries the `21-19-PLAN.md` entry, and it does not merely list the plan — it states
+what 21-19 closed (the five hyphenated variants), what it did **not** close (all three residuals), and
+who closed each. Lines 198–205 record the omission as a **cause**: "`grep -c '21-19'` returned **zero**
+in both files until this line was written. Because it was not in \[the record\] … became Phase 27's five
+rounds of rework." `STATE.md` gained three entries (239, 240, 250) carrying the carrier-vs-class
+attribution, the explicit refusal to tick PRIV-05, and the dated record-repair note. Plan count went
+`18` → `19` (78fd66f) → `20/20` (5681155); 20 `21-*-PLAN.md` files exist on disk, so 20 is the right
+total.
+
+⚠️ **Warning (cosmetic, introduced by the tracking commit, not by 21-20).** The `20/20` headline's own
+wave breakdown still sums to **19** — "7 original in 4 waves, 5 gap-closure in 4 waves, 6 second-round
+in 5 waves, plus 1 third-round in 1 wave" — because 5681155 bumped the total without adding a fourth
+term, and parked `- [x] 21-20-PLAN.md` under a bare `Plans:` heading above `**Wave 1**` instead of a
+labelled fourth round. The same commit flipped the summary-table row from `19/19 | Complete |
+2026-08-13` to `20/20 | In Progress |` with the completion date blanked, which is expected while a phase
+is reopened for verification but should be restored on close. None of this touches G-2's substance.
+
+#### G-3 — CLOSED by measurement. The prior round was right at its tree, and so is the brief at this one.
+
+Run in this verifier's own process, foreground, at HEAD on a clean tree:
+
+```
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew check
+...
+> Task :jacocoMcpTreeCoverageVerification
+mcp tree line coverage: 71,16% (2869/4032), floor 65,0% - MET
+> Task :jacocoTestCoverageVerification
+> Task :check
+BUILD SUCCESSFUL in 2m 58s
+```
+
+**Exit 0.** `jacocoTestCoverageVerification` ran to completion rather than being short-circuited.
+Measured independently from the `jacocoTestReport.xml` that run regenerated (mtime 14:13, after the
+run began):
+
+| Counter | Missed | Covered | Ratio | Floor (`build.gradle.kts:403,411`) | Verdict |
+|---------|--------|---------|-------|------------------------------------|---------|
+| redact **BRANCH** | 13 | 181 | **0.93299** | 0.930 | ✓ PASS |
+| redact **LINE** | 9 | 436 | **0.97978** | 0.975 | ✓ PASS |
+
+Suite: **1309 tests, 0 failures, 0 errors, 1 skipped** (parsed from `build/test-results/test/*.xml`).
+
+**The environmental failure is gone, and it was environmental.** `McpSupervisorProbeTest` reports
+`tests=4, failures=0, errors=0` — the `BindException: Address already in use` was a live Burp MCP
+server holding the port during phase-20 UAT, exactly as the caveat described, and it is not present
+now. So the earlier RED proves nothing about coverage, and this run is not inheriting that framing:
+it is a fresh, complete `check` whose coverage step actually executed.
+
+**Why the number moved, which matters more than that it moved.** The prior round measured missed 14 /
+covered 180 = `0.92784` against tree `14f59cb`, and that measurement was correct there. `git diff
+--stat 14f59cb HEAD -- src/` is **14 files, +3989 / −57**: Phase 28 added 22 lines to `Redaction.kt`
+and roughly 3 400 lines of cookie-carrier tests (`IssueDetailCookieCarrierTest`,
+`AiScanCheckDetailCookieCarrierTest`, `CookieRouteDispositionTest`, `EvidenceTailReachTest`,
+`CookieCarrierInventoryTest` +376). One branch in `Redaction` moved from missed to covered. This is
+**real downstream work landing**, not measurement drift and not a floor that was quietly moved — the
+floors at `build.gradle.kts:403` and `:411` are still `0.975` and `0.930`, unchanged.
+
+⚠️ **Warning, and it is the same warning the prior round raised with its sign flipped.** The gate clears
+by **0.00299** over 194 total branches — **less than one branch of headroom**. Lose a single covered
+branch in `Redaction` and the package returns to `13+1 / 180` = `0.92784`, RED. The prior round wrote
+that "a 0.003 margin under a sealed floor is exactly the kind of drift QUAL-06 exists to catch"; a
+0.003 margin *over* it is the same fact. QUAL-06 is green and has no room.
+
+### Regression check — SC1–SC6 and the phase artifacts
+
+Not re-litigated, per scope, but not assumed either. All **14** named guards the prior two rounds
+relied on were confirmed **PASS** in this run's own JUnit XML: `hkdfMatchesRfc5869Vector`,
+`cookieSectionValuesRedactedPerName`, `emittedCookieSectionValuesAreRedacted_sc1`,
+`cookieTypedParametersRedacted`, `factoredKeyVocabularyMatchesItsReadableSpecification`,
+`oversizeBodySecretDoesNotSurvive`, `windowedScanRedactsJsonPairWhoseValueStraddlesTheCut`,
+`customPatternRedactsInStrictAndBalanced`, `offModePreservesBodies`,
+`cookieSectionBlankEntriesDoNotCollapseSpan`, `cookieEmitterBoundStaysWithinTheRedactorBound`,
+`truncationLoggerThatThrowsDoesNotAbortRedaction`, `zeroWidthPatternsAreRejectedWithoutRunningAnyProbe`,
+`cookieHeaderNameVariantsAreStripped`. **SC1–SC6: 6/6 still held.**
+
+### Prohibition audit — plan 21-20
+
+| Prohibition | Status | Evidence |
+|-------------|--------|----------|
+| MUST NOT re-score, soften or edit `21-VERIFICATION.md` | ✓ HELD | `git log f5003d0..HEAD -- 21-VERIFICATION.md` is empty. The plan did not mark its own homework. |
+| MUST NOT tick PRIV-05 or edit `.planning/REQUIREMENTS.md` | ✓ HELD | sha256 re-measured: `9b3219662ec0d007c1c82d64eed3ef2698bd306ce69f01205ac9bbc3f42fcfb4`, matches. PRIV-05 is `- [ ]` at line 23. `git log f5003d0..HEAD -- REQUIREMENTS.md` empty. |
+| MUST NOT claim the corrections make PRIV-05 "by any path" true | ✓ HELD | `STATE.md:240` says the opposite explicitly, naming `AR-27-08` and `D-28-09`. The `CONCERNS.md` and summary corrections make no completeness claim. |
+| MUST NOT touch any file under `src/` | ✓ HELD | `git status --porcelain -- src/` prints nothing; `--stat` on each of the seven commits `f5003d0..HEAD` shows only `.planning/` paths. Zero code, as designed. |
+| No debt markers introduced | ✓ HELD | `TBD` / `FIXME` / `XXX` absent from every added line across all four modified files. |
+
+### Verdict
+
+**Status: `passed`. Score 9/9** — SC1–SC6 6/6, plan 21-19 3/3.
+
+Two of the three blockers were closed by work and one by measurement, and the distinction is worth
+keeping in the record. G-1 and G-2 were real record defects and plan 21-20 repaired them without
+touching a line of code, which is the correct shape for a record defect. G-3 was never a phase-21
+regression at all: it was a real coverage shortfall at the tree the prior round measured, closed by
+Phase 28's tests landing afterwards, and confirmed here by running the gate rather than by reading
+anyone's account of it — including the brief's, which turned out to be right.
+
+What the phase now claims about itself matches what it shipped. `21-19` closed the passive-scan prompt
+carrier for hyphenated names; Phase 27 closed the class; Phase 28 owns `AR-27-08` and accepted
+`D-28-09`. **PRIV-05 remains `- [ ]`, which is still the correct state** — "by any path" is not
+literally true today, and the record now says so at every site that used to say otherwise.
+
+### Appendix — archived `human_verification` block from the initial round
+
+Preserved verbatim from the pre-2026-08-28 frontmatter. All four were resolved: items 1, 3 and 4 by
+`21-HUMAN-UAT.md` (`status: complete`, 3/3 passed, 0 issues), and item 2 — the W-A maintainer
+disposition — by the CLOSE-over-RECORD decision of 2026-08-13, whose *scope* is what G-1 corrected.
+Recorded here so the frontmatter can carry the current verdict without deleting them.
+
+```yaml
+human_verification:
+  - test: "Load the fat JAR in a live Burp, proxy a request carrying `Cookie: JSESSIONID=…; PHPSESSID=…; connect.sid=…; auth_token=…; csrftoken=…; remember_me=…`, trigger a passive AI scan in STRICT and then BALANCED, and inspect the outbound prompt via the context preview / AI request log."
+    expected: "None of the six cookie values appears anywhere in the prompt; each cookie NAME is still present as `NAME=[REDACTED]`; the `=== PARAMETERS ===` section shows `(COOKIE)` lines with values replaced and `(URL)` / `(BODY)` lines untouched."
+    why_human: "`PassiveAiScannerAnalysis.doAnalysis` needs a live `MontoyaApi`, a backend session and `ScanKnowledgeBase` state. The Wave-0 extractions move the PRIV-05-relevant logic out of that reach and I verified it end to end against the real emitter, but the surrounding `doAnalysis` orchestration itself is not unit-reachable."
+  - test: "MAINTAINER DISPOSITION (not a test): decide how to treat the cookie-header NAME VARIANT residual — `Cookie2`, `X-Cookie`, `Set-Cookie2`, `X-Original-Cookie`, `X-Forwarded-Cookie`. `sanitizeHeadersForPrompt` admits any header whose lowercased name contains `cookie` (or starts with `x-`), but `cookieHeaderRegex` / `setCookieHeaderRegex` anchor on the exact names `^cookie:` / `^set-cookie:`, so these five reach the prompt verbatim under STRICT and BALANCED. Measured, not inferred (see Anti-Patterns table)."
+    expected: "Either (a) the class is added to `.planning/codebase/CONCERNS.md`'s existing 'Redaction regex coverage gaps' entry beside the already-accepted `authHeaderRegex` vendor-header residual, so the record claims only what ships (the phase's own D-08 REFINED standard); or (b) it is closed by widening the two cookie header regexes. Until one of the two happens, PRIV-05's lead sentence — 'Cookie values do not reach an AI backend … by any path' — is stronger than what ships."
+    why_human: "Scope and record decision, not an implementation defect. Pre-existing since the first commit, explicitly declared out of scope at planning time (`21-CONTEXT.md`: 'They are not the bug'), and its sibling class is already an accepted documented residual. Only a maintainer can choose accept-and-record versus close."
+  - test: "In a live Burp, set Privacy to OFF with at least one custom redaction pattern configured, then with none; read the ChatPanel privacy line, the ContextPreviewDialog banner, the PrivacyPill tooltip and all four SettingsPanelActions OFF arms."
+    expected: "No string claims OFF means no redaction. With patterns configured the wording says built-in redaction is disabled but custom patterns still apply; with none configured it says built-in redaction is disabled and no custom patterns are configured."
+    why_human: "D-07 covers Swing label strings; this project has no UI integration-test harness (recorded in CONCERNS.md 'UI layer has no integration tests')."
+  - test: "Unload the extension in a live Burp while a passive scan is in flight; then reload it with a hand-edited preferences file containing a pathological custom pattern."
+    expected: "No exception surfaces from `Redaction.apply` during teardown, and the pathological persisted pattern is dropped at startup rather than seeded."
+    why_human: "`App.shutdown()`'s `Redaction.truncationLogger = null` step and `App.initialize`'s `isPatternSafe` seeding filter both need a live `MontoyaApi`. 21-18 states this plainly and identifies `maybeLogTruncation`'s `runCatching` as the automated defence that holds regardless — I confirmed that wrap exists and is guarded by `truncationLoggerThatThrowsDoesNotAbortRedaction`."
+```
+
+---
+
+_Re-verified (round 3): 2026-08-28_
+_Verifier: Claude (gsd-verifier) — goal-backward, FORCE stance; build run in-process, coverage measured from the regenerated report_
