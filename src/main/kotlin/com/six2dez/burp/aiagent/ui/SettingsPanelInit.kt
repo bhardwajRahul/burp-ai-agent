@@ -50,10 +50,22 @@ import javax.swing.event.DocumentListener
  * copy, read `PrivacyModeTooltipBoundTest`: all three clauses below are pinned there as substrings,
  * and the third test exists specifically so the bound can never be swapped IN PLACE OF the sentence
  * describing what the setting does.
+ *
+ * NARROWED 2026-08-28 (phase 28 UAT test 2, closing `28-REVIEW-3.md` WR-05). This copy previously
+ * carried a third sentence, an unqualified forward-only claim, between the purpose sentence and the
+ * scanner-findings sentence. It was WRONG FOR THE DOMINANT PATH and is deleted rather than qualified:
+ * `McpToolContext.redactIfNeeded` (`mcp/McpToolContext.kt:59`) applies `Redaction.apply` under the
+ * CURRENT mode to every MCP tool result, so for ordinary captured traffic switching to STRICT IS
+ * retroactive. The only thing genuinely forward-only is the scanner-findings case the next sentence
+ * already states with its scope attached — so the blanket sentence was removed rather than repeated
+ * in narrowed form, which would have said "scanner findings" twice in a tooltip already at its
+ * readable limit. The forward-only meaning is NOT lost: it is carried, correctly scoped, by
+ * `keep the values they were built with`, which `PrivacyModeTooltipBoundTest` now pins in its place.
+ * Erring pessimistic is still erring: it made the product sound worse than it is, in the one place
+ * an operator is least able to check.
  */
 internal const val PRIVACY_MODE_TOOLTIP =
     "Controls how traffic is redacted before sending to a model. " +
-        "Applies from now on, not retroactively. " +
         "Scanner findings already recorded keep the values they were built with; " +
         "re-scanning does not rewrite them."
 

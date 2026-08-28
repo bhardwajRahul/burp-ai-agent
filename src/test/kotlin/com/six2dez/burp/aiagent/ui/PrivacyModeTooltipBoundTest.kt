@@ -12,7 +12,26 @@ import java.io.File
 // to the privacy notice, and it is stated here rather than cross-referenced so a reader meeting this
 // file first does not "tighten" it into an equality check.
 private const val PURPOSE_CLAUSE = "Controls how traffic is redacted before sending to a model"
-private const val FORWARD_ONLY_CLAUSE = "Applies from now on, not retroactively"
+
+/**
+ * The forward-only claim, AT ITS TRUE SCOPE.
+ *
+ * NARROWED 2026-08-28 (phase 28 UAT test 2, closing `28-REVIEW-3.md` WR-05). This was previously the
+ * blanket sentence `Applies from now on, not retroactively`, which is FALSE for the dominant path —
+ * `McpToolContext.redactIfNeeded` re-redacts every MCP tool result under the CURRENT mode, so for
+ * ordinary captured traffic a switch to STRICT *is* retroactive. Scanner findings are the only
+ * genuinely forward-only case, so the pin moves onto the half-sentence that says so with its scope
+ * attached. The claim is still pinned; it is no longer pinned in a form the product contradicts.
+ */
+private const val FORWARD_ONLY_CLAUSE = "keep the values they were built with"
+
+/**
+ * The blanket form this copy used to carry, kept ONLY so a test can assert its absence.
+ *
+ * Retired 2026-08-28. Named here rather than inlined so the negative pin below reads as a
+ * deliberate retirement with a reason, not as an arbitrary string the next reader might delete.
+ */
+private const val RETIRED_BLANKET_CLAUSE = "Applies from now on, not retroactively"
 private const val RECORDED_FINDINGS_CLAUSE = "re-scanning does not rewrite them"
 
 /**
@@ -40,13 +59,37 @@ private const val RECORDED_FINDINGS_CLAUSE = "re-scanning does not rewrite them"
 class PrivacyModeTooltipBoundTest {
     /** The forward-only clause — half one of `D-28-10`'s operator-facing condition. */
     @Test
-    fun theTooltipNamesTheSettingAsForwardOnly() {
+    fun theTooltipNamesScannerFindingsAsForwardOnly() {
         assertTrue(
             PRIVACY_MODE_TOOLTIP.contains(FORWARD_ONLY_CLAUSE),
             "PRIVACY_MODE_TOOLTIP must contain the forward-only clause '$FORWARD_ONLY_CLAUSE'. " +
-                "Without it an operator switching to STRICT reads the selector as retroactive, " +
-                "which is the false belief D-28-10 made the acceptance of D-28-09's residual " +
-                "conditional on preventing. Tooltip was: $PRIVACY_MODE_TOOLTIP",
+                "Without it an operator switching to STRICT reads the selector as repairing " +
+                "already-recorded findings, which is the false belief D-28-10 made the acceptance " +
+                "of D-28-09's residual conditional on preventing. Tooltip was: $PRIVACY_MODE_TOOLTIP",
+        )
+    }
+
+    /**
+     * THE FORWARD-ONLY CLAIM IS NOT MADE BLANKET.
+     *
+     * The assertion above would be satisfied by a tooltip that ALSO carried an unscoped
+     * `Applies from now on, not retroactively` — which is what shipped between plan 28-07 and this
+     * UAT, and which is false for the dominant path: `McpToolContext.redactIfNeeded` applies
+     * `Redaction.apply` under the CURRENT mode to every MCP tool result, so switching to STRICT re-
+     * redacts ordinary captured traffic. This test is what stops the blanket form coming back as a
+     * well-meaning copy edit. It is a NEGATIVE pin, and it is deliberate: erring pessimistic is
+     * still erring, in the one place an operator is least able to check.
+     */
+    @Test
+    fun theTooltipDoesNotMakeAnUnscopedForwardOnlyClaim() {
+        assertFalse(
+            PRIVACY_MODE_TOOLTIP.contains(RETIRED_BLANKET_CLAUSE),
+            "PRIVACY_MODE_TOOLTIP must NOT contain the unscoped clause '$RETIRED_BLANKET_CLAUSE'. " +
+                "It is false for the dominant path — McpToolContext.redactIfNeeded re-redacts every " +
+                "MCP tool result under the CURRENT mode, so a switch to STRICT IS retroactive for " +
+                "captured traffic. Scanner findings are the only forward-only case, and the clause " +
+                "'$FORWARD_ONLY_CLAUSE' already states that WITH its scope. Retired 2026-08-28 by " +
+                "phase 28 UAT test 2 (28-REVIEW-3.md WR-05). Tooltip was: $PRIVACY_MODE_TOOLTIP",
         )
     }
 
