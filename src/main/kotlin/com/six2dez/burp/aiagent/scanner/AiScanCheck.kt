@@ -482,6 +482,46 @@ _(Confirmed via active exploitation testing integrated with Burp Scanner)_
          * D-28-07's discipline is preserved rather than restated: the decision is taken on a member
          * of a CLOSED enum, never on a rendered string, so no reformatting of the detail line can
          * defeat it.
+         *
+         * THE OTHER ALTERNATIVE NOT TAKEN, AND THE RESIDUAL IT LEAVES NAMED (28-07, `D-28-11`). The
+         * paragraph above answers "should the two ENUMS share one predicate". This one answers a
+         * DIFFERENT question — "should this gate accept more members of ITS OWN enum" — and the two
+         * must not be read as one question answered twice.
+         *
+         * THE MEASURED POPULATION. `AuditInsertionPointType` carries SEVENTEEN members, and FOUR of
+         * them can carry a cookie value while not being `PARAM_COOKIE`: `HEADER` (a `Cookie:` request
+         * header presented as a header insertion point), `USER_PROVIDED`, `EXTENSION_PROVIDED` — which
+         * is also what `AuditInsertionPoint.type()`'s DEFAULT body returns, so it is what a real
+         * implementation that does not override `type()` reports — and `UNKNOWN`. For those four
+         * members this gate is fail-OPEN today.
+         *
+         * WHY THAT IS A REAL GAP AND NOT A FORMALITY. Route 1's `InjectionType` has exactly ONE
+         * cookie-capable member and it IS `COOKIE`, which is what made D-28-01's pass-through for
+         * every other member safe BY CONSTRUCTION. This enum has no such property, so copying that
+         * pass-through SHAPE here does not inherit its safety.
+         *
+         * THE DECISION: NAME THE RESIDUAL, DO NOT WIDEN THE PREDICATE. Four reasons, written down so
+         * the choice is not silently re-taken by inference:
+         *  1. Widening would strip `**Original Value:**` on EVERY header-typed, user-provided,
+         *     extension-provided and unknown insertion point — removing the operator's own value from
+         *     every non-cookie header finding. That is a product behaviour change nobody asked for.
+         *  2. It contradicts D-28-01's deliberate pass-through discipline for non-cookie types, which
+         *     route 2 copied on purpose so a reader meets ONE control applied twice rather than two
+         *     mechanisms.
+         *  3. It would move `CookieRouteDispositionTest`'s two pinned predicate populations, which are
+         *     evidence for a different claim, and it would need its own red probe and its own
+         *     reachability measurement — the very thing plan 27-08's TRANSFER disposition insists on.
+         *  4. Plan 28-07 is chartered as RECORD REPAIR. Shipping a behaviour change inside it would
+         *     leave the register describing code that no longer exists, in the opposite direction from
+         *     the drift the round is fixing.
+         *
+         * WHERE THE RESIDUAL IS PINNED AND RECORDED. Pinned by
+         * `AiScanCheckDetailCookieCarrierTest.theRouteTwoGateIsFailOpenForTheseCookieCapableTypes`,
+         * whose GREEN run records the residual's exact width and is NOT evidence of correct
+         * behaviour; bounded by that file's
+         * `theInsertionPointTypeEnumPopulationIsTheOneTheResidualWasMeasuredAgainst`, so a Burp
+         * release that adds a member turns the pin RED instead of widening the residual in silence.
+         * Carried into `ISSUE_DETAIL_CARRIER_DISPOSITION` and `26-SECURITY.md` row 315 by plan 28-08.
          */
         internal fun isCookieInsertionPoint(insertionPoint: AuditInsertionPoint): Boolean = insertionPoint.type() == AuditInsertionPointType.PARAM_COOKIE
 

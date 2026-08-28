@@ -241,10 +241,24 @@ class AiScanCheckDetailCookieCarrierTest {
      * [edge:empty] An insertion point whose `type()` is ABSENT does not throw — it takes the
      * pass-through branch.
      *
-     * `AuditInsertionPoint.type()` is a Java DEFAULT method returning a platform type, so Kotlin
-     * cannot guarantee it is non-null and a real Burp implementation may not override it. An
-     * identity comparison handles null correctly by construction; this test pins that rather than
-     * leaving it to a reader's confidence about Kotlin's `==`.
+     * THE PREMISE, MEASURED RATHER THAN ASSUMED (corrected by plan 28-07). This KDoc previously
+     * claimed that `type()` is a Java default method returning a platform type "and a real Burp
+     * implementation may not override it", which reads as: a real implementation could hand back
+     * null. That is FALSE against the shipped jar. `javap -c` on the resolved
+     * `montoya-api-2026.2.jar` shows `AuditInsertionPoint.type()` is a DEFAULT method whose ENTIRE
+     * body is `getstatic AuditInsertionPointType.EXTENSION_PROVIDED; areturn`, so an implementation
+     * that does not override it returns `EXTENSION_PROVIDED` and never null. The reasoning is
+     * replaced; the test and its assertion are not.
+     *
+     * WHAT THIS TEST THEREFORE PROVES, AND WHAT IT DOES NOT. The null arm is reachable through a
+     * MOCK with `type()` left UNSTUBBED, which is exactly the fixture below. Pinning it is still
+     * worth doing: an identity comparison handles null correctly BY CONSTRUCTION, and this test
+     * holds that rather than leaving it to a reader's confidence about Kotlin's `==`. But it is NOT
+     * the real-Burp arm. The arm a non-overriding real implementation actually takes is
+     * `EXTENSION_PROVIDED`, and that one is covered by
+     * [theRouteTwoGateIsFailOpenForTheseCookieCapableTypes] — where it is recorded as a named
+     * fail-open RESIDUAL rather than as correct behaviour. Both arms reach the pass-through branch,
+     * for different reasons, and neither is left implied.
      */
     @Test
     fun anAbsentInsertionPointTypeDoesNotThrowAndPassesThrough() {
@@ -294,6 +308,90 @@ class AiScanCheckDetailCookieCarrierTest {
                 "this assertion ever goes green, the shared predicate has been widened and the two " +
                 "cookie-type populations CookieRouteDispositionTest keeps apart have merged — read " +
                 "that file's class KDoc before changing anything here.",
+        )
+    }
+
+    /**
+     * THE ROUTE-2 FAIL-OPEN SET, NAMED (`D-28-11`, plan 28-07).
+     *
+     * READ THIS BEFORE READING THE ASSERTIONS. A GREEN run here is NOT evidence of correct
+     * behaviour. It records the exact WIDTH of a residual plan 28-07 chose to NAME rather than
+     * close, and the four reasons for that choice are written at
+     * `AiScanCheck.isCookieInsertionPoint`'s KDoc rather than restated here.
+     *
+     * Four members of `AuditInsertionPointType` can carry a cookie value while not being
+     * `PARAM_COOKIE` — `HEADER` (a `Cookie:` request header presented as a header insertion point),
+     * `USER_PROVIDED`, `EXTENSION_PROVIDED` and `UNKNOWN` — and the gate passes all four through.
+     * `EXTENSION_PROVIDED` is the most consequential of the four: it is what `type()`'s default body
+     * returns, so it is the arm a real Burp implementation that does not override `type()` takes.
+     */
+    @Test
+    fun theRouteTwoGateIsFailOpenForTheseCookieCapableTypes() {
+        val cookieCapableNonCookieTypes =
+            listOf(
+                AuditInsertionPointType.HEADER,
+                AuditInsertionPointType.USER_PROVIDED,
+                AuditInsertionPointType.EXTENSION_PROVIDED,
+                AuditInsertionPointType.UNKNOWN,
+            )
+
+        cookieCapableNonCookieTypes.forEach { type ->
+            val point = insertionPoint(type, DETAIL_SENTINEL)
+
+            assertFalse(
+                AiScanCheck.isCookieInsertionPoint(point),
+                "RESIDUAL, NOT A CONTROL: AiScanCheck.isCookieInsertionPoint returns FALSE for " +
+                    "AuditInsertionPointType.$type, because the gate is an identity compare against " +
+                    "PARAM_COOKIE alone. This member CAN carry a cookie value, so the gate is " +
+                    "fail-OPEN for it and this assertion records that width. If it goes RED the " +
+                    "predicate was WIDENED — read AiScanCheck.isCookieInsertionPoint's KDoc and " +
+                    "D-28-11 before accepting that, and re-state the residual at every record site.",
+            )
+
+            val detail = detailFor(point, PrivacyMode.STRICT)
+
+            assertTrue(
+                detail.contains("$ORIGINAL_VALUE_PREFIX$DETAIL_SENTINEL"),
+                "RESIDUAL, NOT A CONTROL: under STRICT an AuditInsertionPointType.$type point's " +
+                    "baseValue() still reaches the detail line VERBATIM as " +
+                    "'$ORIGINAL_VALUE_PREFIX$DETAIL_SENTINEL'. That is the residual's OBSERVABLE " +
+                    "width, recorded here so no reader has to infer it from the predicate. Detail " +
+                    "was: $detail",
+            )
+        }
+    }
+
+    /**
+     * THE TRIPWIRE THAT BOUNDS THE RESIDUAL.
+     *
+     * The test above enumerates FOUR cookie-capable non-`PARAM_COOKIE` members. That number is only
+     * meaningful against a KNOWN population: if a Burp API bump adds a member, the residual widens
+     * and every record naming it silently becomes an understatement. Pinning the population is what
+     * turns that silence into a red test, and it is the same discipline 28-PATTERNS' "type-keyed,
+     * never shape-keyed" note applies to the constant itself — state a measured property as an
+     * assertion, never as prose a reader must trust.
+     */
+    @Test
+    fun theInsertionPointTypeEnumPopulationIsTheOneTheResidualWasMeasuredAgainst() {
+        val observedNames = AuditInsertionPointType.values().map { it.name }.toSet()
+
+        assertEquals(
+            MEASURED_INSERTION_POINT_TYPE_COUNT,
+            AuditInsertionPointType.values().size,
+            "AuditInsertionPointType was measured at $MEASURED_INSERTION_POINT_TYPE_COUNT members " +
+                "in montoya-api-2026.2 when the route-2 fail-open residual was written down; it now " +
+                "has ${AuditInsertionPointType.values().size}. WHAT TO DO: Burp added or removed a " +
+                "member, so re-derive which members are cookie-capable, then re-state the residual " +
+                "at AiScanCheck.isCookieInsertionPoint's KDoc, in ISSUE_DETAIL_CARRIER_DISPOSITION " +
+                "and in 26-SECURITY.md row 315 before updating this list.",
+        )
+        assertEquals(
+            MEASURED_INSERTION_POINT_TYPE_NAMES,
+            observedNames,
+            "the AuditInsertionPointType member NAMES must be the set the residual was measured " +
+                "against. Observed: $observedNames. A rename is as consequential as an addition: " +
+                "theRouteTwoGateIsFailOpenForTheseCookieCapableTypes names four members literally, " +
+                "and a renamed member would either stop compiling or quietly stop being covered.",
         )
     }
 
@@ -571,6 +669,37 @@ class AiScanCheckDetailCookieCarrierTest {
          * the tail measures the FIXTURE's shape rather than some rule's behaviour.
          */
         const val TAIL_MARKER = "Confirmed via active exploitation testing"
+
+        /**
+         * The `AuditInsertionPointType` population the route-2 fail-open residual was measured
+         * against, from `javap` on the resolved `montoya-api-2026.2.jar`. Held as a constant rather
+         * than a magic number so the two assertions in
+         * [theInsertionPointTypeEnumPopulationIsTheOneTheResidualWasMeasuredAgainst] cannot drift
+         * apart from each other.
+         */
+        const val MEASURED_INSERTION_POINT_TYPE_COUNT = 17
+
+        /** The 17 member names, in the order `javap` lists them. */
+        val MEASURED_INSERTION_POINT_TYPE_NAMES =
+            setOf(
+                "PARAM_URL",
+                "PARAM_BODY",
+                "PARAM_COOKIE",
+                "PARAM_XML",
+                "PARAM_XML_ATTR",
+                "PARAM_MULTIPART_ATTR",
+                "PARAM_JSON",
+                "PARAM_AMF",
+                "HEADER",
+                "PARAM_NAME_URL",
+                "PARAM_NAME_BODY",
+                "ENTIRE_BODY",
+                "URL_PATH_FILENAME",
+                "URL_PATH_FOLDER",
+                "USER_PROVIDED",
+                "EXTENSION_PROVIDED",
+                "UNKNOWN",
+            )
 
         const val BACKEND_ID = "test-backend"
 
