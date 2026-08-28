@@ -96,7 +96,34 @@ class AiScanCheck(
     }
 
     /**
-     * Consolidate duplicate issues
+     * Consolidate duplicate issues.
+     *
+     * WRITE-TIME/READ-TIME BOUND — THIS PARAGRAPH IS A NOTE, NOT A CONTROL. Nothing below changes
+     * what this function returns. It is here because this function is the mechanism that makes a
+     * stale finding stick, and a residual whose mechanism is undocumented gets re-derived wrongly.
+     *
+     * BOTH COOKIE CONTROLS DECIDE ONCE, AT WRITE TIME. Route 1
+     * (`ScannerIssueSupport.sanitizeInjectionPointValue`) and route 2 ([buildDetail] through
+     * [sanitizeCookiePointText]) both run at issue CONSTRUCTION and bake their result into
+     * `AuditIssue.detail()` — an immutable string Burp stores and the `scanner_issues` MCP tool
+     * replays verbatim. There is no read-time pass over it. An issue built while `privacyMode` was
+     * `OFF` therefore still emits the raw cookie value on a later STRICT read.
+     *
+     * AND THIS FUNCTION IS WHY THAT IS NOT SELF-HEALING. On a matching canonical name AND a
+     * matching normalized URL it returns [ConsolidationAction.KEEP_EXISTING], so a re-scan under
+     * STRICT does not replace the stale issue in the site map. The operator's later, stricter
+     * intent cannot reach the already-recorded detail string through this path.
+     *
+     * NOR CAN THE REDACTOR RESCUE IT DOWNSTREAM. Plan 28-05's own red probe recorded the sentinel
+     * surviving STRICT redaction VERBATIM whenever the write gate does not fire, so `Redaction.apply`
+     * provably does not stand between a stale detail string and its reader.
+     *
+     * DISPOSITION: ACCEPTED as a named residual by maintainer answer on 2026-08-28 (`D-28-09`),
+     * conditional (`D-28-10`) on it being named in four places — here, at the privacy-mode selector
+     * (`PRIVACY_MODE_TOOLTIP` in `ui/SettingsPanelInit.kt`), in `ISSUE_DETAIL_CARRIER_DISPOSITION`
+     * and in `26-SECURITY.md` row 315. THE REASON FOR THE ACCEPTANCE, stated so a reader does not
+     * re-litigate it from scratch: a read-time fix is NEW ARCHITECTURE on the emission path and
+     * belongs to its own phase, not to a record-repair round.
      */
     override fun consolidateIssues(
         newIssue: AuditIssue,
@@ -455,6 +482,46 @@ _(Confirmed via active exploitation testing integrated with Burp Scanner)_
          * D-28-07's discipline is preserved rather than restated: the decision is taken on a member
          * of a CLOSED enum, never on a rendered string, so no reformatting of the detail line can
          * defeat it.
+         *
+         * THE OTHER ALTERNATIVE NOT TAKEN, AND THE RESIDUAL IT LEAVES NAMED (28-07, `D-28-11`). The
+         * paragraph above answers "should the two ENUMS share one predicate". This one answers a
+         * DIFFERENT question — "should this gate accept more members of ITS OWN enum" — and the two
+         * must not be read as one question answered twice.
+         *
+         * THE MEASURED POPULATION. `AuditInsertionPointType` carries SEVENTEEN members, and FOUR of
+         * them can carry a cookie value while not being `PARAM_COOKIE`: `HEADER` (a `Cookie:` request
+         * header presented as a header insertion point), `USER_PROVIDED`, `EXTENSION_PROVIDED` — which
+         * is also what `AuditInsertionPoint.type()`'s DEFAULT body returns, so it is what a real
+         * implementation that does not override `type()` reports — and `UNKNOWN`. For those four
+         * members this gate is fail-OPEN today.
+         *
+         * WHY THAT IS A REAL GAP AND NOT A FORMALITY. Route 1's `InjectionType` has exactly ONE
+         * cookie-capable member and it IS `COOKIE`, which is what made D-28-01's pass-through for
+         * every other member safe BY CONSTRUCTION. This enum has no such property, so copying that
+         * pass-through SHAPE here does not inherit its safety.
+         *
+         * THE DECISION: NAME THE RESIDUAL, DO NOT WIDEN THE PREDICATE. Four reasons, written down so
+         * the choice is not silently re-taken by inference:
+         *  1. Widening would strip `**Original Value:**` on EVERY header-typed, user-provided,
+         *     extension-provided and unknown insertion point — removing the operator's own value from
+         *     every non-cookie header finding. That is a product behaviour change nobody asked for.
+         *  2. It contradicts D-28-01's deliberate pass-through discipline for non-cookie types, which
+         *     route 2 copied on purpose so a reader meets ONE control applied twice rather than two
+         *     mechanisms.
+         *  3. It would move `CookieRouteDispositionTest`'s two pinned predicate populations, which are
+         *     evidence for a different claim, and it would need its own red probe and its own
+         *     reachability measurement — the very thing plan 27-08's TRANSFER disposition insists on.
+         *  4. Plan 28-07 is chartered as RECORD REPAIR. Shipping a behaviour change inside it would
+         *     leave the register describing code that no longer exists, in the opposite direction from
+         *     the drift the round is fixing.
+         *
+         * WHERE THE RESIDUAL IS PINNED AND RECORDED. Pinned by
+         * `AiScanCheckDetailCookieCarrierTest.theRouteTwoGateIsFailOpenForTheseCookieCapableTypes`,
+         * whose GREEN run records the residual's exact width and is NOT evidence of correct
+         * behaviour; bounded by that file's
+         * `theInsertionPointTypeEnumPopulationIsTheOneTheResidualWasMeasuredAgainst`, so a Burp
+         * release that adds a member turns the pin RED instead of widening the residual in silence.
+         * Carried into `ISSUE_DETAIL_CARRIER_DISPOSITION` and `26-SECURITY.md` row 315 by plan 28-08.
          */
         internal fun isCookieInsertionPoint(insertionPoint: AuditInsertionPoint): Boolean = insertionPoint.type() == AuditInsertionPointType.PARAM_COOKIE
 
