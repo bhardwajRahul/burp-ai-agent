@@ -109,8 +109,11 @@ interceptor still runs after the first responds), and `finish()` is not callable
 5. The interaction between user custom patterns and `PrivacyMode.OFF` is settled deliberately and documented in `DECISIONS.md` — whichever way it goes, it is a decision rather than a side effect of the `redactTokens` branch.
 6. The existing `RedactionTest` suite including the RFC 5869 HKDF vector stays green; the fix must not perturb host anonymization.
 
-**Plans**: 19 plans — 7 original in 4 waves, 5 gap-closure in 4 waves, 6 second-round gap-closure in 5 waves, plus 1 third-round gap-closure in 1 wave
+**Plans**: 20/20 plans executed — 7 original in 4 waves, 5 gap-closure in 4 waves, 6 second-round gap-closure in 5 waves, plus 1 third-round gap-closure in 1 wave
 Plans:
+
+- [x] 21-20-PLAN.md
+
 **Wave 1**
 
 - [x] 21-01-PLAN.md — Wave 0: three Montoya-free extractions into `PassiveAiScannerPrompts.kt` + the new test seam; D-06 scanner half (wave 1)
@@ -882,7 +885,7 @@ Phase 20 → 21 (live defects, disjoint files, 20 first on severity). Phase 22 �
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 20. MCP Access-Control Correctness | 10/10 | Complete    | 2026-08-10 |
-| 21. Redaction Completeness | 19/19 | Complete    | 2026-08-13 |
+| 21. Redaction Completeness | 20/20 | In Progress|  |
 | 22. Agent Tool-Call Trust Boundary | 9/9 | Complete    | 2026-08-20 |
 | 23. EDT Confinement & UI Responsiveness | 8/8 | Complete    | 2026-08-21 |
 | 24. Scheduler & Process Robustness | 5/5 | Complete    | 2026-08-22 |
