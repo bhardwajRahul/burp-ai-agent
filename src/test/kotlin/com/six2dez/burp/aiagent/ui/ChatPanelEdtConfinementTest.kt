@@ -1463,6 +1463,64 @@ class ChatPanelEdtConfinementTest {
         )
     }
 
+    // ── UI-SPEC Rules S-4 and S-3 — source order on both user-originated tool paths ───────
+
+    /**
+     * UI-SPEC Rule S-4 on the `/tool` slash path: the typed command is echoed into the existing `"You"`
+     * channel BEFORE the call is handed to a worker thread.
+     *
+     * Rule S-4 exists because `sendFromInput` clears the input area and returns without echoing on this
+     * branch. While the call still blocked the EDT the typed text survived on screen by accident; once
+     * plan 23-02 made it asynchronous, an echo emitted after the dispatch could land after the result
+     * row — a transcript showing an answer with no visible question, in a tool whose users have to be
+     * able to say what they just ran. The ORDER, not the mere presence, is therefore the contract.
+     *
+     * **The edit that turns this red:** move `panel.addMessage("You", trimmed)` below the
+     * `OffEdtDispatch.run(` call inside `handleToolCommand`, or delete it. The first fails the index
+     * comparison; the second fails the exactly-once precondition in [assertPrecedesWithin], which is
+     * there precisely so that deleting the echo cannot pass as success.
+     *
+     * Asserted by index within the extracted `handleToolCommand` body, never by absolute line number:
+     * line citations in this repo have rotted twice (WINDOWS.md entry 34), and a body-relative index
+     * survives every edit that does not actually move the call.
+     */
+    @Test
+    fun theSlashToolPathEchoesTheTypedCommandBeforeItGoesAsync() {
+        assertPrecedesWithin(
+            declaration = HANDLE_TOOL_COMMAND_DECLARATION,
+            earlier = SLASH_PATH_ECHO,
+            later = OFF_EDT_DISPATCH_CALL,
+            rule = "UI-SPEC Rule S-4 (slash path)",
+            why =
+                "the /tool echo must be emitted before the work leaves the EDT, or the transcript can " +
+                    "show a `Tool result:` row with no visible request above it",
+        )
+    }
+
+    /**
+     * UI-SPEC Rule S-4 on the tool-dialog path: the same relation, in its own function.
+     *
+     * The dialog path is the path Rule S-4 tells the slash path to imitate, so it is asserted here too
+     * rather than assumed. Symmetry that is only checked on one side is not symmetry, and nothing else
+     * in this suite would notice if the dialog echo drifted below its own dispatch.
+     *
+     * **The edit that turns this red:** move `panel.addMessage("You", commandPreview)` below the
+     * `OffEdtDispatch.run(` call inside `openToolDialog`, or delete it — the same two failure modes,
+     * caught by the same exactly-once guard.
+     */
+    @Test
+    fun theDialogToolPathEchoesTheCommandPreviewBeforeItGoesAsync() {
+        assertPrecedesWithin(
+            declaration = OPEN_TOOL_DIALOG_DECLARATION,
+            earlier = DIALOG_PATH_ECHO,
+            later = OFF_EDT_DISPATCH_CALL,
+            rule = "UI-SPEC Rule S-4 (dialog path)",
+            why =
+                "the dialog path is the reference implementation Rule S-4 makes the slash path match; " +
+                    "if its own echo drifts below the dispatch the rule has no reference left",
+        )
+    }
+
     // ── Audit + worker capture plumbing ──────────────────────────────────────────────────
 
     private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
@@ -1957,6 +2015,61 @@ private const val REL_01_DATA_RACE_MESSAGE = "off-EDT access is a data race (REL
  * unexplained marshalling point is.
  */
 private const val CHAT_PANEL_INVOKE_LATER_SITES = 11
+
+/** `handleToolCommand` owns the `/tool` slash branch — the first of the two user-originated tool paths. */
+private const val HANDLE_TOOL_COMMAND_DECLARATION = "private fun handleToolCommand("
+
+/** `openToolDialog` owns the tool-dialog branch — the second user-originated tool path. */
+private const val OPEN_TOOL_DIALOG_DECLARATION = "fun openToolDialog()"
+
+/** Rule S-4's echo on the slash path: the trimmed command the user typed. */
+private const val SLASH_PATH_ECHO = """panel.addMessage("You", trimmed)"""
+
+/** Rule S-4's echo on the dialog path: the `/tool {id} {args}` line the dialog reconstructs. */
+private const val DIALOG_PATH_ECHO = """panel.addMessage("You", commandPreview)"""
+
+/**
+ * Asserts [earlier] precedes [later] in the body of [declaration], and that each occurs exactly once.
+ *
+ * **The exactly-once half is what stops this being vacuous, and it is not belt-and-braces.**
+ * `String.indexOf` returns `-1` for an absent needle, and `-1` compares as "before" everything — so a
+ * bare order assertion would go GREEN the moment the call it guards was deleted, which is the loudest
+ * form of the very regression these tests exist to catch. Requiring exactly one occurrence turns both
+ * "moved below the dispatch" and "removed entirely" into failures.
+ *
+ * Order is compared by index WITHIN one brace-matched function body, never by absolute line number.
+ * Line citations in this repo have rotted twice (WINDOWS.md entry 34); a body-relative index cannot,
+ * because it is recomputed from the source text on every run.
+ */
+private fun assertPrecedesWithin(
+    declaration: String,
+    earlier: String,
+    later: String,
+    rule: String,
+    why: String,
+) {
+    val body = functionBody(declaration)
+    assertEquals(
+        1,
+        occurrencesOf(earlier, body),
+        "$rule: expected exactly one `$earlier` inside `$declaration`. ZERO means the guarded call was " +
+            "deleted — the regression this test exists to catch, and the case a bare ordering check " +
+            "would have passed. MORE than one means the order below is ambiguous and this assertion " +
+            "stopped meaning what it says. Because $why. Body was:\n$body",
+    )
+    assertEquals(
+        1,
+        occurrencesOf(later, body),
+        "$rule: expected exactly one `$later` inside `$declaration` — the dispatch this ordering is " +
+            "measured against. If it moved or multiplied, re-derive the relation rather than relaxing " +
+            "it. Body was:\n$body",
+    )
+    assertTrue(
+        body.indexOf(earlier) < body.indexOf(later),
+        "$rule: `$earlier` must appear BEFORE `$later` inside `$declaration`, because $why. It now " +
+            "appears after it. Body was:\n$body",
+    )
+}
 
 /** The five `@GuardedBy("EDT")` session maps REL-01 confines to the EDT. */
 private val GUARDED_SESSION_MAPS =
