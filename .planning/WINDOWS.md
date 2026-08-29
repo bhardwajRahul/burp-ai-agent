@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 9
+open_count: 8
 waived_count: 46
-fixed_count: 3
+fixed_count: 4
 total_count: 58
-last_updated: 2026-08-28T17:06:04.423Z
+last_updated: 2026-08-29T01:03:09.066Z
 ---
 
 # Broken Windows Ledger
@@ -16,7 +16,7 @@ last_updated: 2026-08-28T17:06:04.423Z
 | id | phase | kind | file | line | description | status | reason | recorded_at | resolved_at |
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
 | 1 | 23 | unrun-verify | .planning/phases/23-edt-confinement-ui-responsiveness/23-01-SUMMARY.md |  | FLAG-23-04: sub-frame Send/Cancel flicker on the auto-approved chain path and the ~160-char tool-cancel line's wrap are live-UAT only; routed to 23-HUMAN-UAT.md by plan 23-05 | fixed |  | 2026-08-20T18:48:49.436Z | 2026-08-28T17:05:56.540Z |
-| 2 | 23 | unrun-verify | src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt |  | No committed test asserts the UI-SPEC Rule S-4 /tool transcript echo or the S3 busy-state entry on either user-originated tool path; both verified only by execution-time source-order greps (23-02 D7) | open |  | 2026-08-20T19:23:53.967Z |  |
+| 2 | 23 | unrun-verify | src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt |  | No committed test asserts the UI-SPEC Rule S-4 /tool transcript echo or the S3 busy-state entry on either user-originated tool path; both verified only by execution-time source-order greps (23-02 D7) | fixed |  | 2026-08-20T19:23:53.967Z | 2026-08-29T01:03:09.066Z |
 | 3 | 23 | unrun-verify | src/main/kotlin/com/six2dez/burp/aiagent/ui/SettingsPanelActions.kt |  | The JOptionPane save-failure and restore-failure modals are not headless-testable (getRootFrame throws HeadlessException); asserted only via the inline banner, modal routed to 23-HUMAN-UAT.md | fixed |  | 2026-08-20T20:12:38.644Z | 2026-08-28T17:06:04.335Z |
 | 4 | 23 | unrun-verify | src/main/kotlin/com/six2dez/burp/aiagent/ui/BottomTabsPanel.kt |  | FLAG-23-01: whether the recolored disabled Save button reads as inert on Burp's live L&F is unverifiable headlessly; routed to 23-HUMAN-UAT.md | fixed |  | 2026-08-20T20:12:38.741Z | 2026-08-28T17:06:04.423Z |
 | 5 | 23 | deviation | src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt |  | D-23-04-1: clearChatState() (teardown path 3 of 5, the one D-08 never listed) does not supersede a running tool worker, so a Clear Chat can be followed by a result row and a followup turn for the conversation just cleared. Logged in 23 deferred-items.md by plan 23-04; surfaced here by the 23-05 phase gate so it is visible at ship time. | waived | test | 2026-08-20T21:40:01.047Z | 2026-08-28T14:57:47.303Z |
@@ -95,10 +95,10 @@ last_updated: 2026-08-28T17:06:04.423Z
     "file": "src/main/kotlin/com/six2dez/burp/aiagent/ui/ChatPanel.kt",
     "line": null,
     "description": "No committed test asserts the UI-SPEC Rule S-4 /tool transcript echo or the S3 busy-state entry on either user-originated tool path; both verified only by execution-time source-order greps (23-02 D7)",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-20T19:23:53.967Z",
-    "resolved_at": null
+    "resolved_at": "2026-08-29T01:03:09.066Z"
   },
   {
     "id": 3,

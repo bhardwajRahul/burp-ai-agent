@@ -271,6 +271,7 @@ Recent decisions affecting current work:
 | 260602-cl8 | Complete CHANGELOG [0.8.0]: Phase 07 (#69) scope hardening/transport + backend fixes #66/67/68 | 2026-06-02 | 8caf0cb | — |
 | 260714-dp1 | BApp Store code-review quick-wins (findings 3, 4, 6, 8 + verify 5) | 2026-07-14 | 72dcd34..e9333b4 | [260714-dp1-bapp-store-code-review-quick-wins-findin](./quick/260714-dp1-bapp-store-code-review-quick-wins-findin/) |
 | 260714-ekv | BApp Store code-review batch B (heavy findings 1, 2, 7) | 2026-07-14 | 80c45bd, b113a61, d1ccc56 | [260714-ekv-bapp-store-code-review-batch-b-heavy-fin](./quick/260714-ekv-bapp-store-code-review-batch-b-heavy-fin/) |
+| 260829-18o | Commit UI-SPEC Rule S-4 /tool transcript echo + Rule S-3 busy-state source-order tests on both user-originated tool paths (closes WINDOWS entry 2) | 2026-08-29 | 461551a, 5b5da7b, f5d1b83 | .planning/quick/260829-uispec-s4-s3-source-order-test/ |
 
 ## Deferred Items
 
