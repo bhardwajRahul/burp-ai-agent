@@ -1521,6 +1521,82 @@ class ChatPanelEdtConfinementTest {
         )
     }
 
+    /**
+     * UI-SPEC Rule S-3 on the `/tool` slash path: the panel enters the busy state BEFORE the dispatch.
+     *
+     * Rule S-3 is what removes the idle flash. Once the call no longer blocks the EDT, a panel left
+     * idle-and-live across the dispatch is a window in which the user can fire `/tool` and then press
+     * Send a millisecond later — the concurrent-worker case D-05 accepts only as "one chain plus one
+     * manual invocation", never as fan-out. `setSendingState(true)` after the dispatch would still
+     * *eventually* disable Send while leaving exactly that window open, which is why this is an
+     * ordering assertion and not a presence one.
+     *
+     * **The edit that turns this red:** move `setSendingState(true)` below the `OffEdtDispatch.run(`
+     * call inside `handleToolCommand`, or drop it and rely on the shared teardown to re-enable the
+     * controls. Deletion fails the exactly-once precondition in [assertPrecedesWithin] rather than
+     * silently passing.
+     */
+    @Test
+    fun theSlashToolPathEntersTheBusyStateBeforeItGoesAsync() {
+        assertPrecedesWithin(
+            declaration = HANDLE_TOOL_COMMAND_DECLARATION,
+            earlier = BUSY_STATE_ENTRY,
+            later = OFF_EDT_DISPATCH_CALL,
+            rule = "UI-SPEC Rule S-3 (slash path)",
+            why =
+                "between the dispatch and a later busy-state entry the panel is idle and live, and a " +
+                    "Send pressed in that window fans out a second worker",
+        )
+    }
+
+    /**
+     * UI-SPEC Rule S-3 on the tool-dialog path: the same relation, in its own function.
+     *
+     * The dialog path additionally mints the supersede token immediately after entering the busy state,
+     * so that a Cancel pressed while the tool runs has something to take (Rule S-5). That ordering hangs
+     * off this one: a busy state entered after the dispatch would leave Cancel inert for the window in
+     * between.
+     *
+     * **The edit that turns this red:** move `setSendingState(true)` below the `OffEdtDispatch.run(`
+     * call inside `openToolDialog`, or delete it.
+     */
+    @Test
+    fun theDialogToolPathEntersTheBusyStateBeforeItGoesAsync() {
+        assertPrecedesWithin(
+            declaration = OPEN_TOOL_DIALOG_DECLARATION,
+            earlier = BUSY_STATE_ENTRY,
+            later = OFF_EDT_DISPATCH_CALL,
+            rule = "UI-SPEC Rule S-3 (dialog path)",
+            why =
+                "the supersede token is minted on the EDT right after this call so Cancel is never " +
+                    "inert while the tool runs (Rule S-5), and that ordering depends on this one",
+        )
+    }
+
+    /**
+     * Rule S-3, whole-file half — every busy-state entry in `ChatPanel.kt` is accounted for.
+     *
+     * A bare count is not evidence; a count with a per-site reason attached is. The ledger this asserts
+     * against is the KDoc on [CHAT_PANEL_BUSY_STATE_ENTRIES]. Same discipline as
+     * [CHAT_PANEL_INVOKE_LATER_SITES], and for the same reason: the two ordering tests above only see
+     * the two paths they name, so a THIRD asynchronous send path added without a busy-state entry
+     * would be invisible to them. This is the assertion that notices.
+     */
+    @Test
+    fun everyBusyStateEntryInChatPanelIsAccountedFor() {
+        assertEquals(
+            CHAT_PANEL_BUSY_STATE_ENTRIES,
+            occurrencesOf(BUSY_STATE_ENTRY, chatPanelSource()),
+            "Rule S-3: ChatPanel.kt's busy-state entry count moved. FEWER means a send path stopped " +
+                "entering the busy state while its work went asynchronous — the idle-flash regression " +
+                "S-3 exists to prevent. MORE means a new dispatch site appeared, and it needs its line " +
+                "in the CHAT_PANEL_BUSY_STATE_ENTRIES ledger plus an ordering assertion of its own. " +
+                "Note that this counts occurrences in the SOURCE TEXT, so a comment that spells the " +
+                "call out verbatim also moves it — prose alone pushed the assertEdt() counter to 7 in " +
+                "plan 23-01. Change the constant and say why in its KDoc, or put the entry back.",
+        )
+    }
+
     // ── Audit + worker capture plumbing ──────────────────────────────────────────────────
 
     private val auditEvents = CopyOnWriteArrayList<Pair<String, Map<*, *>>>()
@@ -2027,6 +2103,34 @@ private const val SLASH_PATH_ECHO = """panel.addMessage("You", trimmed)"""
 
 /** Rule S-4's echo on the dialog path: the `/tool {id} {args}` line the dialog reconstructs. */
 private const val DIALOG_PATH_ECHO = """panel.addMessage("You", commandPreview)"""
+
+/** Rule S-3's busy-state entry: the call that disables Send and arms Cancel for the run's duration. */
+private const val BUSY_STATE_ENTRY = "setSendingState(true)"
+
+/**
+ * The number of busy-state entries in `ChatPanel.kt`, and the ledger of what each one is for.
+ *
+ * **Four, measured at source, and every one is accounted for:**
+ *
+ * - `sendMessage` — the ordinary chat send. The panel goes busy for the model request itself.
+ * - `openToolDialog` — user-originated tool invocation via the dialog. Rule S-3, dialog path; the
+ *   supersede token is minted immediately after so Cancel is not inert (Rule S-5).
+ * - `handleToolCommand` (`/tool` branch) — user-originated tool invocation by typed command. Rule S-3,
+ *   slash path; symmetric with the dialog path by Rule S-4's mandate.
+ * - `executeApprovedToolCall` — the chain step's approved / auto-approved tool dispatch. This is the
+ *   site Rule S-3 was written about: it is the last EDT read of guarded state before the work leaves
+ *   the thread, and entering the busy state here is what stops an idle flash between a chain step and
+ *   the tool it triggers.
+ *
+ * Sites are named by FUNCTION, not by line: line citations in this repo have rotted twice (WINDOWS.md
+ * entry 34), and a function name survives every edit that does not actually move the call.
+ *
+ * A bare number with no reason is not evidence. A number that fails loudly when someone adds an
+ * unexplained send path is. If a fifth appears, its line goes here:
+ *
+ * - `5`: _which function, and why that path needs its own busy-state entry_
+ */
+private const val CHAT_PANEL_BUSY_STATE_ENTRIES = 4
 
 /**
  * Asserts [earlier] precedes [later] in the body of [declaration], and that each occurs exactly once.
