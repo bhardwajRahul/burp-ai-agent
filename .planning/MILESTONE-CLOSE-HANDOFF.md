@@ -43,9 +43,27 @@ three distinct over-counts are folded into it:
 Deferred Items table stamped with the closing milestone. Taking it would permanently attribute nine
 older phases' UAT debt, and phase 27's superseded rounds, to v1.0.0.
 
-**Recommended:** acknowledge only items belonging to phases 20–28 (which is close to none of them) and
-leave the rest for their own milestones. If you take `[A]` anyway, say so in the MILESTONES.md entry —
-the disclosure table alone will not make the misattribution visible to a later reader.
+**Recommended:** acknowledge only items belonging to phases 20–28 and leave the rest for their own
+milestones. If you take `[A]` anyway, say so in the MILESTONES.md entry — the disclosure table alone
+will not make the misattribution visible to a later reader.
+
+**The split, measured 2026-08-31 (use this, don't re-derive it):**
+
+| Scope | n | What |
+|---|---|---|
+| **Phases 20–28 — acknowledge these** | **19** | 3 × phase-27 superseded verification rounds + 16 × `21/deferred-items.md` bullets |
+| Phases 1–19 — leave alone | 11 | Earlier milestones' UAT and verification gaps, never archived |
+| `quick_tasks` — leave alone | 1 | `260527-f7q`, dated 2026-05-27 |
+
+So it is 19, not "close to none" — the phase-21 and phase-27 items genuinely belong to this milestone
+even though both are scanner over-counts in character (superseded rounds; one file split per bullet).
+Acknowledging those 19 as v1.0.0 is correct attribution.
+
+**Cost warning for the resuming session:** the `evolve_project_full_review` step says "read all phase
+summaries" — that is ~86 files at 20–60 KB each. Do NOT `cat` them. Use
+`gsd_run query summary-extract <path> --fields one_liner --pick one_liner` per file, which is what the
+`extract_accomplishments` step already does. A naive `cat` of that set will exhaust a fresh context and
+strand the close between the archive and the `git rm`.
 
 ---
 
