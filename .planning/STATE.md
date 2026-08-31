@@ -5,11 +5,11 @@ milestone_name: Security Correctness & Agent Trust
 current_phase: 22
 current_phase_name: Agent Tool-Call Trust Boundary
 status: planning
-stopped_at: Phase 21 complete, ready to plan Phase 22
-last_updated: "2026-08-28T12:19:11.418Z"
+stopped_at: context exhaustion at 77% (2026-08-31)
+last_updated: "2026-08-31T08:02:16.086Z"
 last_activity: 2026-08-28
 last_activity_desc: Phase 21 complete, transitioned to Phase 22
-state_head: eb1fc51a18c9579538942725fde2759a674b1576
+state_head: 4a5dab03bc8a16a6a41a33a964c22e37bb860075
 progress:
   total_phases: 9
   completed_phases: 9
@@ -284,6 +284,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-21T13:34:19.433Z
-Stopped at: Phase 21 complete, ready to plan Phase 22
+Last session: 2026-08-31T08:02:15.799Z
+Stopped at: context exhaustion at 77% (2026-08-31)
 Resume file: None
